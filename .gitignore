@@ -160,4 +160,4 @@ cython_debug/
 #.idea/
 
 # Configuration files with sensitive data
-src/config/config.py
+# src/config/config.py

@@ -1,1 +1,2 @@
-# 配置文件模块
+# API key 信息
+API_KEY = "your_api_key_here"

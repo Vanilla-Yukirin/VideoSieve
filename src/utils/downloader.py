@@ -2,24 +2,18 @@
 视频下载模块
 使用you-get下载视频
 '''
-
 import sys
-import you_get
-
-def download(url: str, path: str) -> None:
-    """下载视频到指定的路径
-
-    参数:
-        url: 视频链接地址，必须是完整的URL
-        path: 视频保存的目标路径，必须是有效的目录路径
-    
-    返回:
-        None: 该函数不返回任何值
-    
-    示例:
-        >>> download("https://www.example.com/video", "/downloads")
-    """
-    you_get.main([url, '-o', path, 'videos'])
-
+import os
+def download_bilibili(url: str, task_path: str):
+    # 下载b站视频
+    os.system('you-get ' + url + ' -O ' + os.path.join(task_path,'1'))
+    # 查找后缀为 "日.cmt.xml" 的文件
+    xml_path = None
+    for filename in os.listdir(task_path):
+        if filename.endswith('日.cmt.xml'):
+            xml_path = os.path.join(task_path, filename)
+            break
+    # 返回下载后的视频路径和弹幕路径
+    return os.path.join(task_path, "1[00].mp4"), xml_path
 if __name__ == '__main__':
-    download(sys.argv[1],sys.argv[2])
+    download_bilibili(sys.argv[1], sys.argv[2])

@@ -161,5 +161,4 @@ cython_debug/
 
 # Configuration files with sensitive data
 # src/config/config.py
-src/config/cookies.txt
-src/config/cookies.txt
+# src/config/cookies.txt

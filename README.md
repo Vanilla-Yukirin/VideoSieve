@@ -6,3 +6,8 @@
 - AI驱动的提取视频核心点
 - 高效的自动化处理
 - 自定义LLM、VLM模型
+
+
+## 使用cookies加速视频下载
+
+https://blog.csdn.net/qq_29847119/article/details/144752657

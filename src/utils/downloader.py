@@ -4,16 +4,17 @@
 '''
 import sys
 import os
-def download_bilibili(url: str, task_path: str):
+def download_bilibili(url: str, task_path: str, coockie=None):
     # 下载b站视频
-    os.system('you-get ' + url + ' -O ' + os.path.join(task_path,'1'))
-    # 查找后缀为 "日.cmt.xml" 的文件
-    xml_path = None
-    for filename in os.listdir(task_path):
-        if filename.endswith('日.cmt.xml'):
-            xml_path = os.path.join(task_path, filename)
-            break
-    # 返回下载后的视频路径和弹幕路径
-    return os.path.join(task_path, "1[00].mp4"), xml_path
+    order_str='you-get -i ' + url + ' -O ' + os.path.join(task_path,'1') + ' --no-caption'
+    if coockie != None:
+        order_str += ' --cookies ' + coockie
+        pass
+    print(order_str)
+    os.system(order_str)
+    return os.path.join(task_path, "1[00].mp4")
 if __name__ == '__main__':
-    download_bilibili(sys.argv[1], sys.argv[2])
+    if len(sys.argv) < 3:
+        download_bilibili(sys.argv[1], sys.argv[2])
+    else:
+        download_bilibili(sys.argv[1], sys.argv[2], sys.argv[3])

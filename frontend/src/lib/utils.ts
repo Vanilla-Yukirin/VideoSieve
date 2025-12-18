@@ -1,5 +1,5 @@
 /**
- * Utility functions.
+ * 工具函数。
  */
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";

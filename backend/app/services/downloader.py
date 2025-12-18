@@ -1,6 +1,6 @@
 """
-Video download service using yt-dlp.
-Supports 30+ platforms including YouTube, Bilibili, TikTok, etc.
+使用 yt-dlp 的视频下载服务。
+支持 30+ 平台，包括 YouTube、Bilibili、TikTok 等。
 """
 import os
 import asyncio
@@ -14,13 +14,13 @@ logger = get_logger(__name__)
 
 
 class DownloadProgress:
-    """Track download progress."""
+    """跟踪下载进度。"""
     
     def __init__(self, on_progress: Optional[Callable] = None):
         self.on_progress = on_progress
     
     def __call__(self, d: dict):
-        """Called by yt-dlp with progress info."""
+        """由 yt-dlp 调用，提供进度信息。"""
         if d['status'] == 'downloading':
             try:
                 percent = d.get('_percent_str', '0%').strip('%')
@@ -29,7 +29,7 @@ class DownloadProgress:
                     asyncio.create_task(
                         self.on_progress(int(progress), f"下载中: {percent}%")
                     )
-            except:
+            except Exception:
                 pass
         elif d['status'] == 'finished':
             if self.on_progress:
@@ -44,26 +44,26 @@ async def download_audio(
     on_progress: Optional[Callable] = None
 ) -> str:
     """
-    Download audio from video URL.
+    从视频 URL 下载音频。
     
-    Args:
-        url: Video URL
-        task_id: Task ID for filename
-        on_progress: Callback function(progress: int, message: str)
+    参数:
+        url: 视频 URL
+        task_id: 任务 ID，用于文件名
+        on_progress: 回调函数(progress: int, message: str)
     
-    Returns:
-        Path to downloaded audio file
+    返回:
+        下载的音频文件路径
     """
-    logger.info(f"[{task_id}] Starting download: {url}")
+    logger.info(f"[{task_id}] 开始下载: {url}")
     
-    # Ensure output directory exists
+    # 确保输出目录存在
     output_dir = Path(settings.AUDIO_OUTPUT_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Output template
+    # 输出模板
     output_template = str(output_dir / f"{task_id}.%(ext)s")
     
-    # yt-dlp options
+    # yt-dlp 选项
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_template,
@@ -78,7 +78,7 @@ async def download_audio(
     }
     
     try:
-        # Run in executor to avoid blocking
+        # 在执行器中运行以避免阻塞
         loop = asyncio.get_event_loop()
         
         def _download():
@@ -87,11 +87,11 @@ async def download_audio(
         
         await loop.run_in_executor(None, _download)
         
-        # Find the downloaded file
+        # 查找下载的文件
         audio_path = output_dir / f"{task_id}.mp3"
         
         if not audio_path.exists():
-            # Try other extensions
+            # 尝试其他扩展名
             for ext in ['m4a', 'webm', 'opus']:
                 alt_path = output_dir / f"{task_id}.{ext}"
                 if alt_path.exists():
@@ -99,11 +99,11 @@ async def download_audio(
                     break
         
         if not audio_path.exists():
-            raise FileNotFoundError("Audio file not found after download")
+            raise FileNotFoundError("下载后未找到音频文件")
         
-        logger.info(f"[{task_id}] Download complete: {audio_path}")
+        logger.info(f"[{task_id}] 下载完成: {audio_path}")
         return str(audio_path)
         
     except Exception as e:
-        logger.error(f"[{task_id}] Download failed: {str(e)}")
+        logger.error(f"[{task_id}] 下载失败: {str(e)}")
         raise Exception(f"下载失败: {str(e)}")

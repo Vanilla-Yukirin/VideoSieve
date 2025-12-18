@@ -17,7 +17,7 @@ export default function Home() {
       const response = await api.getTasks();
       setTasks(response.tasks);
     } catch (error) {
-      console.error("Failed to load tasks:", error);
+      console.error("加载任务失败:", error);
     } finally {
       setLoading(false);
     }
@@ -26,7 +26,7 @@ export default function Home() {
   useEffect(() => {
     loadTasks();
     
-    // Refresh tasks every 30 seconds
+    // 每 30 秒刷新任务列表
     const interval = setInterval(loadTasks, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -44,7 +44,7 @@ export default function Home() {
           setSelectedTask(null);
         }
       } catch (error) {
-        console.error("Failed to delete task:", error);
+        console.error("删除任务失败:", error);
         alert("删除失败");
       }
     }

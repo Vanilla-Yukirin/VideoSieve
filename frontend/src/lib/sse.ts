@@ -1,5 +1,5 @@
 /**
- * Server-Sent Events (SSE) client for real-time task updates.
+ * Server-Sent Events (SSE) 客户端，用于实时任务更新。
  */
 import type { TaskStreamEvent } from "@/types/task";
 
@@ -17,17 +17,17 @@ export function connectTaskStream(
       const data: TaskStreamEvent = JSON.parse(event.data);
       onUpdate(data);
 
-      // Close connection if task is completed or failed
+      // 如果任务完成或失败，关闭连接
       if (data.status === "completed" || data.status === "failed") {
         eventSource.close();
       }
     } catch (error) {
-      console.error("Failed to parse SSE data:", error);
+      console.error("解析 SSE 数据失败:", error);
     }
   };
 
   eventSource.onerror = (error) => {
-    console.error("SSE connection error:", error);
+    console.error("SSE 连接错误:", error);
     if (onError) {
       onError(error);
     }

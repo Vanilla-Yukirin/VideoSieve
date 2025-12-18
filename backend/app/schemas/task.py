@@ -1,5 +1,5 @@
 """
-Pydantic schemas for Task API validation and serialization.
+Task API 验证和序列化的 Pydantic 模式。
 """
 from pydantic import BaseModel, Field, HttpUrl
 from typing import Optional, List
@@ -7,12 +7,12 @@ from datetime import datetime
 
 
 class TaskCreate(BaseModel):
-    """Schema for creating a new task."""
-    video_url: str = Field(..., description="Video URL to process", min_length=1)
+    """创建新任务的模式。"""
+    video_url: str = Field(..., description="要处理的视频URL", min_length=1)
 
 
 class TaskUpdate(BaseModel):
-    """Schema for updating task fields."""
+    """更新任务字段的模式。"""
     status: Optional[str] = None
     progress: Optional[int] = Field(None, ge=0, le=100)
     error_message: Optional[str] = None
@@ -24,7 +24,7 @@ class TaskUpdate(BaseModel):
 
 
 class TaskResponse(BaseModel):
-    """Schema for task response."""
+    """任务响应的模式。"""
     id: str
     video_url: str
     status: str
@@ -43,15 +43,15 @@ class TaskResponse(BaseModel):
 
 
 class TaskListResponse(BaseModel):
-    """Schema for listing tasks."""
+    """任务列表的模式。"""
     tasks: List[TaskResponse]
     total: int
 
 
 class TaskStreamEvent(BaseModel):
-    """Schema for SSE events."""
+    """SSE 事件的模式。"""
     task_id: str
     status: str
     progress: int
-    logs: List[str]  # Last 5 logs
+    logs: List[str]  # 最近 5 条日志
     error_message: Optional[str] = None

@@ -1,6 +1,6 @@
 """
-Task database model.
-Represents a video processing task with all its states and data.
+任务数据库模型。
+表示一个视频处理任务及其所有状态和数据。
 """
 from sqlalchemy import Column, String, Integer, Text, DateTime, JSON
 from sqlalchemy.sql import func
@@ -9,14 +9,14 @@ import uuid
 
 
 class Task(Base):
-    """Task model for storing video processing tasks."""
+    """用于存储视频处理任务的任务模型。"""
     
     __tablename__ = "tasks"
     
-    # Primary key
+    # 主键
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     
-    # Task data
+    # 任务数据
     video_url = Column(String(500), nullable=False, index=True)
     status = Column(
         String(20),
@@ -28,16 +28,16 @@ class Task(Base):
     progress = Column(Integer, default=0)  # 0-100
     error_message = Column(Text, nullable=True)
     
-    # File paths and processing results
+    # 文件路径和处理结果
     audio_path = Column(String(500), nullable=True)
     transcript = Column(Text, nullable=True)
     optimized_text = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     
-    # Logs (stored as JSON array)
+    # 日志（存储为 JSON 数组）
     logs = Column(JSON, default=list)
     
-    # Timestamps
+    # 时间戳
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

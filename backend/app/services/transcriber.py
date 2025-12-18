@@ -1,6 +1,6 @@
 """
-Audio transcription service using Faster-Whisper.
-Optimized for CPU with int8 quantization.
+使用 Faster-Whisper 的音频转录服务。
+针对 CPU 进行了 int8 量化优化。
 """
 import asyncio
 from typing import Callable, Optional
@@ -10,21 +10,21 @@ from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Global model instance (singleton)
+# 全局模型实例（单例）
 _model: Optional[WhisperModel] = None
 _model_lock = asyncio.Lock()
 
 
 async def get_whisper_model() -> WhisperModel:
     """
-    Get or initialize the Whisper model.
-    Uses singleton pattern to avoid loading multiple times.
+    获取或初始化 Whisper 模型。
+    使用单例模式避免多次加载。
     """
     global _model
     
     async with _model_lock:
         if _model is None:
-            logger.info(f"Loading Whisper model: {settings.WHISPER_MODEL}")
+            logger.info(f"加载 Whisper 模型: {settings.WHISPER_MODEL}")
             loop = asyncio.get_event_loop()
             
             def _load_model():
@@ -36,7 +36,7 @@ async def get_whisper_model() -> WhisperModel:
                 )
             
             _model = await loop.run_in_executor(None, _load_model)
-            logger.info("Whisper model loaded successfully")
+            logger.info("Whisper 模型加载成功")
         
         return _model
 
@@ -47,38 +47,38 @@ async def transcribe_audio(
     on_progress: Optional[Callable] = None
 ) -> str:
     """
-    Transcribe audio file to text.
+    将音频文件转录为文本。
     
-    Args:
-        audio_path: Path to audio file
-        task_id: Task ID for logging
-        on_progress: Callback function(progress: int, message: str)
+    参数:
+        audio_path: 音频文件路径
+        task_id: 任务 ID，用于日志记录
+        on_progress: 回调函数(progress: int, message: str)
     
-    Returns:
-        Transcribed text in simplified Chinese
+    返回:
+        简体中文转录文本
     """
-    logger.info(f"[{task_id}] Starting transcription: {audio_path}")
+    logger.info(f"[{task_id}] 开始转录: {audio_path}")
     
     try:
-        # Get model
+        # 获取模型
         model = await get_whisper_model()
         
         if on_progress:
             await on_progress(0, "开始转录...")
         
-        # Run transcription in executor
+        # 在执行器中运行转录
         loop = asyncio.get_event_loop()
         
         def _transcribe():
             segments, info = model.transcribe(
                 audio_path,
-                language="zh",  # Force Chinese
+                language="zh",  # 强制中文
                 beam_size=5,
-                vad_filter=True,  # Voice activity detection
+                vad_filter=True,  # 语音活动检测
                 vad_parameters=dict(min_silence_duration_ms=500)
             )
             
-            # Collect all segments
+            # 收集所有片段
             result_segments = []
             for segment in segments:
                 result_segments.append({
@@ -91,26 +91,26 @@ async def transcribe_audio(
         
         segments = await loop.run_in_executor(None, _transcribe)
         
-        # Process segments with progress updates
+        # 处理片段并更新进度
         full_text = []
         total_segments = len(segments)
         
         for i, segment in enumerate(segments):
             full_text.append(segment['text'].strip())
             
-            if on_progress and i % 10 == 0:  # Update every 10 segments
+            if on_progress and i % 10 == 0:  # 每 10 个片段更新一次
                 progress = int((i + 1) / total_segments * 100)
                 await on_progress(progress, f"转录进度: {i + 1}/{total_segments} 段")
         
-        # Combine text
+        # 合并文本
         transcript = " ".join(full_text)
         
         if on_progress:
             await on_progress(100, "转录完成")
         
-        logger.info(f"[{task_id}] Transcription complete: {len(transcript)} characters")
+        logger.info(f"[{task_id}] 转录完成: {len(transcript)} 字符")
         return transcript
         
     except Exception as e:
-        logger.error(f"[{task_id}] Transcription failed: {str(e)}")
+        logger.error(f"[{task_id}] 转录失败: {str(e)}")
         raise Exception(f"转录失败: {str(e)}")

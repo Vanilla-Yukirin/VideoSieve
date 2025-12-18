@@ -14,6 +14,7 @@ interface TaskCardProps {
   onViewDetails?: () => void;
 }
 
+// 状态配置：标签和颜色
 const statusConfig: Record<TaskStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   pending: { label: "等待中", variant: "secondary" },
   downloading: { label: "下载中", variant: "default" },
@@ -27,7 +28,7 @@ export function TaskCard({ task: initialTask, onDelete, onViewDetails }: TaskCar
   const [task, setTask] = useState(initialTask);
 
   useEffect(() => {
-    // Connect to SSE for real-time updates
+    // 连接 SSE 进行实时更新
     if (task.status !== "completed" && task.status !== "failed") {
       const eventSource = connectTaskStream(
         task.id,

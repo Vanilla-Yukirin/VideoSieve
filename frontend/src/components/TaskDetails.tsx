@@ -35,7 +35,7 @@ export function TaskDetails({ task, onClose }: TaskDetailsProps) {
       setOptimized(optimizedData);
       setSummary(summaryData);
     } catch (error) {
-      console.error("Failed to load task details:", error);
+      console.error("加载任务详情失败:", error);
     } finally {
       setLoading(false);
     }

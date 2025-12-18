@@ -1,5 +1,5 @@
 /**
- * TypeScript type definitions for tasks.
+ * 任务相关的 TypeScript 类型定义。
  */
 
 export interface Task {
@@ -18,12 +18,12 @@ export interface Task {
 }
 
 export type TaskStatus = 
-  | "pending"
-  | "downloading"
-  | "transcribing"
-  | "processing"
-  | "completed"
-  | "failed";
+  | "pending"      // 等待中
+  | "downloading"  // 下载中
+  | "transcribing" // 转录中
+  | "processing"   // 处理中
+  | "completed"    // 已完成
+  | "failed";      // 失败
 
 export interface LogEntry {
   time: string;

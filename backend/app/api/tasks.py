@@ -1,11 +1,12 @@
 """
-REST API endpoints for task management.
+任务管理的 REST API 端点。
 """
 import os
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from datetime import datetime
 
 from ..core.database import get_db
 from ..models.task import Task
@@ -23,17 +24,17 @@ async def create_task(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a new video processing task.
+    创建新的视频处理任务。
     """
-    logger.info(f"Creating task for URL: {task_data.video_url}")
+    logger.info(f"为 URL 创建任务: {task_data.video_url}")
     
-    # Create task
+    # 创建任务
     task = Task(
         video_url=task_data.video_url,
         status="pending",
         progress=0,
         logs=[{
-            "time": str(Task.created_at),
+            "time": datetime.now().isoformat(),
             "message": "任务已创建"
         }]
     )
@@ -42,10 +43,10 @@ async def create_task(
     await db.commit()
     await db.refresh(task)
     
-    # Enqueue for processing
+    # 加入处理队列
     await enqueue_task(task.id)
     
-    logger.info(f"Task created: {task.id}")
+    logger.info(f"任务已创建: {task.id}")
     return task
 
 
@@ -56,13 +57,13 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get list of all tasks.
+    获取所有任务的列表。
     """
-    # Get total count
+    # 获取总数
     count_result = await db.execute(select(Task))
     total = len(count_result.scalars().all())
     
-    # Get paginated tasks
+    # 获取分页任务
     result = await db.execute(
         select(Task)
         .order_by(desc(Task.created_at))
@@ -80,7 +81,7 @@ async def get_task(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get a specific task by ID.
+    通过 ID 获取特定任务。
     """
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -90,7 +91,7 @@ async def get_task(
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found"
+            detail=f"未找到任务 {task_id}"
         )
     
     return task
@@ -102,7 +103,7 @@ async def delete_task(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Delete a task and its associated audio file.
+    删除任务及其关联的音频文件。
     """
     result = await db.execute(
         select(Task).where(Task.id == task_id)
@@ -112,22 +113,22 @@ async def delete_task(
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found"
+            detail=f"未找到任务 {task_id}"
         )
     
-    # Delete audio file if exists
+    # 删除音频文件（如果存在）
     if task.audio_path and os.path.exists(task.audio_path):
         try:
             os.remove(task.audio_path)
-            logger.info(f"Deleted audio file: {task.audio_path}")
+            logger.info(f"已删除音频文件: {task.audio_path}")
         except Exception as e:
-            logger.warning(f"Failed to delete audio file: {e}")
+            logger.warning(f"删除音频文件失败: {e}")
     
-    # Delete from database
+    # 从数据库中删除
     await db.delete(task)
     await db.commit()
     
-    logger.info(f"Task deleted: {task_id}")
+    logger.info(f"任务已删除: {task_id}")
 
 
 @router.get("/{task_id}/transcript")
@@ -135,7 +136,7 @@ async def get_transcript(
     task_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get task transcript."""
+    """获取任务转录。"""
     result = await db.execute(
         select(Task).where(Task.id == task_id)
     )
@@ -144,13 +145,13 @@ async def get_transcript(
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found"
+            detail=f"未找到任务 {task_id}"
         )
     
     if not task.transcript:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transcript not yet available"
+            detail="转录尚未可用"
         )
     
     return {"transcript": task.transcript}
@@ -161,7 +162,7 @@ async def get_optimized(
     task_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get optimized text."""
+    """获取优化文本。"""
     result = await db.execute(
         select(Task).where(Task.id == task_id)
     )
@@ -170,13 +171,13 @@ async def get_optimized(
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found"
+            detail=f"未找到任务 {task_id}"
         )
     
     if not task.optimized_text:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Optimized text not yet available"
+            detail="优化文本尚未可用"
         )
     
     return {"optimized_text": task.optimized_text}
@@ -187,7 +188,7 @@ async def get_summary(
     task_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get task summary."""
+    """获取任务摘要。"""
     result = await db.execute(
         select(Task).where(Task.id == task_id)
     )
@@ -196,13 +197,13 @@ async def get_summary(
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found"
+            detail=f"未找到任务 {task_id}"
         )
     
     if not task.summary:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Summary not yet available"
+            detail="摘要尚未可用"
         )
     
     return {"summary": task.summary}

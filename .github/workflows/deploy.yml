@@ -1,0 +1,111 @@
+name: Deploy VideoSieve
+
+on:
+  push:
+    branches:
+      - main  # 只有推送到 main 分支时才触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy VideoSieve via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        # 注入环境变量
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22000
+          envs: OPENAI_API_KEY,OPENAI_BASE_URL,OPENAI_MODEL
+          script: |
+            # 设置脚本出错即退出
+            set -e
+
+            echo "🚀 开始部署 VideoSieve..."
+
+            # 进入项目目录
+            cd /var/www/videosieve
+
+            # 获取远程最新代码
+            git fetch --all
+
+            # 强制重置本地代码到远程的 main 分支
+            git reset --hard origin/main
+            
+            # 获取当前提交信息
+            COMMIT_SHA=$(git rev-parse --short HEAD)
+            echo "📦 当前提交: $COMMIT_SHA"
+
+            # ========== 后端部署 ==========
+            echo "🔧 部署后端服务..."
+            cd backend
+
+            # 写入环境变量到 .env 文件
+            echo "📝 生成后端 .env 文件..."
+            echo "# Auto-generated file. Do not edit." > .env
+            echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
+            echo "OPENAI_BASE_URL=$OPENAI_BASE_URL" >> .env
+            echo "OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}" >> .env
+            echo "DATABASE_URL=sqlite+aiosqlite:///./data/db/videosieve.db" >> .env
+            echo "WHISPER_MODEL=base" >> .env
+            echo "WHISPER_DEVICE=cpu" >> .env
+            echo "WHISPER_COMPUTE_TYPE=int8" >> .env
+            echo "MAX_CONCURRENT_TASKS=5" >> .env
+            echo "AUDIO_OUTPUT_DIR=./data/audio" >> .env
+            echo "CORS_ORIGINS=[\"http://localhost:3000\",\"https://videosieve.yourdomain.com\"]" >> .env
+            chmod 600 .env
+            echo "✅ 后端 .env 写入完成"
+
+            # 安装后端依赖（使用虚拟环境）
+            echo "📦 安装后端依赖..."
+            python3 -m venv venv || true
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+
+            # 创建必要的数据目录
+            mkdir -p data/db data/audio
+
+            # 重启后端服务（使用 pm2）
+            echo "🔄 重启后端服务..."
+            pm2 restart videosieve-backend || pm2 start "venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000" --name videosieve-backend
+
+            # ========== 前端部署 ==========
+            echo "🎨 部署前端服务..."
+            cd ../frontend
+
+            # 写入环境变量到 .env.production
+            echo "📝 生成前端 .env.production 文件..."
+            echo "# Auto-generated file. Do not edit." > .env.production
+            echo "NEXT_PUBLIC_API_URL=http://localhost:8000/api" >> .env.production
+            echo "NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA" >> .env.production
+            echo "NEXT_PUBLIC_COMMIT_URL=https://github.com/YOUR_USERNAME/VideoSieve/commit/$COMMIT_SHA" >> .env.production
+            echo "NEXT_TELEMETRY_DISABLED=1" >> .env.production
+            chmod 600 .env.production
+            echo "✅ 前端 .env.production 写入完成"
+
+            # 安装前端依赖
+            echo "📦 安装前端依赖..."
+            npm ci
+
+            # 构建前端（生成 .next 目录）
+            echo "🏗️ 构建前端..."
+            npm run build
+
+            # 重启前端服务
+            echo "🔄 重启前端服务..."
+            pm2 reload videosieve-frontend --update-env || pm2 start npm --name videosieve-frontend -- start
+
+            # ========== 完成部署 ==========
+            # 保存 pm2 进程列表
+            pm2 save
+
+            echo "✅ 部署成功！Current Commit: $COMMIT_SHA"
+            echo "🎉 VideoSieve 已成功部署！"
+            echo "📊 后端: http://localhost:8000"
+            echo "🌐 前端: http://localhost:3000"

@@ -32,6 +32,11 @@ Thumbs.db
 # Logs
 *.log
 
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
 # Data
 *.db
 *.sqlite3

@@ -1,0 +1,1 @@
+"""Worker bootstrap package placeholder."""

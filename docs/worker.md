@@ -8,6 +8,19 @@
 
 原因：后面的 worker 依赖前面的契约和基础设施，不然会返工。
 
+## 通用硬约束（所有 Worker 必须遵守）
+
+1. 运行任何 Python 命令前先执行：`conda activate VideoSieve`
+2. 包结构必须单层：`packages/<module>/*.py`，禁止 `packages/<module>/<module>/*`
+3. 严格白名单改动；改到白名单外文件视为失败
+4. 不提交 commit，不改 docs，不改其他 worker 负责目录
+5. 输出 patch 写入本地文件：`workerXX_<topic>.patch`（不要在对话贴超长 diff）
+6. 回包必须包含：
+   - 变更摘要（<= 8 条）
+   - 文件清单
+   - patch 文件路径
+   - 实测命令 + pass/fail 结果
+
 ---
 
 ## 推荐执行顺序（依赖关系）
@@ -109,16 +122,25 @@
 - tests/unit/test_hotwords_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - ingest: 本地文件输入路径规范化 + meta 产出（先不强依赖下载器）
 - hotwords: 基于标题/简介/tag 的规则抽取
+- 必须复用 infra 的 workspace helper（禁止手写拼接路径）
 - 输出写入 workspace 约定路径
-- 产出结构符合 contracts
+- 产出结构符合 contracts（project/job 语义不混用）
+- 目录结构必须单层：packages/ingest/*.py, packages/hotwords/*.py
 
 限制：
 - 不改 asr/keyframes/ocr/fusion
 - 不接 API
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker03_ingest_hotwords.patch）
+4) 测试命令与结果
 ```
 
 ### W04 - ASR
@@ -130,16 +152,25 @@
 - tests/unit/test_asr_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - 定义 ASRProvider 接口
-- 实现 baseline provider（可用 mock transcript）
+- 实现 baseline provider（mock/stub）
 - 支持 hotwords 与 language_hint 参数透传
 - 产出 transcript.jsonl（含 start/end/text/lang/conf）
+- 输出 JSONL 每行字段与 contracts 对齐
+- 目录结构必须单层：packages/asr/*.py
 
 限制：
 - 不接真实外部云 SDK（先留 adapter 扩展点）
 - 不改 pipeline/api
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker04_asr.patch）
+4) 测试命令与结果
 ```
 
 ### W05 - Keyframes + OCR
@@ -153,16 +184,24 @@
 - tests/unit/test_ocr_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - keyframes: 先实现可运行 stable sampling baseline
 - ocr: 先实现 OCR adapter 接口 + mock provider
 - 输出 keyframes.jsonl / ocr.jsonl 路径正确
 - reason 字段与 contracts 对齐
+- 目录结构必须单层：packages/keyframes/*.py, packages/ocr/*.py
 
 限制：
 - 不做复杂算法优化（先跑通）
 - 不改 fusion/deliverables
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker05_keyframes_ocr.patch）
+4) 测试命令与结果
 ```
 
 ### W06 - Fusion + Deliverables
@@ -176,16 +215,25 @@
 - tests/unit/test_deliverables_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - fusion: transcript/keyframe/ocr -> timeline.json
 - deliverables: clean_transcript.md, illustrated_notes.md, summary.json
 - 图文占位符策略：[[frame:...]]
 - 输出路径遵循 workspace 规范
+- 依赖输入以 W03/W04/W05 已落地契约为准，不自行发明新字段
+- 目录结构必须单层：packages/fusion/*.py, packages/deliverables/*.py
 
 限制：
 - 不改 pipeline/api/web
 - 不扩展到 UI 样式层
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker06_fusion_deliverables.patch）
+4) 测试命令与结果
 ```
 
 ### W07 - Pipeline + Worker

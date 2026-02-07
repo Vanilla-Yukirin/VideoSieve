@@ -341,4 +341,6 @@
 2) 文件清单
 3) patch 文件路径（worker09_web.patch）
 4) 测试命令与结果
+
+验收参考：`docs/web-review-checklist.md`
 ```

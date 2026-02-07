@@ -246,16 +246,26 @@
 - tests/unit/test_pipeline_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - stage orchestration（ingest->...->deliverables）
 - safety points（外部调用前后/长循环周期检查）
 - checkpoint 与 rerun-from-stage 基础能力
 - 事件发布与 control_ack 对齐 contracts
+- 控制语义遵循 state-machine 矩阵（invalid transition 返回明确错误码）
+- delete 采用两阶段（cancel -> terminal -> cleanup）
+- 目录结构必须单层：packages/pipeline/*.py, workers/*.py
 
 限制：
 - 不改 API routes/web
 - 不引入与 docs 冲突的新状态机
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker07_pipeline_worker.patch）
+4) 测试命令与结果
 ```
 
 ### W08 - API + WebSocket
@@ -267,16 +277,26 @@
 - tests/unit/test_api_*.py
 
 要求：
+- 先执行：conda activate VideoSieve
 - REST: project/job 创建查询、job snapshot、artifact list
 - WS 主通道：/ws/jobs/{job_id}
 - 控制命令：pause/resume/cancel/delete（job scoped）
 - WS 断连时语义与 snapshot 规则一致
+- snapshot 至少包含：job status、current stage、progress、latest logs、artifact list
+- event bus 为 best-effort 时，UI 仍可通过 snapshot 收敛状态
+- 目录结构必须单层：apps/api/*.py（可按包内模块平铺）
 
 限制：
 - 不改 web 前端
 - 不重写 pipeline 逻辑
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker08_api_ws.patch）
+4) 测试命令与结果
 ```
 
 ### W09 - Web

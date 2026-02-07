@@ -302,21 +302,43 @@
 ### W09 - Web
 ```text
 你是 Worker-09（Web）。
-目标：实现最小前端控制台（项目列表 + job详情 + 控制按钮）。
+目标：实现最小但可用的前端控制台（项目列表 + project详情 + job详情 + 控制面板）。
 白名单路径：
 - apps/web/**
 - tests/unit/test_web_*.ts (或对应框架)
 - tests/integration/test_web_flow_*.ts (可选)
 
 要求：
+- 若需要 Node 依赖，先确认包管理器与 lockfile；无 lockfile 时默认 npm。
 - 页面进入先拉 HTTP snapshot
 - 再订阅 job WS 增量事件
 - 控制按钮作用于明确 job_id
 - 显示日志、进度、产物列表
+- 信息架构最少包含：
+  - Projects 列表（project 级摘要）
+  - Project 详情（历史 jobs + 当前选中 job）
+  - Job 详情（stage/progress/logs/artifacts + controls）
+- 交互语义：
+  - WS 断开时自动回退 snapshot 轮询
+  - command 发送后必须有 pending/ack 状态反馈（与 control_ack 对齐）
+  - UI 不得把 project 级操作误发到错误 job
+- 视觉与样式（必须明确，不要通用脚手架风格）：
+  - 使用 CSS 变量定义主题色、语义色、间距与圆角
+  - 字体不要用默认系统/Inter/Roboto/Arial 直出，需给出明确字体策略与回退链
+  - 卡片/时间线/日志区要有层级对比，避免纯白平面
+  - 提供轻量动效（加载入场、列表渐进）但不影响可读性
+  - 同时适配桌面与移动端（至少 360px 宽度可用）
+- 目录结构保持清晰：页面、组件、hooks、api client 分层，不把 WS 协议细节散落到 UI 组件
 
 限制：
 - 不改后端 API 协议
 - 不引入 docs 未定义的命令语义
+- 不改 docs
+- 不 commit
 
-输出：变更摘要 + unified diff + 测试命令
+输出：
+1) 变更摘要（<=8条）
+2) 文件清单
+3) patch 文件路径（worker09_web.patch）
+4) 测试命令与结果
 ```

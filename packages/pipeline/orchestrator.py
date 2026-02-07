@@ -11,7 +11,8 @@ from core import apply_job_transition
 from deliverables import DeliverablesService
 from fusion import FusionService
 from hotwords import run_hotwords_from_meta
-from infra import EventBus, JobRepository, WorkspaceStore
+from infra.interfaces import EventBus, JobRepository, WorkspaceStore
+from infra.models import JobRecord
 from ingest import IngestRequest, run_local_ingest
 from keyframes import KeyframeBaselineService
 from ocr import MockOCRProvider, OCRBaselineService
@@ -317,10 +318,10 @@ class PipelineOrchestrator:
             shutil.rmtree(root)
 
     def _job_status(self, job_id: str) -> str:
-        job = self._repository.get_job(job_id)
+        job: JobRecord | None = self._repository.get_job(job_id)
         if job is None:
             raise ValueError(f"job not found: {job_id}")
-        return job.status
+        return str(job.status)
 
     def _set_job_status(
         self,

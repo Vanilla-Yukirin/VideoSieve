@@ -251,9 +251,10 @@ class ApiControlPlane:
                         child.rmdir()
                 root.rmdir()
 
-        return ControlAckPayload(
+        ack_payload: dict[str, str | bool] = ControlAckPayload(
             command=command.value,
             accepted=decision.accepted,
             reason=decision.reason,
             code=decision.code,
         ).to_dict()
+        return ack_payload

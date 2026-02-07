@@ -99,3 +99,23 @@ class WorkspaceStore(ABC):
     @abstractmethod
     def path(self, project_id: str, *parts: str) -> Path:
         """Build one safe path under the project workspace root."""
+
+    @abstractmethod
+    def meta_file(self, project_id: str) -> Path:
+        """Return `meta/meta.json` path for one project."""
+
+    @abstractmethod
+    def source_video_file(self, project_id: str) -> Path:
+        """Return `media/source.mp4` path for one project."""
+
+    @abstractmethod
+    def hotwords_file(self, project_id: str) -> Path:
+        """Return `hotwords/hotwords.json` path for one project."""
+
+    @abstractmethod
+    def keyframes_file(self, project_id: str) -> Path:
+        """Return `frames/keyframes.jsonl` path for one project."""
+
+    @abstractmethod
+    def ocr_file(self, project_id: str) -> Path:
+        """Return `ocr/ocr.jsonl` path for one project."""

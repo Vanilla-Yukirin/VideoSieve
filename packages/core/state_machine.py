@@ -6,7 +6,6 @@ from contracts import JobStatus, StageStatus
 
 from .errors import InvalidStateTransitionError
 
-
 _ALLOWED_JOB_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.QUEUED: {JobStatus.RUNNING, JobStatus.CANCELLED},
     JobStatus.RUNNING: {

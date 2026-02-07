@@ -47,14 +47,16 @@ def test_project_and_job_keep_semantics_separate() -> None:
 
 def test_project_rejects_job_only_fields() -> None:
     with pytest.raises(ValidationError):
-        Project(
-            project_id="p_1",
-            source_type=SourceType.LOCAL_FILE,
-            source_ref="C:/videos/lecture.mp4",
-            title="Lecture",
-            status=ProjectStatus.QUEUED,
-            created_at=datetime(2026, 2, 8, 10, 0, tzinfo=UTC),
-            job_id="j_1",
+        Project.model_validate(
+            {
+                "project_id": "p_1",
+                "source_type": SourceType.LOCAL_FILE,
+                "source_ref": "C:/videos/lecture.mp4",
+                "title": "Lecture",
+                "status": ProjectStatus.QUEUED,
+                "created_at": datetime(2026, 2, 8, 10, 0, tzinfo=UTC),
+                "job_id": "j_1",
+            }
         )
 
 

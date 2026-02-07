@@ -8,7 +8,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 SCHEMA_VERSION = "1.0"
 
 

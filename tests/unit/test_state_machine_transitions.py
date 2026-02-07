@@ -3,9 +3,13 @@ from __future__ import annotations
 import pytest
 
 from contracts import JobStatus, StageStatus
-from core import INVALID_STATE_TRANSITION
-from core import apply_job_transition, apply_stage_transition
-from core import validate_job_transition, validate_stage_transition
+from core import (
+    INVALID_STATE_TRANSITION,
+    apply_job_transition,
+    apply_stage_transition,
+    validate_job_transition,
+    validate_stage_transition,
+)
 from core.errors import InvalidStateTransitionError
 
 

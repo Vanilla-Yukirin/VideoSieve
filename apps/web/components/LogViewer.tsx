@@ -1,0 +1,30 @@
+import React, { useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
+
+interface LogViewerProps {
+  logs: string[];
+  className?: string;
+}
+
+export function LogViewer({ logs, className }: LogViewerProps) {
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  return (
+    <div className={cn("bg-zinc-950 text-zinc-50 font-mono text-sm p-4 rounded-md overflow-y-auto log-scroll", className)}>
+      {logs.length === 0 ? (
+        <span className="text-zinc-500 italic">No logs available...</span>
+      ) : (
+        logs.map((log, i) => (
+          <div key={i} className="whitespace-pre-wrap break-all border-b border-zinc-800/50 pb-0.5 mb-0.5 last:border-0">
+            {log}
+          </div>
+        ))
+      )}
+      <div ref={endRef} />
+    </div>
+  );
+}

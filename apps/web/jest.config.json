@@ -1,0 +1,15 @@
+{
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "roots": [
+    "<rootDir>",
+    "<rootDir>/../../tests/unit"
+  ],
+  "testMatch": [
+    "**/test_web_*.ts"
+  ],
+  "transform": {
+    "^.+\\.tsx?$": "ts-jest"
+  }
+}
+

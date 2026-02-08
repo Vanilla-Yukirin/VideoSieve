@@ -130,14 +130,15 @@ def _cookie_file_for_request(request: IngestRequest) -> Iterator[str | None]:
     yield None
 
 
-def _resolve_format_selector(request: IngestRequest) -> str:
-    if request.ytdlp_format:
-        return request.ytdlp_format
-    if request.video_format_id and request.audio_format_id:
-        return f"{request.video_format_id}+{request.audio_format_id}"
-    if request.video_format_id:
-        return request.video_format_id
-    return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
+DEFAULT_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
+
+
+def _build_format_selector(video_format_id: str | None, audio_format_id: str | None) -> str:
+    if video_format_id and audio_format_id:
+        return f"{video_format_id}+{audio_format_id}"
+    if video_format_id:
+        return video_format_id
+    return DEFAULT_FORMAT_SELECTOR
 
 
 def _to_float(value: object) -> float | None:
@@ -235,13 +236,15 @@ class YtDlpIngestProvider:
             )
 
         with _cookie_file_for_request(request) as cookie_file:
+            selector = _build_format_selector(request.video_format_id, request.audio_format_id)
             info = self._extract_info(
                 source_url=request.source_url,
                 cookie_file=cookie_file,
                 project_id=request.project_id,
                 job_id=request.job_id,
                 download=False,
-                request=request,
+                format_selector=selector,
+                sort_rule=request.ytdlp_sort,
                 target_video=None,
             )
 
@@ -269,32 +272,65 @@ class YtDlpIngestProvider:
 
         workspace.ensure_project_layout(request.project_id)
         target_video = workspace.source_video_file(request.project_id)
+        analysis_video = workspace.path(request.project_id, "media", "source.analysis.mp4")
+        analysis_pair, quality_pair = self._resolve_asset_pairs(request)
+        dedupe_applied = analysis_pair == quality_pair
+
+        plan: list[tuple[str, Path, tuple[str | None, str | None]]] = [
+            ("quality", target_video, quality_pair)
+        ]
+        if not dedupe_applied:
+            plan.append(("analysis", analysis_video, analysis_pair))
+        elif analysis_video.exists():
+            analysis_video.unlink()
+
         attempts = request.download_retries + 1
         last_error: IngestError | None = None
 
         with _cookie_file_for_request(request) as cookie_file:
             for attempt in range(1, attempts + 1):
                 try:
-                    info = self._download_once(
-                        request=request,
-                        target_video=target_video,
-                        cookie_file=cookie_file,
+                    info_by_role: dict[str, dict[str, Any]] = {}
+                    for role, target_path, pair in plan:
+                        info_by_role[role] = self._download_once(
+                            request=request,
+                            target_video=target_path,
+                            cookie_file=cookie_file,
+                            pair=pair,
+                        )
+
+                    quality_info = info_by_role["quality"]
+                    analysis_info = info_by_role.get("analysis", quality_info)
+                    quality_video_id, quality_audio_id = _extract_selected_format_ids(quality_info)
+                    analysis_video_id, analysis_audio_id = _extract_selected_format_ids(
+                        analysis_info
                     )
-                    selected_video_id, selected_audio_id = _extract_selected_format_ids(info)
+                    quality_selector = _build_format_selector(*quality_pair)
                     metadata = {
                         "source_ref": request.source_url,
-                        "title": request.title or str(info.get("title") or "untitled"),
-                        "description": request.description or str(info.get("description") or ""),
-                        "tags": request.tags or [str(item) for item in (info.get("tags") or [])],
+                        "title": request.title or str(quality_info.get("title") or "untitled"),
+                        "description": request.description
+                        or str(quality_info.get("description") or ""),
+                        "tags": request.tags
+                        or [str(item) for item in (quality_info.get("tags") or [])],
                         "language_hint": request.language_hint,
-                        "uploader": str(info.get("uploader")) if info.get("uploader") else None,
-                        "duration_seconds": float(info["duration"])
-                        if info.get("duration")
+                        "uploader": (
+                            str(quality_info.get("uploader"))
+                            if quality_info.get("uploader")
+                            else None
+                        ),
+                        "duration_seconds": float(quality_info["duration"])
+                        if quality_info.get("duration")
                         else None,
-                        "webpage_url": str(info.get("webpage_url") or request.source_url),
-                        "selected_format": _resolve_format_selector(request),
-                        "selected_video_format_id": request.video_format_id or selected_video_id,
-                        "selected_audio_format_id": request.audio_format_id or selected_audio_id,
+                        "webpage_url": str(quality_info.get("webpage_url") or request.source_url),
+                        "selected_format": quality_selector,
+                        "selected_video_format_id": quality_pair[0] or quality_video_id,
+                        "selected_audio_format_id": quality_pair[1] or quality_audio_id,
+                        "analysis_selected_video_format_id": analysis_pair[0] or analysis_video_id,
+                        "analysis_selected_audio_format_id": analysis_pair[1] or analysis_audio_id,
+                        "quality_selected_video_format_id": quality_pair[0] or quality_video_id,
+                        "quality_selected_audio_format_id": quality_pair[1] or quality_audio_id,
+                        "dedupe_applied": dedupe_applied,
                     }
                     return target_video, metadata, attempt - 1
                 except IngestError as exc:
@@ -318,7 +354,10 @@ class YtDlpIngestProvider:
         request: IngestRequest,
         target_video: Path,
         cookie_file: str | None,
+        pair: tuple[str | None, str | None],
     ) -> dict[str, Any]:
+        if target_video.exists():
+            target_video.unlink()
         return self._extract_info(
             source_url=request.source_url or "",
             target_video=target_video,
@@ -326,8 +365,45 @@ class YtDlpIngestProvider:
             project_id=request.project_id,
             job_id=request.job_id,
             download=True,
-            request=request,
+            format_selector=_build_format_selector(pair[0], pair[1]),
+            sort_rule=request.ytdlp_sort,
         )
+
+    def _resolve_asset_pairs(
+        self,
+        request: IngestRequest,
+    ) -> tuple[tuple[str | None, str | None], tuple[str | None, str | None]]:
+        legacy_pair: tuple[str | None, str | None] = (
+            request.video_format_id,
+            request.audio_format_id,
+        )
+
+        analysis_pair: tuple[str | None, str | None] | None = (
+            (
+                request.analysis_asset.video_format_id,
+                request.analysis_asset.audio_format_id,
+            )
+            if request.analysis_asset
+            else None
+        )
+        quality_pair: tuple[str | None, str | None] | None = (
+            (
+                request.quality_asset.video_format_id,
+                request.quality_asset.audio_format_id,
+            )
+            if request.quality_asset
+            else None
+        )
+
+        if analysis_pair is None and quality_pair is None:
+            return legacy_pair, legacy_pair
+        if analysis_pair is None:
+            assert quality_pair is not None
+            return quality_pair, quality_pair
+        if quality_pair is None:
+            assert analysis_pair is not None
+            return analysis_pair, analysis_pair
+        return analysis_pair, quality_pair
 
     def _extract_info(
         self,
@@ -337,12 +413,13 @@ class YtDlpIngestProvider:
         project_id: str,
         job_id: str,
         download: bool,
-        request: IngestRequest,
+        format_selector: str,
+        sort_rule: str | None,
         target_video: Path | None,
     ) -> dict[str, Any]:
         yt_dlp, download_error_type = _load_yt_dlp()
         ydl_opts: dict[str, Any] = {
-            "format": _resolve_format_selector(request),
+            "format": format_selector,
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
@@ -351,8 +428,8 @@ class YtDlpIngestProvider:
         }
         if target_video is not None:
             ydl_opts["outtmpl"] = str(target_video)
-        if request.ytdlp_sort:
-            ydl_opts["format_sort"] = request.ytdlp_sort
+        if sort_rule:
+            ydl_opts["format_sort"] = sort_rule
         if cookie_file:
             ydl_opts["cookiefile"] = cookie_file
 

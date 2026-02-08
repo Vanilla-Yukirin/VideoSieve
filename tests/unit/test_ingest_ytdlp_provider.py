@@ -9,6 +9,7 @@ import pytest
 from infra import FileSystemWorkspaceStore
 from ingest import (
     INGEST_AUTH_REQUIRED,
+    IngestAssetSelection,
     IngestError,
     IngestRequest,
     probe_url_formats,
@@ -77,6 +78,7 @@ def test_run_url_ingest_uses_ytdlp_and_writes_workspace_artifacts(
     assert payload["title"] == "Bili Demo"
     assert payload["source_type"] == "bilibili_url"
     assert payload["selected_format"] == "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
+    assert payload["dedupe_applied"] is True
     assert result.retry_count == 0
 
 
@@ -123,6 +125,114 @@ def test_run_url_ingest_uses_selected_format_ids(
     assert observed_opts["format"] == "30116+30280"
     assert result.meta.selected_video_format_id == "30116"
     assert result.meta.selected_audio_format_id == "30280"
+    assert result.meta.analysis_selected_video_format_id == "30116"
+    assert result.meta.analysis_selected_audio_format_id == "30280"
+    assert result.meta.quality_selected_video_format_id == "30116"
+    assert result.meta.quality_selected_audio_format_id == "30280"
+    assert result.meta.dedupe_applied is True
+
+
+def test_run_url_ingest_dual_asset_plan_without_dedupe_downloads_twice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    downloads: list[tuple[str, str]] = []
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is True
+            target = Path(str(self._opts["outtmpl"]))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(str(self._opts["format"]).encode("utf-8"))
+            downloads.append((str(self._opts["format"]), target.name))
+            return {
+                "title": "dual plan",
+                "webpage_url": source_url,
+                "requested_downloads": [
+                    {
+                        "format_id": str(self._opts["format"]).split("+")[0],
+                        "vcodec": "avc1",
+                        "acodec": "none",
+                    }
+                ],
+            }
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_dual_1",
+        job_id="j_dual_1",
+        source_url="https://www.bilibili.com/video/BV1dualaaaa",
+        analysis_asset=IngestAssetSelection(video_format_id="30032", audio_format_id="30280"),
+        quality_asset=IngestAssetSelection(video_format_id="30116", audio_format_id="30280"),
+    )
+    result = run_url_ingest(workspace, request)
+
+    assert len(downloads) == 2
+    assert ("30116+30280", "source.mp4") in downloads
+    assert ("30032+30280", "source.analysis.mp4") in downloads
+    assert workspace.source_video_file("p_dual_1").exists()
+    assert workspace.path("p_dual_1", "media", "source.analysis.mp4").exists()
+    assert result.meta.dedupe_applied is False
+    assert result.meta.analysis_selected_video_format_id == "30032"
+    assert result.meta.quality_selected_video_format_id == "30116"
+
+
+def test_run_url_ingest_dual_asset_plan_with_dedupe_downloads_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    download_count = {"n": 0}
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is True
+            download_count["n"] += 1
+            Path(str(self._opts["outtmpl"])).write_bytes(b"one")
+            return {
+                "title": "dedupe plan",
+                "webpage_url": source_url,
+            }
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_dual_2",
+        job_id="j_dual_2",
+        source_url="https://www.bilibili.com/video/BV1dualbbbb",
+        analysis_asset=IngestAssetSelection(video_format_id="30064", audio_format_id="30280"),
+        quality_asset=IngestAssetSelection(video_format_id="30064", audio_format_id="30280"),
+    )
+    result = run_url_ingest(workspace, request)
+
+    assert download_count["n"] == 1
+    assert workspace.source_video_file("p_dual_2").exists()
+    assert not workspace.path("p_dual_2", "media", "source.analysis.mp4").exists()
+    assert result.meta.dedupe_applied is True
+    assert result.meta.analysis_selected_video_format_id == "30064"
+    assert result.meta.quality_selected_video_format_id == "30064"
 
 
 def test_probe_url_formats_returns_candidates(

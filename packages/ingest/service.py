@@ -28,6 +28,11 @@ def _write_meta(
     selected_format: str | None = None,
     selected_video_format_id: str | None = None,
     selected_audio_format_id: str | None = None,
+    analysis_selected_video_format_id: str | None = None,
+    analysis_selected_audio_format_id: str | None = None,
+    quality_selected_video_format_id: str | None = None,
+    quality_selected_audio_format_id: str | None = None,
+    dedupe_applied: bool = False,
 ) -> IngestMeta:
     target_meta = workspace.meta_file(request.project_id)
     meta = IngestMeta(
@@ -45,6 +50,11 @@ def _write_meta(
         selected_format=selected_format,
         selected_video_format_id=selected_video_format_id,
         selected_audio_format_id=selected_audio_format_id,
+        analysis_selected_video_format_id=analysis_selected_video_format_id,
+        analysis_selected_audio_format_id=analysis_selected_audio_format_id,
+        quality_selected_video_format_id=quality_selected_video_format_id,
+        quality_selected_audio_format_id=quality_selected_audio_format_id,
+        dedupe_applied=dedupe_applied,
         ingested_at=datetime.now(UTC),
     )
     target_meta.write_text(meta.model_dump_json(indent=2), encoding="utf-8")
@@ -118,6 +128,11 @@ def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResul
         selected_format=metadata.get("selected_format"),
         selected_video_format_id=metadata.get("selected_video_format_id"),
         selected_audio_format_id=metadata.get("selected_audio_format_id"),
+        analysis_selected_video_format_id=metadata.get("analysis_selected_video_format_id"),
+        analysis_selected_audio_format_id=metadata.get("analysis_selected_audio_format_id"),
+        quality_selected_video_format_id=metadata.get("quality_selected_video_format_id"),
+        quality_selected_audio_format_id=metadata.get("quality_selected_audio_format_id"),
+        dedupe_applied=bool(metadata.get("dedupe_applied", False)),
     )
     return IngestResult(
         project_id=request.project_id,

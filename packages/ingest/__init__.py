@@ -9,6 +9,7 @@ from .errors import (
     IngestError,
 )
 from .models import (
+    IngestAssetSelection,
     IngestFormatOption,
     IngestFormatProbeResult,
     IngestMeta,
@@ -25,6 +26,7 @@ __all__ = [
     "INGEST_SOURCE_NOT_FOUND",
     "IngestError",
     "IngestMeta",
+    "IngestAssetSelection",
     "IngestFormatOption",
     "IngestFormatProbeResult",
     "IngestRequest",

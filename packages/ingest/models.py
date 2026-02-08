@@ -9,6 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from contracts.models import SCHEMA_VERSION, SourceType
 
 
+class IngestAssetSelection(BaseModel):
+    """One asset quality selection via format ids only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_format_id: str
+    audio_format_id: str | None = None
+
+
 class IngestRequest(BaseModel):
     """Input payload for local import or URL download ingest."""
 
@@ -26,11 +35,15 @@ class IngestRequest(BaseModel):
     download_retries: int = Field(default=2, ge=0, le=5)
     cookie_content: str | None = None
     cookie_file_path: str | None = None
-    ytdlp_format: str | None = None
     ytdlp_sort: str | None = None
-    ytdlp_extractor_args: str | None = None
+
+    # Backward-compatible single-asset selector.
     video_format_id: str | None = None
     audio_format_id: str | None = None
+
+    # Preferred dual-asset selector.
+    analysis_asset: IngestAssetSelection | None = None
+    quality_asset: IngestAssetSelection | None = None
 
     @model_validator(mode="after")
     def validate_source(self) -> IngestRequest:
@@ -43,14 +56,12 @@ class IngestRequest(BaseModel):
         else:
             self.source_type = SourceType.BILIBILI_URL
 
-        if self.ytdlp_format and (self.video_format_id or self.audio_format_id):
-            raise ValueError(
-                "ytdlp_format is mutually exclusive with video_format_id/audio_format_id"
-            )
-        if self.audio_format_id and not self.video_format_id and not self.ytdlp_format:
-            raise ValueError(
-                "audio_format_id requires video_format_id unless ytdlp_format is provided"
-            )
+        if self.audio_format_id and not self.video_format_id:
+            raise ValueError("audio_format_id requires video_format_id")
+        if self.analysis_asset and not self.analysis_asset.video_format_id:
+            raise ValueError("analysis_asset.video_format_id is required")
+        if self.quality_asset and not self.quality_asset.video_format_id:
+            raise ValueError("quality_asset.video_format_id is required")
         return self
 
 
@@ -74,6 +85,11 @@ class IngestMeta(BaseModel):
     selected_format: str | None = None
     selected_video_format_id: str | None = None
     selected_audio_format_id: str | None = None
+    analysis_selected_video_format_id: str | None = None
+    analysis_selected_audio_format_id: str | None = None
+    quality_selected_video_format_id: str | None = None
+    quality_selected_audio_format_id: str | None = None
+    dedupe_applied: bool = False
     ingested_at: datetime
 
 

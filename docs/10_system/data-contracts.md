@@ -44,6 +44,55 @@ Example:
 }
 ```
 
+### IngestMeta (`meta/meta.json`)
+- Fields: `project_id`, `job_id`, `source_type`, `source_ref`, `title`, `description`, `tags`, `ingested_at`
+- Optional downloader fields: `uploader`, `duration_seconds`, `webpage_url`
+- Optional quality-selection fields:
+  - `selected_format`
+  - `selected_video_format_id`
+  - `selected_audio_format_id`
+
+Example:
+```json
+{
+  "schema_version": "1.0",
+  "project_id": "p_20260208_001",
+  "job_id": "j_20260208_009",
+  "source_type": "bilibili_url",
+  "source_ref": "https://www.bilibili.com/video/BV...",
+  "title": "Linear Algebra Lecture 01",
+  "selected_format": "30116+30280",
+  "selected_video_format_id": "30116",
+  "selected_audio_format_id": "30280",
+  "ingested_at": "2026-02-09T12:00:00Z"
+}
+```
+
+### IngestProbeResponse (`POST /ingest/probe`)
+- Required per format item:
+  - `format_id`, `resolution`, `fps`, `tbr`, `vcodec`, `acodec`, `is_video_only`, `is_audio_only`
+- Optional per item: `ext`, `protocol`, `filesize_approx`
+
+Example:
+```json
+{
+  "source_url": "https://www.bilibili.com/video/BV...",
+  "title": "Linear Algebra Lecture 01",
+  "formats": [
+    {
+      "format_id": "30116",
+      "resolution": "1920x1080",
+      "fps": 60,
+      "tbr": 1359,
+      "vcodec": "avc1.640033",
+      "acodec": "none",
+      "is_video_only": true,
+      "is_audio_only": false
+    }
+  ]
+}
+```
+
 ### TranscriptSegment (`asr/transcript.jsonl`)
 - Fields: `segment_id`, `start`, `end`, `text`, `lang`, `conf`
 

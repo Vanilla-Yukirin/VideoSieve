@@ -23,6 +23,15 @@
 - WebSocket primary channel: `/ws/jobs/{job_id}`
 - Optional aggregate channel: `/ws/projects/{project_id}/summary` (list-only summaries)
 
+Key REST endpoints:
+- `POST /ingest/probe`: probe URL formats only (no download), for quality picker UI.
+- `POST /jobs`: create one job with ingest config snapshot (including optional format IDs).
+
+Ingest config notes:
+- Default UX path: send `video_format_id` + `audio_format_id`.
+- Advanced path: `ytdlp_format` / `ytdlp_sort`.
+- Security policy: do not accept raw `cookie_content` from Web; use `cookie_file_path` or `cookie_secret_ref`.
+
 ## Control Semantics
 
 - UI controls (`pause/resume/cancel/delete`) always target a specific `job_id`.

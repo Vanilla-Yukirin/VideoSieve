@@ -20,6 +20,8 @@ workspaces/{project_id}/
     keyframes.jsonl
     images/*.jpg
     metrics/diff_curve.csv
+    metrics/selection_trace.jsonl
+    metrics/timing_report.json
   ocr/
     ocr.jsonl
   fusion/

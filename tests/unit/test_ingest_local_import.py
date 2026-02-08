@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 
 from infra import FileSystemWorkspaceStore
-from ingest import IngestRequest, run_local_ingest
+from ingest import (
+    INGEST_INVALID_SOURCE,
+    INGEST_SOURCE_NOT_FOUND,
+    IngestError,
+    IngestRequest,
+    run_ingest,
+)
 
 
 def test_run_local_ingest_writes_source_and_meta(tmp_path: Path) -> None:
@@ -25,7 +31,7 @@ def test_run_local_ingest_writes_source_and_meta(tmp_path: Path) -> None:
         language_hint="zh",
     )
 
-    result = run_local_ingest(workspace, request)
+    result = run_ingest(workspace, request)
 
     target_video = workspace.source_video_file("p_ingest_1")
     target_meta = workspace.meta_file("p_ingest_1")
@@ -59,20 +65,22 @@ def test_run_local_ingest_uses_source_stem_when_title_is_missing(tmp_path: Path)
         source_path=str(source_file),
     )
 
-    result = run_local_ingest(workspace, request)
+    result = run_ingest(workspace, request)
 
     assert result.meta.title == "lecture_01"
 
 
-def test_run_local_ingest_rejects_missing_or_non_file_source(tmp_path: Path) -> None:
+def test_run_ingest_rejects_missing_or_non_file_source(tmp_path: Path) -> None:
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
 
     missing = IngestRequest(project_id="p", job_id="j", source_path=str(tmp_path / "missing.mp4"))
-    with pytest.raises(FileNotFoundError):
-        run_local_ingest(workspace, missing)
+    with pytest.raises(IngestError) as missing_error:
+        run_ingest(workspace, missing)
+    assert missing_error.value.code == INGEST_SOURCE_NOT_FOUND
 
     folder = tmp_path / "folder_source"
     folder.mkdir(parents=True, exist_ok=True)
     not_file = IngestRequest(project_id="p", job_id="j", source_path=str(folder))
-    with pytest.raises(ValueError):
-        run_local_ingest(workspace, not_file)
+    with pytest.raises(IngestError) as not_file_error:
+        run_ingest(workspace, not_file)
+    assert not_file_error.value.code == INGEST_INVALID_SOURCE

@@ -7,6 +7,7 @@
 Recommended flow:
 - Probe -> Select -> Download
 - Probe stage only resolves selectable formats; download starts after user confirms.
+- UI exposes `format_id` selection only; free-form ytdlp format strings are not part of normal flow.
 
 ## Inputs
 
@@ -16,6 +17,7 @@ Recommended flow:
 ## Outputs
 
 - `media/source.mp4`
+- `media/source.analysis.mp4` (optional, only when analysis and quality plans differ)
 - `media/audio.wav`
 - `meta/meta.json`
 
@@ -32,9 +34,15 @@ Recommended flow:
 
 Current ingest keys (job snapshot):
 - `source_url`
-- `video_format_id`, `audio_format_id` (default path)
-- `ytdlp_format`, `ytdlp_sort` (advanced path)
+- `video_format_id`, `audio_format_id` (legacy single-asset path)
+- `analysis_asset.video_format_id`, `analysis_asset.audio_format_id`
+- `quality_asset.video_format_id`, `quality_asset.audio_format_id`
+- `ytdlp_sort`
 - `cookie_file_path`, `cookie_secret_ref`
+
+Dual-asset download planning:
+- analysis pair == quality pair -> one download (`dedupe_applied=true`)
+- analysis pair != quality pair -> two downloads (`dedupe_applied=false`)
 
 ## Metrics
 

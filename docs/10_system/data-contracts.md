@@ -51,6 +51,11 @@ Example:
   - `selected_format`
   - `selected_video_format_id`
   - `selected_audio_format_id`
+  - `analysis_selected_video_format_id`
+  - `analysis_selected_audio_format_id`
+  - `quality_selected_video_format_id`
+  - `quality_selected_audio_format_id`
+  - `dedupe_applied`
 
 Example:
 ```json
@@ -64,6 +69,11 @@ Example:
   "selected_format": "30116+30280",
   "selected_video_format_id": "30116",
   "selected_audio_format_id": "30280",
+  "analysis_selected_video_format_id": "30032",
+  "analysis_selected_audio_format_id": "30280",
+  "quality_selected_video_format_id": "30116",
+  "quality_selected_audio_format_id": "30280",
+  "dedupe_applied": false,
   "ingested_at": "2026-02-09T12:00:00Z"
 }
 ```
@@ -143,6 +153,7 @@ Example:
 ## 3. Artifact Paths
 
 - `media/source.mp4`
+- `media/source.analysis.mp4` (optional, present when analysis/quality formats differ)
 - `asr/transcript.jsonl`
 - `frames/images/*.jpg`
 - `fusion/timeline.json`

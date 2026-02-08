@@ -70,17 +70,21 @@ export interface IngestProbeResponse {
   formats: IngestFormatItem[];
 }
 
-export interface IngestParams {
-  source_url?: string;
+// --- Dual-asset ingest types (W08 contract) ---
+
+export interface AssetSelection {
   video_format_id?: string;
   audio_format_id?: string;
-  ytdlp_format?: string;
-  ytdlp_sort?: string;
-  cookie_file_path?: string;
-  cookie_secret_ref?: string;
+}
+
+export interface DualAssetIngestParams {
+  source_url: string;
+  analysis_asset: AssetSelection;
+  quality_asset: AssetSelection;
 }
 
 export interface CreateJobRequest {
   project_id: string;
-  ingest?: IngestParams;
+  summary_enabled?: boolean;
+  ingest?: DualAssetIngestParams;
 }

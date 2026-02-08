@@ -52,11 +52,8 @@ export const api = {
       method: "POST",
     }),
 
-  probeIngestFormats: (payload: {
-    source_url: string;
-    cookie_file_path?: string;
-    ytdlp_sort?: string;
-  }) =>
+  // Probe: minimal contract — only source_url
+  probeIngestFormats: (payload: { source_url: string }) =>
     fetchJson<IngestProbeResponse>("/ingest/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

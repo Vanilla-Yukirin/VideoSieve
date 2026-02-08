@@ -11,7 +11,7 @@ import { Badge } from "@/components/Badge";
 import { ArrowLeft, PlayCircle, Clock } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
-import { IngestParams } from "@/lib/api/types";
+import { DualAssetIngestParams } from "@/lib/api/types";
 
 export default function ProjectDetail() {
   const params = useParams();
@@ -19,7 +19,8 @@ export default function ProjectDetail() {
   const router = useRouter();
   const { addProject } = useProjectIndex();
   const [isCreatingJob, setIsCreatingJob] = useState(false);
-  const [ingestParams, setIngestParams] = useState<IngestParams | undefined>(undefined);
+  const [ingestParams, setIngestParams] = useState<DualAssetIngestParams | undefined>(undefined);
+  const [summaryEnabled, setSummaryEnabled] = useState(false);
 
   const { data: project, error: projectError } = useSWR(
     projectId ? `/projects/${projectId}` : null,
@@ -39,9 +40,10 @@ export default function ProjectDetail() {
   const handleCreateJob = async () => {
     setIsCreatingJob(true);
     try {
-      const { job_id } = await api.createJob({ 
+      const { job_id } = await api.createJob({
         project_id: projectId,
-        ingest: ingestParams
+        summary_enabled: summaryEnabled,
+        ingest: ingestParams,
       });
       await refreshJobs();
       router.push(`/jobs/${job_id}`);
@@ -97,12 +99,24 @@ export default function ProjectDetail() {
             </CardHeader>
             <CardContent className="space-y-4">
                 <IngestProbe onParamsReady={setIngestParams} disabled={isCreatingJob} />
+
+                {/* Summary toggle */}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={summaryEnabled}
+                    onChange={(e) => setSummaryEnabled(e.target.checked)}
+                    disabled={isCreatingJob}
+                    className="h-4 w-4 rounded border-input"
+                  />
+                  Enable summary generation
+                </label>
                 
                 <div className="flex justify-end">
                     <Button 
                         onClick={handleCreateJob} 
                         isLoading={isCreatingJob}
-                        disabled={!ingestParams?.source_url} // Require URL at minimum if user interacted
+                        disabled={!ingestParams?.source_url}
                     >
                         Start Download & Process
                     </Button>

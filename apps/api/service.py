@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable
 
+from workers import WorkerRuntime
+
 from contracts import ControlCommandType, JobStatus
-from infra import EventBus, EventSubscription, InfraEvent, JobRepository, WorkspaceStore
+from infra import (
+    EventBus,
+    EventSubscription,
+    FileSystemWorkspaceStore,
+    InfraEvent,
+    JobRepository,
+    SQLiteJobRepository,
+    WorkspaceStore,
+)
 from ingest import IngestRequest, probe_url_formats
+from pipeline import PipelineOrchestrator
 from pipeline.control import ControlAckPayload, evaluate_control_command
+from pipeline.dispatch import (
+    PIPELINE_DISPATCH_FAILED,
+    extract_ingest_config,
+    load_job_config_snapshot,
+)
 
 from .models import (
     ArtifactItem,
@@ -27,6 +44,20 @@ from .models import (
 MAX_LOG_BUFFER = 100
 
 
+def _as_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
 class ApiControlPlane:
     """REST-facing service for project/job control and snapshots."""
 
@@ -39,15 +70,27 @@ class ApiControlPlane:
         control_dispatcher: (
             Callable[[str, str, ControlCommandType], dict[str, str | bool]] | None
         ) = None,
+        job_dispatcher: Callable[[str, str], None] | None = None,
+        worker_runtime: WorkerRuntime | None = None,
     ) -> None:
         self._repository = repository
         self._workspace = workspace
         self._event_bus = event_bus
         self._control_dispatcher = control_dispatcher or self._default_control_dispatcher
+        self._worker_runtime = worker_runtime or WorkerRuntime(
+            PipelineOrchestrator(
+                repository=repository,
+                workspace=workspace,
+                event_bus=event_bus,
+            )
+        )
+        self._job_dispatcher = job_dispatcher or self._default_job_dispatcher
         self._subscriptions: dict[str, EventSubscription] = {}
         self._latest_progress: dict[str, float] = {}
         self._latest_stage: dict[str, str | None] = {}
         self._latest_logs: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=MAX_LOG_BUFFER))
+        self._dispatch_lock = threading.Lock()
+        self._dispatched_jobs: set[str] = set()
 
     def create_project(self, payload: ProjectCreateRequest) -> str:
         """Create one project and its workspace."""
@@ -107,7 +150,109 @@ class ApiControlPlane:
             ),
             encoding="utf-8",
         )
+        self._dispatch_job_if_needed(payload.project_id, job_id)
         return job_id
+
+    def _dispatch_job_if_needed(self, project_id: str, job_id: str) -> None:
+        with self._dispatch_lock:
+            if job_id in self._dispatched_jobs:
+                return
+            self._dispatched_jobs.add(job_id)
+
+        try:
+            self._job_dispatcher(project_id, job_id)
+        except Exception as exc:  # pragma: no cover - thread start failures are rare
+            with self._dispatch_lock:
+                self._dispatched_jobs.discard(job_id)
+            self._mark_dispatch_failure(project_id, job_id, exc)
+
+    def _default_job_dispatcher(self, project_id: str, job_id: str) -> None:
+        def _runner() -> None:
+            thread_repo: SQLiteJobRepository | None = None
+            try:
+                thread_repo = self._open_thread_safe_repository()
+                thread_workspace = self._open_thread_safe_workspace()
+                worker_runtime = WorkerRuntime(
+                    PipelineOrchestrator(
+                        repository=thread_repo,
+                        workspace=thread_workspace,
+                        event_bus=self._event_bus,
+                    )
+                )
+                config_snapshot = load_job_config_snapshot(
+                    thread_workspace,
+                    project_id=project_id,
+                )
+                ingest_config = extract_ingest_config(config_snapshot)
+                worker_runtime.run_job(
+                    project_id=project_id,
+                    job_id=job_id,
+                    source_path=None,
+                    ingest_config=ingest_config,
+                    title=_as_optional_str(config_snapshot.get("title")),
+                    description=_as_optional_str(config_snapshot.get("description")) or "",
+                    tags=_as_str_list(config_snapshot.get("tags")),
+                    language_hint=_as_optional_str(config_snapshot.get("language_hint")),
+                )
+            except Exception as exc:
+                self._mark_dispatch_failure(project_id, job_id, exc)
+            finally:
+                if thread_repo is not None:
+                    thread_repo.close()
+                with self._dispatch_lock:
+                    self._dispatched_jobs.discard(job_id)
+
+        threading.Thread(target=_runner, name=f"pipeline-dispatch-{job_id}", daemon=True).start()
+
+    def _mark_dispatch_failure(self, project_id: str, job_id: str, error: Exception) -> None:
+        message = str(error) or error.__class__.__name__
+        repository = self._open_thread_safe_repository()
+        repository.update_job_status(
+            job_id,
+            status=JobStatus.FAILED.value,
+            stage=None,
+            error_code=PIPELINE_DISPATCH_FAILED,
+            error_message=message,
+        )
+        repository.update_project_status(project_id, JobStatus.FAILED.value)
+        repository.close()
+        self._latest_logs[job_id].append(f"[error] dispatch failed: {message}")
+        self._event_bus.publish(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="log",
+                project_id=project_id,
+                job_id=job_id,
+                payload={"level": "error", "message": f"dispatch failed: {message}"},
+            ),
+        )
+        self._event_bus.publish(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="error",
+                project_id=project_id,
+                job_id=job_id,
+                payload={
+                    "stage": "dispatch",
+                    "code": PIPELINE_DISPATCH_FAILED,
+                    "message": message,
+                },
+            ),
+        )
+
+    def _open_thread_safe_repository(self) -> SQLiteJobRepository:
+        db_path = getattr(self._repository, "_db_path", None)
+        if db_path is None:
+            raise RuntimeError("thread dispatch requires sqlite repository")
+        repository = SQLiteJobRepository(db_path)
+        repository.ensure_schema()
+        return repository
+
+    def _open_thread_safe_workspace(self) -> FileSystemWorkspaceStore:
+        base_dir = getattr(self._workspace, "_base_dir", None)
+        if base_dir is None:
+            raise RuntimeError("thread dispatch requires filesystem workspace")
+        return FileSystemWorkspaceStore(base_dir)
 
     def _normalize_ingest(self, ingest: IngestParams) -> tuple[dict[str, object], bool]:
         analysis_asset = ingest.analysis_asset

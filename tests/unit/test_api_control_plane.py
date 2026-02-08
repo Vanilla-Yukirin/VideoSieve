@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import apps.api.service as api_service
@@ -24,6 +27,8 @@ from ingest import IngestFormatOption, IngestFormatProbeResult
 
 def _make_control_plane(
     tmp_path: Path,
+    *,
+    job_dispatcher: Callable[[str, str], None] | None = None,
 ) -> tuple[ApiControlPlane, SQLiteJobRepository, RedisEventBus]:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
@@ -32,8 +37,23 @@ def _make_control_plane(
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
+        job_dispatcher=job_dispatcher,
     )
     return control_plane, repository, bus
+
+
+def _wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout_seconds: float = 3.0,
+    interval_seconds: float = 0.05,
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval_seconds)
+    return predicate()
 
 
 def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
@@ -69,6 +89,15 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
         ),
     )
 
+    ready_snapshot = _wait_until(
+        lambda: (
+            lambda snap: (
+                (snap["current_stage"] is not None) or (snap["status"] != JobStatus.RUNNING.value)
+            )
+        )(get_job_snapshot(control_plane, job_id))
+    )
+    assert ready_snapshot
+
     snapshot = get_job_snapshot(control_plane, job_id)
     artifacts = list_job_artifacts(control_plane, job_id)
 
@@ -81,7 +110,10 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
 
 
 def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
-    control_plane, repository, _ = _make_control_plane(tmp_path)
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
 
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -224,3 +256,102 @@ def test_create_job_backward_compatible_without_format_selection(tmp_path: Path)
     assert ingest["source_url"] == "https://www.bilibili.com/video/BV1compat"
     assert "video_format_id" not in ingest
     assert "audio_format_id" not in ingest
+
+
+def test_create_job_dispatch_advances_status_and_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipeline.orchestrator as orchestrator_module
+    from contracts import SourceType
+    from ingest import IngestMeta, IngestRequest, IngestResult
+
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+
+    def _fake_run_ingest(
+        workspace: FileSystemWorkspaceStore, request: IngestRequest
+    ) -> IngestResult:
+        workspace.ensure_project_layout(request.project_id)
+        source_path = workspace.source_video_file(request.project_id)
+        source_path.write_bytes(b"video")
+        meta = IngestMeta(
+            project_id=request.project_id,
+            job_id=request.job_id,
+            source_type=SourceType.BILIBILI_URL,
+            source_ref=request.source_url or "https://example.invalid/video",
+            title=request.title or "demo",
+            description=request.description,
+            tags=request.tags,
+            language_hint=request.language_hint,
+            ingested_at=datetime.now(UTC),
+        )
+        workspace.meta_file(request.project_id).write_text(
+            meta.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return IngestResult(
+            project_id=request.project_id,
+            job_id=request.job_id,
+            source_video_path=str(source_path),
+            meta_path=str(workspace.meta_file(request.project_id)),
+            meta=meta,
+        )
+
+    monkeypatch.setattr(orchestrator_module, "run_ingest", _fake_run_ingest)
+
+    job_id = create_job(
+        control_plane,
+        {
+            "project_id": project_id,
+            "ingest": {
+                "source_url": "https://www.bilibili.com/video/BV1dispatch",
+                "analysis_asset": {"video_format_id": "30032", "audio_format_id": "30280"},
+                "quality_asset": {"video_format_id": "30116", "audio_format_id": "30280"},
+            },
+        },
+    )["job_id"]
+
+    progressed = _wait_until(
+        lambda: (
+            (repository.get_job(job_id) is not None)
+            and (repository.get_job(job_id).status != JobStatus.QUEUED.value)
+        )
+    )
+    assert progressed
+
+    settled = _wait_until(
+        lambda: (
+            lambda snap: (
+                (snap["current_stage"] is not None)
+                or (snap["status"] in {JobStatus.FAILED.value, JobStatus.CANCELLED.value})
+            )
+        )(get_job_snapshot(control_plane, job_id))
+    )
+    assert settled
+
+    snapshot = get_job_snapshot(control_plane, job_id)
+    progress_value = snapshot["progress"]
+    assert isinstance(progress_value, (int, float))
+    progress = float(progress_value)
+    assert snapshot["status"] in {
+        JobStatus.RUNNING.value,
+        JobStatus.SUCCEEDED.value,
+        JobStatus.FAILED.value,
+        JobStatus.CANCELLED.value,
+    }
+    if snapshot["status"] in {JobStatus.RUNNING.value, JobStatus.SUCCEEDED.value}:
+        assert snapshot["current_stage"] is not None
+    assert progress >= 0.0
+
+
+def test_create_job_dispatch_has_duplicate_guard(tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def _dispatcher(project_id: str, job_id: str) -> None:
+        calls.append((project_id, job_id))
+
+    control_plane, _, _ = _make_control_plane(tmp_path, job_dispatcher=_dispatcher)
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+
+    control_plane._dispatch_job_if_needed(project_id, job_id)
+    assert calls == [(project_id, job_id)]

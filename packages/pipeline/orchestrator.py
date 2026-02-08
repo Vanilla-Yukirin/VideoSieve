@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from typing import Any
 
 from asr import ASRProvider, BaselineASRProvider, write_transcript_jsonl
 from contracts import ControlCommandType, JobStatus, StageName
@@ -13,7 +14,7 @@ from fusion import FusionService
 from hotwords import run_hotwords_from_meta
 from infra.interfaces import EventBus, JobRepository, WorkspaceStore
 from infra.models import JobRecord
-from ingest import IngestRequest, run_local_ingest
+from ingest import IngestRequest, run_ingest
 from keyframes import KeyframeBaselineService
 from ocr import MockOCRProvider, OCRBaselineService
 
@@ -53,7 +54,8 @@ class PipelineOrchestrator:
         *,
         project_id: str,
         job_id: str,
-        source_path: str,
+        source_path: str | None = None,
+        ingest_config: dict[str, Any] | None = None,
         rerun_from_stage: StageName | None = None,
         title: str | None = None,
         description: str = "",
@@ -97,16 +99,34 @@ class PipelineOrchestrator:
                         project_id=project_id,
                         job_id=job_id,
                         source_path=source_path,
+                        ingest_config=ingest_config or {},
                         title=title,
                         description=description,
                         tags=tags or [],
                         language_hint=language_hint,
                         duration_seconds=duration_seconds,
                     )
-                except Exception:
+                except Exception as exc:
                     checkpoint.stage_statuses[stage.value] = "failed"
                     self._checkpoint_store.save(checkpoint)
                     self._set_job_status(project_id, job_id, JobStatus.FAILED, stage=stage)
+                    self._publish_log(
+                        project_id,
+                        job_id,
+                        level="error",
+                        message=f"stage {stage.value} failed: {exc}",
+                    )
+                    publish_event(
+                        self._event_bus,
+                        project_id=project_id,
+                        job_id=job_id,
+                        event_type="error",
+                        payload={
+                            "stage": stage.value,
+                            "code": "PIPELINE_STAGE_FAILED",
+                            "message": str(exc),
+                        },
+                    )
                     raise
 
                 checkpoint.stage_statuses[stage.value] = "succeeded"
@@ -114,6 +134,12 @@ class PipelineOrchestrator:
                     completed.append(stage.value)
                 checkpoint.completed_stages = completed
                 self._checkpoint_store.save(checkpoint)
+                self._publish_log(
+                    project_id,
+                    job_id,
+                    level="info",
+                    message=f"stage {stage.value} succeeded",
+                )
                 self._publish_progress(project_id, job_id, stage)
 
                 self._safety_point(project_id, job_id)
@@ -228,7 +254,8 @@ class PipelineOrchestrator:
         *,
         project_id: str,
         job_id: str,
-        source_path: str,
+        source_path: str | None,
+        ingest_config: dict[str, Any],
         title: str | None,
         description: str,
         tags: list[str],
@@ -236,18 +263,18 @@ class PipelineOrchestrator:
         duration_seconds: float,
     ) -> None:
         if stage is StageName.INGEST:
-            run_local_ingest(
-                self._workspace,
-                IngestRequest(
-                    project_id=project_id,
-                    job_id=job_id,
-                    source_path=source_path,
-                    title=title,
-                    description=description,
-                    tags=tags,
-                    language_hint=language_hint,
-                ),
-            )
+            request_payload: dict[str, Any] = {
+                "project_id": project_id,
+                "job_id": job_id,
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "language_hint": language_hint,
+            }
+            request_payload.update(ingest_config)
+            if "source_path" not in request_payload and source_path:
+                request_payload["source_path"] = source_path
+            run_ingest(self._workspace, IngestRequest.model_validate(request_payload))
             return
 
         if stage is StageName.HOTWORDS:
@@ -293,6 +320,7 @@ class PipelineOrchestrator:
         raise ValueError(f"unsupported stage: {stage.value}")
 
     def _publish_stage_changed(self, project_id: str, job_id: str, stage: StageName) -> None:
+        self._publish_log(project_id, job_id, level="info", message=f"stage {stage.value} started")
         publish_event(
             self._event_bus,
             project_id=project_id,
@@ -310,6 +338,15 @@ class PipelineOrchestrator:
             job_id=job_id,
             event_type="progress",
             payload={"stage": stage.value, "pct": min(100.0, pct)},
+        )
+
+    def _publish_log(self, project_id: str, job_id: str, *, level: str, message: str) -> None:
+        publish_event(
+            self._event_bus,
+            project_id=project_id,
+            job_id=job_id,
+            event_type="log",
+            payload={"level": level, "message": message},
         )
 
     def _cleanup_project_workspace(self, project_id: str) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from contracts import ControlCommandType, StageName
 from pipeline import PipelineOrchestrator, PipelineRunResult
 
@@ -17,7 +19,8 @@ class WorkerRuntime:
         *,
         project_id: str,
         job_id: str,
-        source_path: str,
+        source_path: str | None = None,
+        ingest_config: dict[str, Any] | None = None,
         rerun_from_stage: StageName | None = None,
         title: str | None = None,
         description: str = "",
@@ -31,6 +34,7 @@ class WorkerRuntime:
             project_id=project_id,
             job_id=job_id,
             source_path=source_path,
+            ingest_config=ingest_config,
             rerun_from_stage=rerun_from_stage,
             title=title,
             description=description,
@@ -48,8 +52,11 @@ class WorkerRuntime:
     ) -> dict[str, str | bool]:
         """Route one control command to the orchestrator."""
 
-        return self._orchestrator.handle_control_command(
-            project_id=project_id,
-            job_id=job_id,
-            command=command,
+        return cast(
+            dict[str, str | bool],
+            self._orchestrator.handle_control_command(
+                project_id=project_id,
+                job_id=job_id,
+                command=command,
+            ),
         )

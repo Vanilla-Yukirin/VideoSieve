@@ -8,7 +8,7 @@ from contracts import SourceType
 from infra import WorkspaceStore
 
 from .errors import INGEST_INVALID_SOURCE, IngestError
-from .models import IngestMeta, IngestRequest, IngestResult
+from .models import IngestFormatProbeResult, IngestMeta, IngestRequest, IngestResult
 from .providers import IngestProvider, LocalFileIngestProvider, YtDlpIngestProvider
 
 
@@ -25,6 +25,9 @@ def _write_meta(
     uploader: str | None = None,
     duration_seconds: float | None = None,
     webpage_url: str | None = None,
+    selected_format: str | None = None,
+    selected_video_format_id: str | None = None,
+    selected_audio_format_id: str | None = None,
 ) -> IngestMeta:
     target_meta = workspace.meta_file(request.project_id)
     meta = IngestMeta(
@@ -39,6 +42,9 @@ def _write_meta(
         uploader=uploader,
         duration_seconds=duration_seconds,
         webpage_url=webpage_url,
+        selected_format=selected_format,
+        selected_video_format_id=selected_video_format_id,
+        selected_audio_format_id=selected_audio_format_id,
         ingested_at=datetime.now(UTC),
     )
     target_meta.write_text(meta.model_dump_json(indent=2), encoding="utf-8")
@@ -109,6 +115,9 @@ def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResul
         uploader=metadata.get("uploader"),
         duration_seconds=metadata.get("duration_seconds"),
         webpage_url=metadata.get("webpage_url"),
+        selected_format=metadata.get("selected_format"),
+        selected_video_format_id=metadata.get("selected_video_format_id"),
+        selected_audio_format_id=metadata.get("selected_audio_format_id"),
     )
     return IngestResult(
         project_id=request.project_id,
@@ -131,3 +140,16 @@ def run_url_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestR
             context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
         )
     return run_ingest(workspace, request)
+
+
+def probe_url_formats(request: IngestRequest) -> IngestFormatProbeResult:
+    """Probe one URL and return selectable format options without downloading."""
+    if not request.source_url:
+        raise IngestError(
+            code=INGEST_INVALID_SOURCE,
+            message="source_url is required for probe_url_formats",
+            retryable=False,
+            context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
+        )
+    provider = YtDlpIngestProvider()
+    return provider.probe_formats(request)

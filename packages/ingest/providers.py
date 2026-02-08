@@ -19,7 +19,7 @@ from .errors import (
     IngestError,
     map_download_error,
 )
-from .models import IngestRequest
+from .models import IngestFormatOption, IngestFormatProbeResult, IngestRequest
 
 
 class IngestProvider(Protocol):
@@ -130,8 +130,129 @@ def _cookie_file_for_request(request: IngestRequest) -> Iterator[str | None]:
     yield None
 
 
+def _resolve_format_selector(request: IngestRequest) -> str:
+    if request.ytdlp_format:
+        return request.ytdlp_format
+    if request.video_format_id and request.audio_format_id:
+        return f"{request.video_format_id}+{request.audio_format_id}"
+    if request.video_format_id:
+        return request.video_format_id
+    return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
+
+
+def _to_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _to_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
+
+
+def _to_str(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return None
+    return str(value)
+
+
+def _extract_format_options(info: dict[str, Any]) -> list[IngestFormatOption]:
+    rows = info.get("formats")
+    if not isinstance(rows, list):
+        return []
+
+    options: list[IngestFormatOption] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        format_id = _to_str(row.get("format_id"))
+        if not format_id:
+            continue
+
+        vcodec = _to_str(row.get("vcodec"))
+        acodec = _to_str(row.get("acodec"))
+        is_video_only = bool(vcodec and vcodec != "none" and (not acodec or acodec == "none"))
+        is_audio_only = bool(acodec and acodec != "none" and (not vcodec or vcodec == "none"))
+
+        options.append(
+            IngestFormatOption(
+                format_id=format_id,
+                ext=_to_str(row.get("ext")),
+                resolution=_to_str(row.get("resolution")),
+                fps=_to_float(row.get("fps")),
+                tbr=_to_float(row.get("tbr")),
+                protocol=_to_str(row.get("protocol")),
+                vcodec=vcodec,
+                acodec=acodec,
+                filesize_approx=_to_int(row.get("filesize_approx") or row.get("filesize")),
+                is_video_only=is_video_only,
+                is_audio_only=is_audio_only,
+            )
+        )
+    return options
+
+
+def _extract_selected_format_ids(info: dict[str, Any]) -> tuple[str | None, str | None]:
+    requested = info.get("requested_downloads")
+    if not isinstance(requested, list):
+        return None, None
+
+    video_id: str | None = None
+    audio_id: str | None = None
+    for row in requested:
+        if not isinstance(row, dict):
+            continue
+        format_id = _to_str(row.get("format_id"))
+        vcodec = _to_str(row.get("vcodec"))
+        acodec = _to_str(row.get("acodec"))
+        if not format_id:
+            continue
+        if vcodec and vcodec != "none" and (not acodec or acodec == "none"):
+            video_id = format_id
+        elif acodec and acodec != "none" and (not vcodec or vcodec == "none"):
+            audio_id = format_id
+
+    return video_id, audio_id
+
+
 class YtDlpIngestProvider:
     """URL ingest provider backed by yt-dlp."""
+
+    def probe_formats(self, request: IngestRequest) -> IngestFormatProbeResult:
+        """Probe one URL and return selectable format options."""
+        if not request.source_url:
+            raise IngestError(
+                code=INGEST_INVALID_SOURCE,
+                message="source_url is required for URL probe",
+                retryable=False,
+                context={"stage": "ingest"},
+            )
+
+        with _cookie_file_for_request(request) as cookie_file:
+            info = self._extract_info(
+                source_url=request.source_url,
+                cookie_file=cookie_file,
+                project_id=request.project_id,
+                job_id=request.job_id,
+                download=False,
+                request=request,
+                target_video=None,
+            )
+
+        return IngestFormatProbeResult(
+            source_url=request.source_url,
+            title=str(info.get("title") or "untitled"),
+            uploader=_to_str(info.get("uploader")),
+            duration_seconds=_to_float(info.get("duration")),
+            webpage_url=_to_str(info.get("webpage_url")) or request.source_url,
+            formats=_extract_format_options(info),
+        )
 
     def materialize_source(
         self,
@@ -155,12 +276,11 @@ class YtDlpIngestProvider:
             for attempt in range(1, attempts + 1):
                 try:
                     info = self._download_once(
-                        source_url=request.source_url,
+                        request=request,
                         target_video=target_video,
                         cookie_file=cookie_file,
-                        project_id=request.project_id,
-                        job_id=request.job_id,
                     )
+                    selected_video_id, selected_audio_id = _extract_selected_format_ids(info)
                     metadata = {
                         "source_ref": request.source_url,
                         "title": request.title or str(info.get("title") or "untitled"),
@@ -172,6 +292,9 @@ class YtDlpIngestProvider:
                         if info.get("duration")
                         else None,
                         "webpage_url": str(info.get("webpage_url") or request.source_url),
+                        "selected_format": _resolve_format_selector(request),
+                        "selected_video_format_id": request.video_format_id or selected_video_id,
+                        "selected_audio_format_id": request.audio_format_id or selected_audio_id,
                     }
                     return target_video, metadata, attempt - 1
                 except IngestError as exc:
@@ -192,28 +315,50 @@ class YtDlpIngestProvider:
     def _download_once(
         self,
         *,
-        source_url: str,
+        request: IngestRequest,
         target_video: Path,
+        cookie_file: str | None,
+    ) -> dict[str, Any]:
+        return self._extract_info(
+            source_url=request.source_url or "",
+            target_video=target_video,
+            cookie_file=cookie_file,
+            project_id=request.project_id,
+            job_id=request.job_id,
+            download=True,
+            request=request,
+        )
+
+    def _extract_info(
+        self,
+        *,
+        source_url: str,
         cookie_file: str | None,
         project_id: str,
         job_id: str,
+        download: bool,
+        request: IngestRequest,
+        target_video: Path | None,
     ) -> dict[str, Any]:
         yt_dlp, download_error_type = _load_yt_dlp()
         ydl_opts: dict[str, Any] = {
-            "outtmpl": str(target_video),
-            "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best",
+            "format": _resolve_format_selector(request),
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
             "retries": 0,
             "merge_output_format": "mp4",
         }
+        if target_video is not None:
+            ydl_opts["outtmpl"] = str(target_video)
+        if request.ytdlp_sort:
+            ydl_opts["format_sort"] = request.ytdlp_sort
         if cookie_file:
             ydl_opts["cookiefile"] = cookie_file
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(source_url, download=True)
+                info = ydl.extract_info(source_url, download=download)
         except download_error_type as exc:
             raise map_download_error(
                 str(exc),
@@ -222,7 +367,7 @@ class YtDlpIngestProvider:
                 retryable=True,
             ) from exc
 
-        if not target_video.exists():
+        if download and target_video is not None and not target_video.exists():
             raise IngestError(
                 code=INGEST_INVALID_SOURCE,
                 message=f"download completed but target video missing: {target_video}",

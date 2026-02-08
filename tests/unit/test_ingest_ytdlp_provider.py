@@ -7,7 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from infra import FileSystemWorkspaceStore
-from ingest import INGEST_AUTH_REQUIRED, IngestError, IngestRequest, run_url_ingest
+from ingest import (
+    INGEST_AUTH_REQUIRED,
+    IngestError,
+    IngestRequest,
+    probe_url_formats,
+    run_url_ingest,
+)
 from ingest import providers as ingest_providers
 
 
@@ -70,7 +76,110 @@ def test_run_url_ingest_uses_ytdlp_and_writes_workspace_artifacts(
     assert payload["source_ref"] == "https://www.bilibili.com/video/BV1abcd12345"
     assert payload["title"] == "Bili Demo"
     assert payload["source_type"] == "bilibili_url"
+    assert payload["selected_format"] == "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
     assert result.retry_count == 0
+
+
+def test_run_url_ingest_uses_selected_format_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    observed_opts: dict[str, object] = {}
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            observed_opts.update(self._opts)
+            Path(str(self._opts["outtmpl"])).write_bytes(b"video-bytes")
+            return {
+                "title": "fmt test",
+                "webpage_url": source_url,
+                "requested_downloads": [
+                    {"format_id": "30116", "vcodec": "avc1", "acodec": "none"},
+                    {"format_id": "30280", "vcodec": "none", "acodec": "mp4a"},
+                ],
+            }
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_url_fmt",
+        job_id="j_url_fmt",
+        source_url="https://www.bilibili.com/video/BV1fmtfmtfmt",
+        video_format_id="30116",
+        audio_format_id="30280",
+    )
+    result = run_url_ingest(workspace, request)
+
+    assert observed_opts["format"] == "30116+30280"
+    assert result.meta.selected_video_format_id == "30116"
+    assert result.meta.selected_audio_format_id == "30280"
+
+
+def test_probe_url_formats_returns_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is False
+            return {
+                "title": "probe test",
+                "uploader": "uploader-a",
+                "duration": 12.3,
+                "webpage_url": source_url,
+                "formats": [
+                    {
+                        "format_id": "30116",
+                        "ext": "mp4",
+                        "resolution": "1920x1080",
+                        "fps": 60,
+                        "tbr": 1359,
+                        "vcodec": "avc1",
+                        "acodec": "none",
+                    },
+                    {
+                        "format_id": "30280",
+                        "ext": "m4a",
+                        "resolution": "audio only",
+                        "tbr": 141,
+                        "vcodec": "none",
+                        "acodec": "mp4a",
+                    },
+                ],
+            }
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_probe",
+        job_id="j_probe",
+        source_url="https://www.bilibili.com/video/BV1probeprobe",
+    )
+    probe = probe_url_formats(request)
+
+    assert probe.title == "probe test"
+    assert len(probe.formats) == 2
+    assert probe.formats[0].format_id == "30116"
+    assert probe.formats[1].is_audio_only is True
 
 
 def test_run_url_ingest_cookie_content_uses_temp_cookie_file(

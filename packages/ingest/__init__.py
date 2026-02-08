@@ -8,8 +8,14 @@ from .errors import (
     INGEST_SOURCE_NOT_FOUND,
     IngestError,
 )
-from .models import IngestMeta, IngestRequest, IngestResult
-from .service import run_ingest, run_local_ingest, run_url_ingest
+from .models import (
+    IngestFormatOption,
+    IngestFormatProbeResult,
+    IngestMeta,
+    IngestRequest,
+    IngestResult,
+)
+from .service import probe_url_formats, run_ingest, run_local_ingest, run_url_ingest
 
 __all__ = [
     "INGEST_AUTH_REQUIRED",
@@ -19,8 +25,11 @@ __all__ = [
     "INGEST_SOURCE_NOT_FOUND",
     "IngestError",
     "IngestMeta",
+    "IngestFormatOption",
+    "IngestFormatProbeResult",
     "IngestRequest",
     "IngestResult",
+    "probe_url_formats",
     "run_ingest",
     "run_local_ingest",
     "run_url_ingest",

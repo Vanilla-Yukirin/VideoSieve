@@ -26,6 +26,11 @@ class IngestRequest(BaseModel):
     download_retries: int = Field(default=2, ge=0, le=5)
     cookie_content: str | None = None
     cookie_file_path: str | None = None
+    ytdlp_format: str | None = None
+    ytdlp_sort: str | None = None
+    ytdlp_extractor_args: str | None = None
+    video_format_id: str | None = None
+    audio_format_id: str | None = None
 
     @model_validator(mode="after")
     def validate_source(self) -> IngestRequest:
@@ -37,6 +42,15 @@ class IngestRequest(BaseModel):
             self.source_type = SourceType.LOCAL_FILE
         else:
             self.source_type = SourceType.BILIBILI_URL
+
+        if self.ytdlp_format and (self.video_format_id or self.audio_format_id):
+            raise ValueError(
+                "ytdlp_format is mutually exclusive with video_format_id/audio_format_id"
+            )
+        if self.audio_format_id and not self.video_format_id and not self.ytdlp_format:
+            raise ValueError(
+                "audio_format_id requires video_format_id unless ytdlp_format is provided"
+            )
         return self
 
 
@@ -57,6 +71,9 @@ class IngestMeta(BaseModel):
     uploader: str | None = None
     duration_seconds: float | None = None
     webpage_url: str | None = None
+    selected_format: str | None = None
+    selected_video_format_id: str | None = None
+    selected_audio_format_id: str | None = None
     ingested_at: datetime
 
 
@@ -71,3 +88,35 @@ class IngestResult(BaseModel):
     meta_path: str
     meta: IngestMeta
     retry_count: int = 0
+
+
+class IngestFormatOption(BaseModel):
+    """One candidate media format from yt-dlp probe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format_id: str
+    ext: str | None = None
+    resolution: str | None = None
+    fps: float | None = None
+    tbr: float | None = None
+    protocol: str | None = None
+    vcodec: str | None = None
+    acodec: str | None = None
+    filesize_approx: int | None = None
+    is_video_only: bool = False
+    is_audio_only: bool = False
+
+
+class IngestFormatProbeResult(BaseModel):
+    """Probe result for one URL with available format candidates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = SCHEMA_VERSION
+    source_url: str
+    title: str
+    uploader: str | None = None
+    duration_seconds: float | None = None
+    webpage_url: str | None = None
+    formats: list[IngestFormatOption] = Field(default_factory=list)

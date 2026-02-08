@@ -14,7 +14,9 @@ from pipeline.control import ControlAckPayload, evaluate_control_command
 
 from .models import (
     ArtifactItem,
+    IngestAssetSelection,
     IngestFormatItem,
+    IngestParams,
     IngestProbeRequest,
     IngestProbeResponse,
     JobCreateRequest,
@@ -90,8 +92,12 @@ class ApiControlPlane:
             "project_id": payload.project_id,
             "job_id": job_id,
         }
+        if payload.summary_enabled is not None:
+            config["summary_enabled"] = payload.summary_enabled
         if payload.ingest:
-            config["ingest"] = payload.ingest.model_dump(mode="json", exclude_none=True)
+            normalized_ingest, dedupe_estimate = self._normalize_ingest(payload.ingest)
+            config["ingest"] = normalized_ingest
+            config["dedupe_applied_estimate"] = dedupe_estimate
 
         config_path.write_text(
             json.dumps(
@@ -102,6 +108,45 @@ class ApiControlPlane:
             encoding="utf-8",
         )
         return job_id
+
+    def _normalize_ingest(self, ingest: IngestParams) -> tuple[dict[str, object], bool]:
+        analysis_asset = ingest.analysis_asset
+        quality_asset = ingest.quality_asset
+
+        if analysis_asset is None and quality_asset is None and ingest.video_format_id is not None:
+            legacy = IngestAssetSelection(
+                video_format_id=ingest.video_format_id,
+                audio_format_id=ingest.audio_format_id,
+            )
+            analysis_asset = legacy
+            quality_asset = legacy
+
+        if analysis_asset is None and quality_asset is not None:
+            analysis_asset = quality_asset
+        if quality_asset is None and analysis_asset is not None:
+            quality_asset = analysis_asset
+
+        normalized: dict[str, object] = {}
+        if ingest.source_url is not None:
+            normalized["source_url"] = ingest.source_url
+        if ingest.cookie_file_path is not None:
+            normalized["cookie_file_path"] = ingest.cookie_file_path
+        if ingest.cookie_secret_ref is not None:
+            normalized["cookie_secret_ref"] = ingest.cookie_secret_ref
+        if analysis_asset is not None:
+            normalized["analysis_asset"] = analysis_asset.model_dump(mode="json", exclude_none=True)
+        if quality_asset is not None:
+            normalized["quality_asset"] = quality_asset.model_dump(mode="json", exclude_none=True)
+
+        analysis_pair = (
+            analysis_asset.video_format_id if analysis_asset is not None else None,
+            analysis_asset.audio_format_id if analysis_asset is not None else None,
+        )
+        quality_pair = (
+            quality_asset.video_format_id if quality_asset is not None else None,
+            quality_asset.audio_format_id if quality_asset is not None else None,
+        )
+        return normalized, analysis_pair == quality_pair
 
     def probe_ingest_formats(self, payload: IngestProbeRequest) -> IngestProbeResponse:
         """Probe URL and return selectable quality options for frontend."""

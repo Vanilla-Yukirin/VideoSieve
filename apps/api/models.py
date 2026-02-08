@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from contracts import ControlCommandType
 
@@ -13,16 +13,29 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class IngestAssetSelection(ApiModel):
+    """One asset quality selection via format ids only."""
+
+    video_format_id: str
+    audio_format_id: str | None = None
+
+
 class IngestParams(ApiModel):
     """Parameters for job ingestion configuration."""
 
     source_url: str | None = None
     video_format_id: str | None = None
     audio_format_id: str | None = None
-    ytdlp_format: str | None = None
-    ytdlp_sort: str | None = None
     cookie_file_path: str | None = None
     cookie_secret_ref: str | None = None
+    analysis_asset: IngestAssetSelection | None = None
+    quality_asset: IngestAssetSelection | None = None
+
+    @model_validator(mode="after")
+    def validate_legacy_pair(self) -> IngestParams:
+        if self.audio_format_id and not self.video_format_id:
+            raise ValueError("audio_format_id requires video_format_id")
+        return self
 
 
 class ProjectCreateRequest(ApiModel):
@@ -36,6 +49,7 @@ class JobCreateRequest(ApiModel):
 
     project_id: str
     ingest: IngestParams | None = None
+    summary_enabled: bool | None = None
 
 
 class IngestProbeRequest(ApiModel):

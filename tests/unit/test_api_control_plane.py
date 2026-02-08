@@ -138,11 +138,14 @@ def test_rest_ingest_probe_route_returns_format_options(
     assert isinstance(formats, list)
     assert isinstance(formats[0], dict)
     assert formats[0]["format_id"] == "30116"
+    assert "ext" in formats[0]
     assert "resolution" in formats[0]
     assert "fps" in formats[0]
     assert "tbr" in formats[0]
+    assert "protocol" in formats[0]
     assert "vcodec" in formats[0]
     assert "acodec" in formats[0]
+    assert "filesize_approx" in formats[0]
     assert "is_video_only" in formats[0]
     assert "is_audio_only" in formats[0]
 
@@ -155,10 +158,17 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
         control_plane,
         {
             "project_id": project_id,
+            "summary_enabled": False,
             "ingest": {
                 "source_url": "https://www.bilibili.com/video/BV1demo",
-                "video_format_id": "30116",
-                "audio_format_id": "30280",
+                "analysis_asset": {
+                    "video_format_id": "30032",
+                    "audio_format_id": "30280",
+                },
+                "quality_asset": {
+                    "video_format_id": "30116",
+                    "audio_format_id": "30280",
+                },
                 "cookie_secret_ref": "secrets/bili/prod",
             },
         },
@@ -170,9 +180,11 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
     ingest = payload["ingest"]
 
     assert payload["job_id"] == job_id
+    assert payload["summary_enabled"] is False
+    assert payload["dedupe_applied_estimate"] is False
     assert ingest["source_url"] == "https://www.bilibili.com/video/BV1demo"
-    assert ingest["video_format_id"] == "30116"
-    assert ingest["audio_format_id"] == "30280"
+    assert ingest["analysis_asset"] == {"video_format_id": "30032", "audio_format_id": "30280"}
+    assert ingest["quality_asset"] == {"video_format_id": "30116", "audio_format_id": "30280"}
     assert ingest["cookie_secret_ref"] == "secrets/bili/prod"
 
 

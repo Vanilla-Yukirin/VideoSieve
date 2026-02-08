@@ -1,0 +1,254 @@
+"""FastAPI runtime entrypoint for API and websocket gateways."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import os
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
+from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+
+from .rest import (
+    control_job,
+    create_job,
+    create_project,
+    get_job,
+    get_job_snapshot,
+    get_project,
+    list_job_artifacts,
+    list_project_jobs,
+    probe_ingest_formats,
+)
+from .service import ApiControlPlane
+from .ws_gateway import JobWebSocketGateway
+
+
+@dataclass(slots=True)
+class _Runtime:
+    repository: SQLiteJobRepository
+    workspace: FileSystemWorkspaceStore
+    event_bus: RedisEventBus
+    control_plane: ApiControlPlane
+    ws_gateway: JobWebSocketGateway
+
+
+class _SocketQueueAdapter:
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def send_json(self, payload: dict[str, Any]) -> None:
+        self.queue.put_nowait(payload)
+
+
+def _read_bool_env(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool | None) -> _Runtime:
+    data_dir = data_dir_override or Path(os.getenv("VIDEOSIEVE_API_DATA_DIR", "runtime/api"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    repository = SQLiteJobRepository(data_dir / "infra.db")
+    repository.ensure_schema()
+    workspace = FileSystemWorkspaceStore(data_dir / "workspaces")
+    event_bus = RedisEventBus(
+        stub_mode=(
+            stub_mode_override
+            if stub_mode_override is not None
+            else _read_bool_env("VIDEOSIEVE_EVENTBUS_STUB_MODE", default=True)
+        )
+    )
+    control_plane = ApiControlPlane(
+        repository=repository,
+        workspace=workspace,
+        event_bus=event_bus,
+    )
+    ws_gateway = JobWebSocketGateway(control_plane=control_plane, event_bus=event_bus)
+    return _Runtime(
+        repository=repository,
+        workspace=workspace,
+        event_bus=event_bus,
+        control_plane=control_plane,
+        ws_gateway=ws_gateway,
+    )
+
+
+def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        runtime = _build_runtime(
+            data_dir_override=data_dir,
+            stub_mode_override=event_bus_stub_mode,
+        )
+        app.state.runtime = runtime
+        try:
+            yield
+        finally:
+            runtime.event_bus.close()
+            runtime.repository.close()
+
+    app = FastAPI(title="VideoSieve API", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.exception_handler(KeyError)
+    async def _handle_key_error(_request: Request, exc: KeyError) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "not_found",
+                "message": str(exc).strip("'"),
+                "retryable": False,
+            },
+        )
+
+    @app.exception_handler(ValidationError)
+    async def _handle_pydantic_validation_error(
+        _request: Request, exc: ValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "validation_error",
+                "message": "request validation failed",
+                "retryable": False,
+                "details": exc.errors(),
+            },
+        )
+
+    @app.exception_handler(ValueError)
+    async def _handle_value_error(_request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "validation_error",
+                "message": str(exc),
+                "retryable": False,
+            },
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_fastapi_validation_error(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "validation_error",
+                "message": "request validation failed",
+                "retryable": False,
+                "details": exc.errors(),
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def _handle_unexpected_error(_request: Request, _exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "internal_error",
+                "message": "internal server error",
+                "retryable": False,
+            },
+        )
+
+    @app.get("/healthz")
+    async def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    def _control_plane(request: Request) -> ApiControlPlane:
+        return request.app.state.runtime.control_plane
+
+    @app.post("/projects")
+    async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
+        return create_project(_control_plane(request), payload)
+
+    @app.get("/projects/{project_id}")
+    async def get_projects(project_id: str, request: Request) -> dict[str, str | None]:
+        return get_project(_control_plane(request), project_id)
+
+    @app.post("/jobs")
+    async def post_jobs(payload: dict[str, Any], request: Request) -> dict[str, str]:
+        return create_job(_control_plane(request), payload)
+
+    @app.get("/jobs/{job_id}")
+    async def get_jobs(job_id: str, request: Request) -> dict[str, str | None]:
+        return get_job(_control_plane(request), job_id)
+
+    @app.get("/projects/{project_id}/jobs")
+    async def get_project_jobs(request: Request, project_id: str) -> list[dict[str, str | None]]:
+        return list_project_jobs(_control_plane(request), project_id)
+
+    @app.get("/jobs/{job_id}/snapshot")
+    async def get_jobs_snapshot(request: Request, job_id: str) -> dict[str, object]:
+        return get_job_snapshot(_control_plane(request), job_id)
+
+    @app.get("/jobs/{job_id}/artifacts")
+    async def get_jobs_artifacts(request: Request, job_id: str) -> list[dict[str, object]]:
+        return list_job_artifacts(_control_plane(request), job_id)
+
+    @app.post("/jobs/{job_id}/control/{command}")
+    async def post_job_control(
+        request: Request, job_id: str, command: str
+    ) -> dict[str, str | bool]:
+        return control_job(_control_plane(request), job_id=job_id, command=command)
+
+    @app.post("/ingest/probe")
+    async def post_ingest_probe(payload: dict[str, Any], request: Request) -> dict[str, object]:
+        return probe_ingest_formats(_control_plane(request), payload)
+
+    @app.websocket("/ws/jobs/{job_id}")
+    async def ws_jobs(websocket: WebSocket, job_id: str) -> None:
+        await websocket.accept()
+        runtime: _Runtime = websocket.app.state.runtime
+        socket_adapter = _SocketQueueAdapter()
+
+        async def _sender() -> None:
+            while True:
+                payload = await socket_adapter.queue.get()
+                await websocket.send_json(payload)
+
+        sender_task = asyncio.create_task(_sender())
+
+        try:
+            runtime.ws_gateway.connect(job_id=job_id, socket=socket_adapter)
+        except KeyError:
+            sender_task.cancel()
+            await websocket.close(code=4404, reason="job not found")
+            return
+
+        try:
+            while True:
+                message = await websocket.receive_json()
+                ack = runtime.ws_gateway.handle_command(job_id=job_id, payload=message)
+                await websocket.send_json({"event_type": "control_ack", "payload": ack})
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            runtime.ws_gateway.disconnect(job_id=job_id, socket=socket_adapter)
+            sender_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sender_task
+
+    return app
+
+
+app = create_app()

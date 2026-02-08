@@ -19,6 +19,7 @@ from .algorithm import (
     score_candidates,
     select_with_constraints,
 )
+from .extractor import extract_video_features, write_images_for_records
 from .models import ALLOWED_KEYFRAME_REASONS, KeyframeRecord
 from .sampler import stable_sampling_timestamps
 
@@ -34,6 +35,10 @@ class KeyframeRunDiagnostics:
     selected_count: int = 0
     timings_ms: dict[str, float] = field(default_factory=dict)
     parameters: dict[str, object] = field(default_factory=dict)
+    source_mode: str = "algorithm"
+    analysis_video_path: str | None = None
+    quality_video_path: str | None = None
+    same_source_resolved: bool | None = None
     selected_details: list[dict[str, object]] = field(default_factory=list)
 
 
@@ -92,6 +97,112 @@ class KeyframeAlgorithmService:
     def __init__(self, workspace_store: WorkspaceStore) -> None:
         self._workspace_store = workspace_store
         self.last_run_diagnostics = KeyframeRunDiagnostics()
+
+    def run_from_dual_sources(
+        self,
+        project_id: str,
+        *,
+        analysis_video_path: str | Path,
+        quality_video_path: str | Path,
+        same_source: bool | None = None,
+        sample_fps: float = 3.0,
+        resize_width: int = 320,
+        extract_progress_every: int = 150,
+        min_gap_seconds: float = 2.0,
+        fallback_gap_seconds: float = 12.0,
+        min_hash_dist: int = 8,
+        stable_lookback: int = 12,
+        stable_mad_scale: float = 3.0,
+        min_stable_len: int = 4,
+        k_max: int | None = None,
+        logger: logging.Logger | None = None,
+    ) -> list[KeyframeRecord]:
+        """Run dual-source keyframe flow with single-source smart reuse.
+
+        The method keeps output contracts unchanged:
+        - frames/keyframes.jsonl
+        - frames/images/*.jpg
+        - frames/metrics/*
+        """
+        analysis_path = Path(analysis_video_path)
+        quality_path = Path(quality_video_path)
+
+        # Same-source rule: explicit parameter wins; otherwise infer from resolved paths.
+        if same_source is None:
+            same_source_resolved = analysis_path.resolve() == quality_path.resolve()
+        else:
+            same_source_resolved = same_source
+
+        dual_start = perf_counter()
+
+        # Stage 1: fast analysis asset for feature extraction and timestamp selection.
+        t_extract = perf_counter()
+        analysis_frames = extract_video_features(
+            analysis_path,
+            sample_fps=sample_fps,
+            resize_width=resize_width,
+            logger=logger,
+            progress_every_samples=extract_progress_every,
+        )
+        extract_ms = (perf_counter() - t_extract) * 1000.0
+
+        records = self.run_from_features(
+            project_id,
+            frames=analysis_frames,
+            min_gap_seconds=min_gap_seconds,
+            fallback_gap_seconds=fallback_gap_seconds,
+            min_hash_dist=min_hash_dist,
+            stable_lookback=stable_lookback,
+            stable_mad_scale=stable_mad_scale,
+            min_stable_len=min_stable_len,
+            k_max=k_max,
+            logger=logger,
+        )
+
+        # Stage 2: final frame writing uses quality asset unless single-source reuse applies.
+        write_source = analysis_path if same_source_resolved else quality_path
+        t_write = perf_counter()
+        write_images_for_records(
+            write_source,
+            timestamps_to_paths=[(record.ts, Path(record.path)) for record in records],
+        )
+        write_ms = (perf_counter() - t_write) * 1000.0
+
+        diagnostics = self.last_run_diagnostics
+        diagnostics.source_mode = "single_source" if same_source_resolved else "dual_source"
+        diagnostics.analysis_video_path = str(analysis_path)
+        diagnostics.quality_video_path = str(quality_path)
+        diagnostics.same_source_resolved = same_source_resolved
+        diagnostics.timings_ms["extract_analysis"] = extract_ms
+        diagnostics.timings_ms["write_images_final"] = write_ms
+        diagnostics.timings_ms["total_pipeline"] = (perf_counter() - dual_start) * 1000.0
+        diagnostics.parameters["sample_fps"] = sample_fps
+        diagnostics.parameters["resize_width"] = resize_width
+        diagnostics.parameters["extract_progress_every"] = extract_progress_every
+
+        # Persist updated diagnostics after image-writing stage so metrics
+        # include dual-source timings.
+        self._write_selection_trace(
+            self._workspace_store.path(project_id, "frames", "metrics", "selection_trace.jsonl"),
+            diagnostics,
+        )
+        self._write_timing_report(
+            self._workspace_store.path(project_id, "frames", "metrics", "timing_report.json"),
+            diagnostics,
+        )
+
+        if logger is not None:
+            logger.info(
+                "[dual-source] mode=%s extract_analysis=%.2fms write_images=%.2fms "
+                "total=%.2fms selected=%s",
+                diagnostics.source_mode,
+                diagnostics.timings_ms.get("extract_analysis", 0.0),
+                diagnostics.timings_ms.get("write_images_final", 0.0),
+                diagnostics.timings_ms.get("total_pipeline", 0.0),
+                diagnostics.selected_count,
+            )
+
+        return records
 
     def run_from_features(
         self,
@@ -178,15 +289,24 @@ class KeyframeAlgorithmService:
                     sharp_min = min(frame_sharp)
                     sharp_max = max(frame_sharp)
 
-                    def fallback_rank(frame: FrameFeature) -> float:
-                        if diff_max <= diff_min:
+                    def fallback_rank(
+                        frame: FrameFeature,
+                        *,
+                        _diff_min: float = diff_min,
+                        _diff_max: float = diff_max,
+                        _sharp_min: float = sharp_min,
+                        _sharp_max: float = sharp_max,
+                    ) -> float:
+                        if _diff_max <= _diff_min:
                             stable_score = 1.0
                         else:
-                            stable_score = 1.0 - ((frame.diff - diff_min) / (diff_max - diff_min))
-                        if sharp_max <= sharp_min:
+                            stable_score = 1.0 - (
+                                (frame.diff - _diff_min) / (_diff_max - _diff_min)
+                            )
+                        if _sharp_max <= _sharp_min:
                             sharp_score = 1.0
                         else:
-                            sharp_score = (frame.sharpness - sharp_min) / (sharp_max - sharp_min)
+                            sharp_score = (frame.sharpness - _sharp_min) / (_sharp_max - _sharp_min)
                         return (0.65 * stable_score) + (0.35 * sharp_score)
 
                     chosen = max(bucket_frames, key=fallback_rank)
@@ -306,7 +426,8 @@ class KeyframeAlgorithmService:
 
         if logger is not None:
             logger.info(
-                "[select] segments=%s stable_candidates=%s fallback_candidates=%s selected=%s total=%.2fms",
+                "[select] segments=%s stable_candidates=%s fallback_candidates=%s "
+                "selected=%s total=%.2fms",
                 diagnostics.stable_segment_count,
                 diagnostics.stable_candidate_count,
                 diagnostics.fallback_candidate_count,
@@ -347,6 +468,10 @@ class KeyframeAlgorithmService:
                 "timings_ms": {
                     name: round(value, 3) for name, value in diagnostics.timings_ms.items()
                 },
+                "source_mode": diagnostics.source_mode,
+                "analysis_video_path": diagnostics.analysis_video_path,
+                "quality_video_path": diagnostics.quality_video_path,
+                "same_source_resolved": diagnostics.same_source_resolved,
             }
             handle.write(json.dumps(summary, ensure_ascii=False) + "\n")
             for detail in diagnostics.selected_details:
@@ -364,5 +489,9 @@ class KeyframeAlgorithmService:
             "selected_count": diagnostics.selected_count,
             "parameters": diagnostics.parameters,
             "timings_ms": {name: round(value, 3) for name, value in diagnostics.timings_ms.items()},
+            "source_mode": diagnostics.source_mode,
+            "analysis_video_path": diagnostics.analysis_video_path,
+            "quality_video_path": diagnostics.quality_video_path,
+            "same_source_resolved": diagnostics.same_source_resolved,
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

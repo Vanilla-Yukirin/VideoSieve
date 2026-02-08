@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-from time import perf_counter
 from pathlib import Path
+from time import perf_counter
 
 from .algorithm import FrameFeature
 
 
 def _require_cv2():
     try:
-        import cv2  # type: ignore[import-not-found]
+        import cv2
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(
             "opencv-python is required for real video extraction. "
@@ -105,7 +105,8 @@ def extract_video_features(
                 elapsed = perf_counter() - start_time
                 avg_ms = (elapsed / max(sampled_count, 1)) * 1000.0
                 logger.info(
-                    "[extract] sampled=%s decoded=%s video_ts=%.1fs avg=%.2fms/sample elapsed=%.2fs",
+                    "[extract] sampled=%s decoded=%s video_ts=%.1fs "
+                    "avg=%.2fms/sample elapsed=%.2fs",
                     sampled_count,
                     frame_index + 1,
                     ts,

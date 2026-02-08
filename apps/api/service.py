@@ -110,7 +110,6 @@ class ApiControlPlane:
             project_id="p_probe",
             job_id="j_probe",
             source_url=payload.source_url,
-            cookie_content=payload.cookie_content,
             cookie_file_path=payload.cookie_file_path,
             ytdlp_sort=payload.ytdlp_sort,
         )

@@ -21,11 +21,25 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
   const [formats, setFormats] = useState<IngestFormatItem[]>([]);
   const [selectedVideo, setSelectedVideo] = useState("");
   const [selectedAudio, setSelectedAudio] = useState("");
+  const [cookieFilePath, setCookieFilePath] = useState("");
+  const [cookieSecretRef, setCookieSecretRef] = useState("");
+  const [advancedFormat, setAdvancedFormat] = useState("");
+  const [advancedSort, setAdvancedSort] = useState("");
 
   const videoOptions = useMemo(() => formats.filter((f) => f.is_video_only), [formats]);
   const audioOptions = useMemo(() => formats.filter((f) => f.is_audio_only), [formats]);
 
-  const emitParams = (sourceUrl: string, videoFormatId: string, audioFormatId: string) => {
+  const emitParams = (
+    sourceUrl: string,
+    videoFormatId: string,
+    audioFormatId: string,
+    overrides?: {
+      cookie_file_path?: string;
+      cookie_secret_ref?: string;
+      ytdlp_format?: string;
+      ytdlp_sort?: string;
+    },
+  ) => {
     const trimmed = sourceUrl.trim();
     if (!trimmed) {
       onParamsReady(undefined);
@@ -40,6 +54,23 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
     }
     if (audioFormatId) {
       payload.audio_format_id = audioFormatId;
+    }
+    const cookieFilePathValue = overrides?.cookie_file_path ?? cookieFilePath;
+    const cookieSecretRefValue = overrides?.cookie_secret_ref ?? cookieSecretRef;
+    const advancedFormatValue = overrides?.ytdlp_format ?? advancedFormat;
+    const advancedSortValue = overrides?.ytdlp_sort ?? advancedSort;
+
+    if (cookieFilePathValue.trim()) {
+      payload.cookie_file_path = cookieFilePathValue.trim();
+    }
+    if (cookieSecretRefValue.trim()) {
+      payload.cookie_secret_ref = cookieSecretRefValue.trim();
+    }
+    if (advancedFormatValue.trim()) {
+      payload.ytdlp_format = advancedFormatValue.trim();
+    }
+    if (advancedSortValue.trim()) {
+      payload.ytdlp_sort = advancedSortValue.trim();
     }
     onParamsReady(payload);
   };
@@ -59,7 +90,11 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
     onParamsReady(undefined);
 
     try {
-      const response = await api.probeIngestFormats(trimmed);
+      const response = await api.probeIngestFormats({
+        source_url: trimmed,
+        cookie_file_path: cookieFilePath.trim() || undefined,
+        ytdlp_sort: advancedSort.trim() || undefined,
+      });
       setTitle(response.title);
       setFormats(response.formats);
 
@@ -155,6 +190,75 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
           </Card>
         </div>
       ) : null}
+
+      <details className="rounded-md border border-border p-3">
+        <summary className="cursor-pointer text-sm font-medium">Advanced options</summary>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span>Cookie file path</span>
+            <input
+              type="text"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              placeholder="D:/secrets/bilibili.cookies.txt"
+              value={cookieFilePath}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCookieFilePath(value);
+                emitParams(url, selectedVideo, selectedAudio, { cookie_file_path: value });
+              }}
+              disabled={loading || disabled}
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span>Cookie secret ref</span>
+            <input
+              type="text"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              placeholder="secrets/bilibili/prod"
+              value={cookieSecretRef}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCookieSecretRef(value);
+                emitParams(url, selectedVideo, selectedAudio, { cookie_secret_ref: value });
+              }}
+              disabled={loading || disabled}
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span>yt-dlp format selector</span>
+            <input
+              type="text"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              placeholder="bv*[height<=720]+ba"
+              value={advancedFormat}
+              onChange={(event) => {
+                const value = event.target.value;
+                setAdvancedFormat(value);
+                emitParams(url, selectedVideo, selectedAudio, { ytdlp_format: value });
+              }}
+              disabled={loading || disabled}
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span>yt-dlp sort rule</span>
+            <input
+              type="text"
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              placeholder="res:720"
+              value={advancedSort}
+              onChange={(event) => {
+                const value = event.target.value;
+                setAdvancedSort(value);
+                emitParams(url, selectedVideo, selectedAudio, { ytdlp_sort: value });
+              }}
+              disabled={loading || disabled}
+            />
+          </label>
+        </div>
+      </details>
     </div>
   );
 }

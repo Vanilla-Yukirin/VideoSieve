@@ -52,11 +52,15 @@ export const api = {
       method: "POST",
     }),
 
-  probeIngestFormats: (sourceUrl: string, cookieContent?: string) =>
+  probeIngestFormats: (payload: {
+    source_url: string;
+    cookie_file_path?: string;
+    ytdlp_sort?: string;
+  }) =>
     fetchJson<IngestProbeResponse>("/ingest/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_url: sourceUrl, cookie_content: cookieContent }),
+      body: JSON.stringify(payload),
     }),
 
   getRuntimeMode: (): "remote" | "mock" => "remote",

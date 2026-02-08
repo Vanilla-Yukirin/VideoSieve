@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import apps.api.service as api_service
+import pytest
 from apps.api.rest import (
     REST_ROUTES,
     control_job,
@@ -9,11 +12,13 @@ from apps.api.rest import (
     create_project,
     get_job_snapshot,
     list_job_artifacts,
+    probe_ingest_formats,
 )
 from apps.api.service import ApiControlPlane
 
 from contracts import JobStatus
 from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
+from ingest import IngestFormatOption, IngestFormatProbeResult
 
 
 def _make_control_plane(
@@ -93,3 +98,103 @@ def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
         JobStatus.RUNNING.value,
         JobStatus.CANCELLED.value,
     }
+
+
+def test_rest_ingest_probe_route_returns_format_options(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    def _fake_probe_url_formats(_request: object) -> IngestFormatProbeResult:
+        return IngestFormatProbeResult(
+            source_url="https://www.bilibili.com/video/BV1demo",
+            title="demo title",
+            uploader="demo-up",
+            duration_seconds=66.6,
+            webpage_url="https://www.bilibili.com/video/BV1demo",
+            formats=[
+                IngestFormatOption(
+                    format_id="30116",
+                    resolution="1920x1080",
+                    vcodec="avc1",
+                    acodec="none",
+                    is_video_only=True,
+                    is_audio_only=False,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(api_service, "probe_url_formats", _fake_probe_url_formats)
+
+    payload = probe_ingest_formats(
+        control_plane,
+        {
+            "source_url": "https://www.bilibili.com/video/BV1demo",
+        },
+    )
+    assert "POST /ingest/probe" in REST_ROUTES
+    assert payload["title"] == "demo title"
+    formats = payload.get("formats")
+    assert isinstance(formats, list)
+    assert isinstance(formats[0], dict)
+    assert formats[0]["format_id"] == "30116"
+    assert "resolution" in formats[0]
+    assert "fps" in formats[0]
+    assert "tbr" in formats[0]
+    assert "vcodec" in formats[0]
+    assert "acodec" in formats[0]
+    assert "is_video_only" in formats[0]
+    assert "is_audio_only" in formats[0]
+
+
+def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(
+        control_plane,
+        {
+            "project_id": project_id,
+            "ingest": {
+                "source_url": "https://www.bilibili.com/video/BV1demo",
+                "video_format_id": "30116",
+                "audio_format_id": "30280",
+                "cookie_secret_ref": "secrets/bili/prod",
+            },
+        },
+    )["job_id"]
+
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    snapshot_path = workspace.path(project_id, "meta", "config.snapshot.json")
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    ingest = payload["ingest"]
+
+    assert payload["job_id"] == job_id
+    assert ingest["source_url"] == "https://www.bilibili.com/video/BV1demo"
+    assert ingest["video_format_id"] == "30116"
+    assert ingest["audio_format_id"] == "30280"
+    assert ingest["cookie_secret_ref"] == "secrets/bili/prod"
+
+
+def test_create_job_backward_compatible_without_format_selection(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    create_job(
+        control_plane,
+        {
+            "project_id": project_id,
+            "ingest": {
+                "source_url": "https://www.bilibili.com/video/BV1compat",
+            },
+        },
+    )
+
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    snapshot_path = workspace.path(project_id, "meta", "config.snapshot.json")
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    ingest = payload["ingest"]
+
+    assert ingest["source_url"] == "https://www.bilibili.com/video/BV1compat"
+    assert "video_format_id" not in ingest
+    assert "audio_format_id" not in ingest

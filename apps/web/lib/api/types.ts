@@ -74,10 +74,10 @@ export interface IngestParams {
   source_url?: string;
   video_format_id?: string;
   audio_format_id?: string;
-  format_selector?: string;
-  format_sort?: string;
+  ytdlp_format?: string;
+  ytdlp_sort?: string;
   cookie_file_path?: string;
-  cookie_content?: string;
+  cookie_secret_ref?: string;
 }
 
 export interface CreateJobRequest {

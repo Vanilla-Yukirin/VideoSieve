@@ -19,10 +19,10 @@ class IngestParams(ApiModel):
     source_url: str | None = None
     video_format_id: str | None = None
     audio_format_id: str | None = None
-    format_selector: str | None = None
-    format_sort: str | None = None
+    ytdlp_format: str | None = None
+    ytdlp_sort: str | None = None
     cookie_file_path: str | None = None
-    cookie_content: str | None = None
+    cookie_secret_ref: str | None = None
 
 
 class ProjectCreateRequest(ApiModel):
@@ -42,7 +42,6 @@ class IngestProbeRequest(ApiModel):
     """Probe payload for URL format options."""
 
     source_url: str
-    cookie_content: str | None = None
     cookie_file_path: str | None = None
     ytdlp_sort: str | None = None
 

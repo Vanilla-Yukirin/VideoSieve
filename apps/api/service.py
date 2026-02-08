@@ -9,9 +9,18 @@ from collections.abc import Callable
 
 from contracts import ControlCommandType, JobStatus
 from infra import EventBus, EventSubscription, InfraEvent, JobRepository, WorkspaceStore
+from ingest import IngestRequest, probe_url_formats
 from pipeline.control import ControlAckPayload, evaluate_control_command
 
-from .models import ArtifactItem, JobCreateRequest, JobSnapshot, ProjectCreateRequest
+from .models import (
+    ArtifactItem,
+    IngestFormatItem,
+    IngestProbeRequest,
+    IngestProbeResponse,
+    JobCreateRequest,
+    JobSnapshot,
+    ProjectCreateRequest,
+)
 
 MAX_LOG_BUFFER = 100
 
@@ -75,19 +84,45 @@ class ApiControlPlane:
         )
         self._workspace.ensure_project_layout(payload.project_id)
         config_path = self._workspace.path(payload.project_id, "meta", "config.snapshot.json")
+
+        config: dict[str, object] = {
+            "schema_version": "1.0",
+            "project_id": payload.project_id,
+            "job_id": job_id,
+        }
+        if payload.ingest:
+            config["ingest"] = payload.ingest.model_dump(mode="json", exclude_none=True)
+
         config_path.write_text(
             json.dumps(
-                {
-                    "schema_version": "1.0",
-                    "project_id": payload.project_id,
-                    "job_id": job_id,
-                },
+                config,
                 ensure_ascii=True,
                 indent=2,
             ),
             encoding="utf-8",
         )
         return job_id
+
+    def probe_ingest_formats(self, payload: IngestProbeRequest) -> IngestProbeResponse:
+        """Probe URL and return selectable quality options for frontend."""
+
+        request = IngestRequest(
+            project_id="p_probe",
+            job_id="j_probe",
+            source_url=payload.source_url,
+            cookie_content=payload.cookie_content,
+            cookie_file_path=payload.cookie_file_path,
+            ytdlp_sort=payload.ytdlp_sort,
+        )
+        result = probe_url_formats(request)
+        return IngestProbeResponse(
+            source_url=result.source_url,
+            title=result.title,
+            uploader=result.uploader,
+            duration_seconds=result.duration_seconds,
+            webpage_url=result.webpage_url,
+            formats=[IngestFormatItem.model_validate(item.model_dump()) for item in result.formats],
+        )
 
     def get_job(self, job_id: str) -> dict[str, str | None] | None:
         """Get one job by id."""

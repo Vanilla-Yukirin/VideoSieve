@@ -13,6 +13,18 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class IngestParams(ApiModel):
+    """Parameters for job ingestion configuration."""
+
+    source_url: str | None = None
+    video_format_id: str | None = None
+    audio_format_id: str | None = None
+    format_selector: str | None = None
+    format_sort: str | None = None
+    cookie_file_path: str | None = None
+    cookie_content: str | None = None
+
+
 class ProjectCreateRequest(ApiModel):
     """Project create payload."""
 
@@ -23,6 +35,43 @@ class JobCreateRequest(ApiModel):
     """Job create payload."""
 
     project_id: str
+    ingest: IngestParams | None = None
+
+
+class IngestProbeRequest(ApiModel):
+    """Probe payload for URL format options."""
+
+    source_url: str
+    cookie_content: str | None = None
+    cookie_file_path: str | None = None
+    ytdlp_sort: str | None = None
+
+
+class IngestFormatItem(ApiModel):
+    """One selectable format option for frontend quality picker."""
+
+    format_id: str
+    ext: str | None = None
+    resolution: str | None = None
+    fps: float | None = None
+    tbr: float | None = None
+    protocol: str | None = None
+    vcodec: str | None = None
+    acodec: str | None = None
+    filesize_approx: int | None = None
+    is_video_only: bool = False
+    is_audio_only: bool = False
+
+
+class IngestProbeResponse(ApiModel):
+    """Probe response consumed by web quality selection UI."""
+
+    source_url: str
+    title: str
+    uploader: str | None = None
+    duration_seconds: float | None = None
+    webpage_url: str | None = None
+    formats: list[IngestFormatItem] = Field(default_factory=list)
 
 
 class ArtifactItem(ApiModel):

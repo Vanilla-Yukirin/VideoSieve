@@ -6,7 +6,7 @@ from typing import Any
 
 from contracts import ControlCommandType
 
-from .models import JobCreateRequest, ProjectCreateRequest
+from .models import IngestProbeRequest, JobCreateRequest, ProjectCreateRequest
 from .service import ApiControlPlane
 
 REST_ROUTES: tuple[str, ...] = (
@@ -18,6 +18,7 @@ REST_ROUTES: tuple[str, ...] = (
     "GET /jobs/{job_id}/snapshot",
     "GET /jobs/{job_id}/artifacts",
     "POST /jobs/{job_id}/control/{command}",
+    "POST /ingest/probe",
 )
 
 
@@ -93,3 +94,12 @@ def control_job(
         job_id=job_id,
         command=ControlCommandType(command),
     )
+
+
+def probe_ingest_formats(
+    control_plane: ApiControlPlane, payload: dict[str, Any]
+) -> dict[str, object]:
+    """POST /ingest/probe"""
+
+    result = control_plane.probe_ingest_formats(IngestProbeRequest.model_validate(payload))
+    return result.model_dump(mode="json")

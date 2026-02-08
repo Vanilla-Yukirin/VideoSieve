@@ -47,6 +47,40 @@ export interface CreateProjectRequest {
   title?: string;
 }
 
+export interface IngestFormatItem {
+  format_id: string;
+  ext?: string;
+  resolution?: string;
+  fps?: number;
+  tbr?: number;
+  protocol?: string;
+  vcodec?: string;
+  acodec?: string;
+  filesize_approx?: number;
+  is_video_only: boolean;
+  is_audio_only: boolean;
+}
+
+export interface IngestProbeResponse {
+  source_url: string;
+  title: string;
+  uploader?: string;
+  duration_seconds?: number;
+  webpage_url?: string;
+  formats: IngestFormatItem[];
+}
+
+export interface IngestParams {
+  source_url?: string;
+  video_format_id?: string;
+  audio_format_id?: string;
+  format_selector?: string;
+  format_sort?: string;
+  cookie_file_path?: string;
+  cookie_content?: string;
+}
+
 export interface CreateJobRequest {
   project_id: string;
+  ingest?: IngestParams;
 }

@@ -15,6 +15,7 @@ from apps.api.rest import (
     probe_ingest_formats,
 )
 from apps.api.service import ApiControlPlane
+from pydantic import ValidationError
 
 from contracts import JobStatus
 from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
@@ -148,6 +149,19 @@ def test_rest_ingest_probe_route_returns_format_options(
     assert "filesize_approx" in formats[0]
     assert "is_video_only" in formats[0]
     assert "is_audio_only" in formats[0]
+
+
+def test_rest_ingest_probe_rejects_legacy_ytdlp_sort_field(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    with pytest.raises(ValidationError):
+        probe_ingest_formats(
+            control_plane,
+            {
+                "source_url": "https://www.bilibili.com/video/BV1demo",
+                "ytdlp_sort": "res,br",
+            },
+        )
 
 
 def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path) -> None:

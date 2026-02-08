@@ -156,7 +156,6 @@ class ApiControlPlane:
             job_id="j_probe",
             source_url=payload.source_url,
             cookie_file_path=payload.cookie_file_path,
-            ytdlp_sort=payload.ytdlp_sort,
         )
         result = probe_url_formats(request)
         return IngestProbeResponse(

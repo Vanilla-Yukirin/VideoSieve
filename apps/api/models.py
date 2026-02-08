@@ -57,7 +57,6 @@ class IngestProbeRequest(ApiModel):
 
     source_url: str
     cookie_file_path: str | None = None
-    ytdlp_sort: str | None = None
 
 
 class IngestFormatItem(ApiModel):

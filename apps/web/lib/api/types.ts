@@ -70,6 +70,11 @@ export interface IngestProbeResponse {
   formats: IngestFormatItem[];
 }
 
+export interface IngestProbeRequest {
+  source_url: string;
+  cookie_id?: string;
+}
+
 // --- Dual-asset ingest types (W08 contract) ---
 
 export interface AssetSelection {

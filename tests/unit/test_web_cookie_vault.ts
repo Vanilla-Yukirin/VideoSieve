@@ -156,4 +156,64 @@ describe("cookie defaults and create-job payload", () => {
     expect(serialized).not.toContain("cookie_file_path");
     expect(serialized).not.toContain("cookie_secret_ref");
   });
+
+  it("probe payload includes cookie_id and keeps POST /ingest/probe path", async () => {
+    mockFetchOk({
+      source_url: "https://www.bilibili.com/video/BV1x",
+      title: "demo",
+      formats: [],
+    });
+
+    await api.probeIngestFormats({
+      source_url: "https://www.bilibili.com/video/BV1x",
+      cookie_id: "c_valid",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/ingest/probe",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    expect(options.body).toContain("cookie_id");
+    expect(options.body).not.toContain("cookie_content");
+    expect(options.body).not.toContain("cookie_file_path");
+    expect(options.body).not.toContain("cookie_secret_ref");
+  });
+
+  it("probe payload omits cookie_id when not selected", async () => {
+    mockFetchOk({
+      source_url: "https://www.bilibili.com/video/BV2y",
+      title: "demo-2",
+      formats: [],
+    });
+
+    await api.probeIngestFormats({ source_url: "https://www.bilibili.com/video/BV2y" });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/ingest/probe",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    expect(options.body).not.toContain("cookie_id");
+  });
+
+  it("probe payload omits cookie_id when trimmed value is empty", async () => {
+    mockFetchOk({
+      source_url: "https://www.bilibili.com/video/BV3z",
+      title: "demo-3",
+      formats: [],
+    });
+
+    await api.probeIngestFormats({
+      source_url: "https://www.bilibili.com/video/BV3z",
+      cookie_id: "   ",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/ingest/probe",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    expect(options.body).not.toContain("cookie_id");
+  });
 });

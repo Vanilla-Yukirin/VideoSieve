@@ -123,7 +123,11 @@ export default function ProjectDetail() {
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                <IngestProbe onParamsReady={setIngestParams} disabled={isCreatingJob} />
+                <IngestProbe
+                  onParamsReady={setIngestParams}
+                  disabled={isCreatingJob}
+                  cookieId={selectedCookieId}
+                />
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="cookie-select">

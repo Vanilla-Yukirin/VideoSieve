@@ -7,6 +7,7 @@ import {
   CreateProjectRequest,
   CreateJobRequest,
   ArtifactItem,
+  IngestProbeRequest,
   IngestProbeResponse,
   CookieListItem,
   CookieCreateRequest,
@@ -57,13 +58,19 @@ export const api = {
       method: "POST",
     }),
 
-  // Probe: minimal contract — only source_url
-  probeIngestFormats: (payload: { source_url: string }) =>
-    fetchJson<IngestProbeResponse>("/ingest/probe", {
+  // Probe: source_url with optional cookie_id
+  probeIngestFormats: (payload: IngestProbeRequest) => {
+    const trimmedCookieId = payload.cookie_id?.trim();
+    const requestBody = trimmedCookieId
+      ? { source_url: payload.source_url, cookie_id: trimmedCookieId }
+      : { source_url: payload.source_url };
+
+    return fetchJson<IngestProbeResponse>("/ingest/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
+      body: JSON.stringify(requestBody),
+    });
+  },
 
   // Cookie Vault
   listMeCookies: () => fetchJson<CookieListItem[]>("/me/cookies"),

@@ -20,9 +20,10 @@ export { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
 type IngestProbeProps = {
   onParamsReady: (params: DualAssetIngestParams | undefined) => void;
   disabled?: boolean;
+  cookieId?: string;
 };
 
-export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProps) {
+export function IngestProbe({ onParamsReady, disabled = false, cookieId }: IngestProbeProps) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +62,7 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
   const onProbe = async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
+    const trimmedCookieId = cookieId?.trim();
 
     setLoading(true);
     setError(null);
@@ -73,8 +75,9 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
     onParamsReady(undefined);
 
     try {
-      // Minimal probe: only source_url
-      const response = await api.probeIngestFormats({ source_url: trimmed });
+      const response = await api.probeIngestFormats(
+        trimmedCookieId ? { source_url: trimmed, cookie_id: trimmedCookieId } : { source_url: trimmed },
+      );
       setTitle(response.title);
       setFormats(response.formats);
 
@@ -180,6 +183,11 @@ export function IngestProbe({ onParamsReady, disabled = false }: IngestProbeProp
             {loading ? "Probing..." : "Probe"}
           </Button>
         </div>
+        {!cookieId?.trim() ? (
+          <p className="text-xs text-amber-700">
+            No cookie selected. Probe may not show high-spec formats.
+          </p>
+        ) : null}
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
 

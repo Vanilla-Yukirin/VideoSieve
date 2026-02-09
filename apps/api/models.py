@@ -59,6 +59,8 @@ class IngestProbeRequest(ApiModel):
     """Probe payload for URL format options."""
 
     source_url: str
+    # When both are provided, cookie_id takes precedence over cookie_file_path.
+    cookie_id: str | None = None
     cookie_file_path: str | None = None
 
 

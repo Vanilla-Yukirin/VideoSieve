@@ -12,6 +12,7 @@ from apps.api.rest import (
     REST_ROUTES,
     control_job,
     create_job,
+    create_me_cookie,
     create_project,
     get_job_snapshot,
     list_job_artifacts,
@@ -192,6 +193,102 @@ def test_rest_ingest_probe_rejects_legacy_ytdlp_sort_field(tmp_path: Path) -> No
             {
                 "source_url": "https://www.bilibili.com/video/BV1demo",
                 "ytdlp_sort": "res,br",
+            },
+        )
+
+
+def test_rest_ingest_probe_uses_cookie_id_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "probe-secret")
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    cookie = create_me_cookie(
+        control_plane,
+        {
+            "name": "bili",
+            "cookie_netscape_text": (
+                "# Netscape HTTP Cookie File\n"
+                ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tvault_token\n"
+            ),
+        },
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_probe_url_formats(request: object) -> IngestFormatProbeResult:
+        captured["cookie_content"] = getattr(request, "cookie_content", None)
+        captured["cookie_file_path"] = getattr(request, "cookie_file_path", None)
+        return IngestFormatProbeResult(
+            source_url="https://www.bilibili.com/video/BV1demo",
+            title="demo title",
+            formats=[IngestFormatOption(format_id="30116")],
+        )
+
+    monkeypatch.setattr(api_service, "probe_url_formats", _fake_probe_url_formats)
+
+    payload = probe_ingest_formats(
+        control_plane,
+        {
+            "source_url": "https://www.bilibili.com/video/BV1demo",
+            "cookie_id": str(cookie["id"]),
+        },
+    )
+    assert payload["title"] == "demo title"
+    assert captured["cookie_content"] is not None
+    assert "vault_token" in str(captured["cookie_content"])
+    assert captured["cookie_file_path"] is None
+
+
+def test_rest_ingest_probe_prefers_cookie_id_over_cookie_file_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "probe-secret")
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    cookie = create_me_cookie(
+        control_plane,
+        {
+            "name": "bili",
+            "cookie_netscape_text": (
+                "# Netscape HTTP Cookie File\n"
+                ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tprefer_vault\n"
+            ),
+        },
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_probe_url_formats(request: object) -> IngestFormatProbeResult:
+        captured["cookie_content"] = getattr(request, "cookie_content", None)
+        captured["cookie_file_path"] = getattr(request, "cookie_file_path", None)
+        return IngestFormatProbeResult(
+            source_url="https://www.bilibili.com/video/BV1demo",
+            title="demo title",
+            formats=[IngestFormatOption(format_id="30116")],
+        )
+
+    monkeypatch.setattr(api_service, "probe_url_formats", _fake_probe_url_formats)
+
+    _ = probe_ingest_formats(
+        control_plane,
+        {
+            "source_url": "https://www.bilibili.com/video/BV1demo",
+            "cookie_id": str(cookie["id"]),
+            "cookie_file_path": "/tmp/legacy.cookies.txt",
+        },
+    )
+    assert "prefer_vault" in str(captured["cookie_content"])
+    assert captured["cookie_file_path"] is None
+
+
+def test_rest_ingest_probe_rejects_unknown_cookie_id(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    with pytest.raises(KeyError):
+        probe_ingest_formats(
+            control_plane,
+            {
+                "source_url": "https://www.bilibili.com/video/BV1demo",
+                "cookie_id": "c_missing",
             },
         )
 

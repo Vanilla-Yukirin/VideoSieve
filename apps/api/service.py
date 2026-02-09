@@ -452,11 +452,19 @@ class ApiControlPlane:
     def probe_ingest_formats(self, payload: IngestProbeRequest) -> IngestProbeResponse:
         """Probe URL and return selectable quality options for frontend."""
 
+        cookie_content: str | None = None
+        cookie_file_path: str | None = payload.cookie_file_path
+        if payload.cookie_id is not None:
+            cookie_row = self._require_cookie(payload.cookie_id)
+            cookie_content = self._decrypt_cookie(cookie_row.cookie_encrypted)
+            cookie_file_path = None
+
         request = IngestRequest(
             project_id="p_probe",
             job_id="j_probe",
             source_url=payload.source_url,
-            cookie_file_path=payload.cookie_file_path,
+            cookie_content=cookie_content,
+            cookie_file_path=cookie_file_path,
         )
         result = probe_url_formats(request)
         return IngestProbeResponse(

@@ -79,6 +79,48 @@ def test_runtime_cookie_endpoint_returns_config_error_when_secret_missing(
         assert response.json()["code"] == "config_error"
 
 
+def test_runtime_probe_returns_not_found_for_unknown_cookie_id(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        response = client.post(
+            "/ingest/probe",
+            json={
+                "source_url": "https://www.bilibili.com/video/BV1demo",
+                "cookie_id": "c_missing",
+            },
+        )
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
+
+
+def test_runtime_probe_returns_config_error_when_secret_missing_with_cookie_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "runtime-secret")
+    with _make_client(tmp_path) as client:
+        created = client.post(
+            "/me/cookies",
+            json={
+                "name": "demo",
+                "cookie_netscape_text": (
+                    "# Netscape HTTP Cookie File\n"
+                    ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tdemo\n"
+                ),
+            },
+        )
+        cookie_id = created.json()["id"]
+
+        monkeypatch.delenv("APP_SECRET_KEY", raising=False)
+        response = client.post(
+            "/ingest/probe",
+            json={
+                "source_url": "https://www.bilibili.com/video/BV1demo",
+                "cookie_id": cookie_id,
+            },
+        )
+        assert response.status_code == 500
+        assert response.json()["code"] == "config_error"
+
+
 @pytest.mark.parametrize("raw_value,expected", [("true", True), ("false", False)])
 def test_runtime_event_bus_stub_mode_is_configurable(
     tmp_path: Path,

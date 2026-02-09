@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,39 @@ from ingest import providers as ingest_providers
 
 class _FakeDownloadError(Exception):
     pass
+
+
+def _create_cookie_vault_db(db_path: Path, *, cookie_id: str, cookie_encrypted: str) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS user_cookies (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              cookie_encrypted TEXT NOT NULL,
+              is_default INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL,
+              last_validated_at TEXT,
+              last_error_code TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO user_cookies (
+              id, user_id, name, cookie_encrypted, is_default, status,
+              last_validated_at, last_error_code, created_at, updated_at
+            ) VALUES (?, 'default_user', 'test', ?, 1, 'valid', NULL, NULL, 'now', 'now')
+            """,
+            (cookie_id, cookie_encrypted),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def test_run_url_ingest_uses_ytdlp_and_writes_workspace_artifacts(
@@ -329,6 +363,189 @@ def test_run_url_ingest_cookie_content_uses_temp_cookie_file(
         ),
     )
     run_url_ingest(workspace, request)
+    assert "path" in observed_cookiefile
+    assert not Path(observed_cookiefile["path"]).exists()
+
+
+def test_run_url_ingest_cookie_id_uses_vault_cookie_and_cleans_temp_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    cookie_db = tmp_path / "infra.db"
+    cookie_text = "# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tTRUE\t0\tSESSDATA\tvault\n"
+    _create_cookie_vault_db(
+        cookie_db,
+        cookie_id="c_ingest_ok",
+        cookie_encrypted="enc-cookie-id",
+    )
+    monkeypatch.setenv("VIDEOSIEVE_COOKIE_VAULT_DB_PATH", str(cookie_db))
+    monkeypatch.setattr(
+        ingest_providers,
+        "_decrypt_cookie_encrypted",
+        lambda **kwargs: cookie_text,
+    )
+
+    observed_cookiefile: dict[str, str] = {}
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is True
+            cookie_path = str(self._opts["cookiefile"])
+            observed_cookiefile["path"] = cookie_path
+            assert "SESSDATA\tvault" in Path(cookie_path).read_text(encoding="utf-8")
+            Path(str(self._opts["outtmpl"])).write_bytes(b"ok")
+            return {"title": "Cookie ID Demo", "webpage_url": source_url}
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    fallback_cookie = tmp_path / "cookies.txt"
+    fallback_cookie.write_text("SHOULD_NOT_BE_USED", encoding="utf-8")
+    request = IngestRequest(
+        project_id="p_cookie_id",
+        job_id="j_cookie_id",
+        source_url="https://www.bilibili.com/video/BV2cookieid",
+        cookie_id="c_ingest_ok",
+        cookie_file_path=str(fallback_cookie),
+    )
+    run_url_ingest(workspace, request)
+
+    assert "path" in observed_cookiefile
+    assert observed_cookiefile["path"] != str(fallback_cookie.resolve())
+    assert not Path(observed_cookiefile["path"]).exists()
+
+
+def test_run_url_ingest_cookie_secret_ref_missing_env_raises_auth_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    monkeypatch.delenv("VIDEOSIEVE_COOKIE_REF_BILI_PROD", raising=False)
+
+    request = IngestRequest(
+        project_id="p_cookie_ref",
+        job_id="j_cookie_ref",
+        source_url="https://www.bilibili.com/video/BV2cookieref",
+        cookie_secret_ref="bili-prod",
+    )
+    with pytest.raises(IngestError) as error_info:
+        run_url_ingest(workspace, request)
+
+    assert error_info.value.code == INGEST_AUTH_REQUIRED
+    assert "VIDEOSIEVE_COOKIE_REF_BILI_PROD" in error_info.value.message
+
+
+def test_run_url_ingest_cookie_id_auth_failure_maps_to_auth_required(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    cookie_db = tmp_path / "infra.db"
+    cookie_text = (
+        "# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tTRUE\t0\tSESSDATA\texpired\n"
+    )
+    _create_cookie_vault_db(
+        cookie_db,
+        cookie_id="c_ingest_expired",
+        cookie_encrypted="enc-cookie-auth",
+    )
+    monkeypatch.setenv("VIDEOSIEVE_COOKIE_VAULT_DB_PATH", str(cookie_db))
+    monkeypatch.setattr(
+        ingest_providers,
+        "_decrypt_cookie_encrypted",
+        lambda **kwargs: cookie_text,
+    )
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            raise _FakeDownloadError("Sign in to confirm your age")
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_cookie_auth",
+        job_id="j_cookie_auth",
+        source_url="https://www.bilibili.com/video/BV2cookieauth",
+        cookie_id="c_ingest_expired",
+        download_retries=1,
+    )
+
+    with pytest.raises(IngestError) as error_info:
+        run_url_ingest(workspace, request)
+    assert error_info.value.code == INGEST_AUTH_REQUIRED
+
+
+def test_run_url_ingest_cookie_id_error_path_cleans_temp_cookie_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    cookie_db = tmp_path / "infra.db"
+    cookie_text = (
+        "# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tTRUE\t0\tSESSDATA\tcleanup\n"
+    )
+    _create_cookie_vault_db(
+        cookie_db,
+        cookie_id="c_ingest_cleanup",
+        cookie_encrypted="enc-cookie-cleanup",
+    )
+    monkeypatch.setenv("VIDEOSIEVE_COOKIE_VAULT_DB_PATH", str(cookie_db))
+    monkeypatch.setattr(
+        ingest_providers,
+        "_decrypt_cookie_encrypted",
+        lambda **kwargs: cookie_text,
+    )
+
+    observed_cookiefile: dict[str, str] = {}
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            observed_cookiefile["path"] = str(self._opts["cookiefile"])
+            raise _FakeDownloadError("HTTP Error 403: Forbidden")
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_cookie_cleanup",
+        job_id="j_cookie_cleanup",
+        source_url="https://www.bilibili.com/video/BV2cookiecleanup",
+        cookie_id="c_ingest_cleanup",
+        download_retries=0,
+    )
+
+    with pytest.raises(IngestError):
+        run_url_ingest(workspace, request)
+
     assert "path" in observed_cookiefile
     assert not Path(observed_cookiefile["path"]).exists()
 

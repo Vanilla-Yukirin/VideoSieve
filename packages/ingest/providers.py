@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
+import sqlite3
 import tempfile
+from base64 import urlsafe_b64encode
 from collections.abc import Iterator
 from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
@@ -13,6 +18,7 @@ from typing import Any, Protocol
 from infra import WorkspaceStore
 
 from .errors import (
+    INGEST_AUTH_REQUIRED,
     INGEST_DEPENDENCY_MISSING,
     INGEST_INVALID_SOURCE,
     INGEST_SOURCE_NOT_FOUND,
@@ -20,6 +26,9 @@ from .errors import (
     map_download_error,
 )
 from .models import IngestFormatOption, IngestFormatProbeResult, IngestRequest
+
+COOKIE_REF_ENV_PREFIX = "VIDEOSIEVE_COOKIE_REF_"
+COOKIE_DB_PATH_ENV = "VIDEOSIEVE_COOKIE_VAULT_DB_PATH"
 
 
 class IngestProvider(Protocol):
@@ -101,18 +110,29 @@ def _load_yt_dlp() -> tuple[ModuleType, type[Exception]]:
 
 
 @contextmanager
-def _cookie_file_for_request(request: IngestRequest) -> Iterator[str | None]:
-    if request.cookie_content:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".cookies.txt", delete=False, encoding="utf-8"
+def _cookie_file_for_request(
+    request: IngestRequest,
+    workspace: WorkspaceStore | None = None,
+) -> Iterator[str | None]:
+    if request.cookie_id:
+        cookie_text = _resolve_cookie_text_from_cookie_id(
+            cookie_id=request.cookie_id,
+            project_id=request.project_id,
+            job_id=request.job_id,
+            workspace=workspace,
         )
-        try:
-            tmp.write(request.cookie_content)
-            tmp.flush()
-            tmp.close()
-            yield tmp.name
-        finally:
-            Path(tmp.name).unlink(missing_ok=True)
+        with _temporary_cookie_file(cookie_text) as cookie_file:
+            yield cookie_file
+        return
+
+    if request.cookie_secret_ref:
+        cookie_text = _resolve_cookie_text_from_secret_ref(
+            cookie_secret_ref=request.cookie_secret_ref,
+            project_id=request.project_id,
+            job_id=request.job_id,
+        )
+        with _temporary_cookie_file(cookie_text) as cookie_file:
+            yield cookie_file
         return
 
     if request.cookie_file_path:
@@ -127,7 +147,200 @@ def _cookie_file_for_request(request: IngestRequest) -> Iterator[str | None]:
         yield str(cookie_path)
         return
 
+    if request.cookie_content:
+        with _temporary_cookie_file(request.cookie_content) as cookie_file:
+            yield cookie_file
+        return
+
     yield None
+
+
+@contextmanager
+def _temporary_cookie_file(cookie_text: str) -> Iterator[str]:
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".cookies.txt", delete=False, encoding="utf-8"
+    )
+    try:
+        tmp.write(cookie_text)
+        tmp.flush()
+        tmp.close()
+        yield tmp.name
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+
+def _resolve_cookie_text_from_cookie_id(
+    *,
+    cookie_id: str,
+    project_id: str,
+    job_id: str,
+    workspace: WorkspaceStore | None,
+) -> str:
+    encrypted = _load_cookie_encrypted_by_id(
+        cookie_id=cookie_id,
+        project_id=project_id,
+        job_id=job_id,
+        workspace=workspace,
+    )
+    return _decrypt_cookie_encrypted(
+        cookie_encrypted=encrypted,
+        project_id=project_id,
+        job_id=job_id,
+    )
+
+
+def _resolve_cookie_text_from_secret_ref(
+    *,
+    cookie_secret_ref: str,
+    project_id: str,
+    job_id: str,
+) -> str:
+    normalized_ref = _normalize_cookie_ref(cookie_secret_ref)
+    env_key = f"{COOKIE_REF_ENV_PREFIX}{normalized_ref}"
+    encrypted = os.getenv(env_key)
+    if not encrypted:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message=(
+                "cookie_secret_ref was provided but encrypted cookie was not found in "
+                f"environment variable {env_key}"
+            ),
+            hint=(
+                "Set the encrypted cookie value via "
+                f"{env_key} or provide a valid cookie_id/cookie_file_path."
+            ),
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        )
+    return _decrypt_cookie_encrypted(
+        cookie_encrypted=encrypted,
+        project_id=project_id,
+        job_id=job_id,
+    )
+
+
+def _normalize_cookie_ref(raw_ref: str) -> str:
+    value = raw_ref.strip()
+    if not value:
+        raise IngestError(
+            code=INGEST_INVALID_SOURCE,
+            message="cookie_secret_ref cannot be empty",
+            retryable=False,
+            context={"stage": "ingest"},
+        )
+
+    normalized = re.sub(r"[^0-9A-Za-z]", "_", value).upper()
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    if not normalized:
+        raise IngestError(
+            code=INGEST_INVALID_SOURCE,
+            message="cookie_secret_ref must include alphanumeric characters",
+            retryable=False,
+            context={"stage": "ingest"},
+        )
+    return normalized
+
+
+def _load_cookie_encrypted_by_id(
+    *,
+    cookie_id: str,
+    project_id: str,
+    job_id: str,
+    workspace: WorkspaceStore | None,
+) -> str:
+    db_path = _resolve_cookie_db_path(workspace)
+    if db_path is None or not db_path.exists():
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message="cookie vault is not available for cookie_id resolution",
+            hint=f"Set {COOKIE_DB_PATH_ENV} or ensure runtime data directory includes infra.db.",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        )
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT cookie_encrypted FROM user_cookies WHERE id = ?",
+            (cookie_id,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message=f"cookie vault query failed: {exc}",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        ) from exc
+    finally:
+        conn.close()
+
+    if row is None:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message=f"cookie_id not found in vault: {cookie_id}",
+            hint="Provide a valid cookie_id or fallback to cookie_file_path during migration.",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        )
+
+    encrypted = row[0]
+    if not isinstance(encrypted, str) or not encrypted:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message=f"cookie vault entry is invalid for cookie_id: {cookie_id}",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        )
+    return encrypted
+
+
+def _resolve_cookie_db_path(workspace: WorkspaceStore | None) -> Path | None:
+    explicit_path = os.getenv(COOKIE_DB_PATH_ENV)
+    if explicit_path:
+        return Path(explicit_path).expanduser().resolve()
+
+    if workspace is None:
+        return None
+
+    base_dir = getattr(workspace, "_base_dir", None)
+    if isinstance(base_dir, Path):
+        return base_dir.parent / "infra.db"
+    return None
+
+
+def _decrypt_cookie_encrypted(*, cookie_encrypted: str, project_id: str, job_id: str) -> str:
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+    except Exception as exc:
+        raise IngestError(
+            code=INGEST_DEPENDENCY_MISSING,
+            message=f"cryptography is required for encrypted cookie resolution: {exc}",
+            hint="Install dependency `cryptography` and retry ingest.",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        ) from exc
+
+    app_secret = os.getenv("APP_SECRET_KEY")
+    if not app_secret:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message="APP_SECRET_KEY is required for encrypted cookie resolution",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        )
+
+    digest = sha256(app_secret.encode("utf-8")).digest()
+    fernet = Fernet(urlsafe_b64encode(digest))
+    try:
+        decoded: bytes = fernet.decrypt(cookie_encrypted.encode("utf-8"))
+    except InvalidToken as exc:
+        raise IngestError(
+            code=INGEST_AUTH_REQUIRED,
+            message="encrypted cookie cannot be decrypted with current APP_SECRET_KEY",
+            retryable=False,
+            context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+        ) from exc
+    return decoded.decode("utf-8")
 
 
 DEFAULT_FORMAT_SELECTOR = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best[ext=mp4]/best"
@@ -235,7 +448,7 @@ class YtDlpIngestProvider:
                 context={"stage": "ingest"},
             )
 
-        with _cookie_file_for_request(request) as cookie_file:
+        with _cookie_file_for_request(request, workspace=None) as cookie_file:
             selector = _build_format_selector(request.video_format_id, request.audio_format_id)
             info = self._extract_info(
                 source_url=request.source_url,
@@ -287,7 +500,7 @@ class YtDlpIngestProvider:
         attempts = request.download_retries + 1
         last_error: IngestError | None = None
 
-        with _cookie_file_for_request(request) as cookie_file:
+        with _cookie_file_for_request(request, workspace=workspace) as cookie_file:
             for attempt in range(1, attempts + 1):
                 try:
                     info_by_role: dict[str, dict[str, Any]] = {}

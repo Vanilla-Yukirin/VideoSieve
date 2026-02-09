@@ -33,6 +33,8 @@ class IngestRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     language_hint: str | None = None
     download_retries: int = Field(default=2, ge=0, le=5)
+    cookie_id: str | None = None
+    cookie_secret_ref: str | None = None
     cookie_content: str | None = None
     cookie_file_path: str | None = None
     ytdlp_sort: str | None = None

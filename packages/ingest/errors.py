@@ -30,7 +30,10 @@ def map_download_error(
         return IngestError(
             code=INGEST_AUTH_REQUIRED,
             message=message,
-            hint="Provide valid bilibili cookies via cookie_content or cookie_file_path.",
+            hint=(
+                "Provide valid bilibili cookies via cookie_id/cookie_secret_ref "
+                "or cookie_file_path (migration fallback)."
+            ),
             retryable=False,
             context=context,
         )

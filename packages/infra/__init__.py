@@ -2,7 +2,7 @@
 
 from .event_bus import RedisEventBus
 from .interfaces import EventBus, EventSubscription, JobRepository, WorkspaceStore
-from .models import InfraEvent, JobRecord, ProjectRecord
+from .models import InfraEvent, JobRecord, ProjectRecord, UserCookieRecord
 from .sqlite_repository import SQLiteJobRepository
 from .workspace import FileSystemWorkspaceStore
 
@@ -16,6 +16,7 @@ __all__ = [
     "ProjectRecord",
     "RedisEventBus",
     "SQLiteJobRepository",
+    "UserCookieRecord",
     "WorkspaceStore",
     "__version__",
 ]

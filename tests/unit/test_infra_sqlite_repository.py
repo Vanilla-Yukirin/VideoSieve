@@ -50,3 +50,58 @@ def test_sqlite_repository_list_jobs_ordered(tmp_path: Path) -> None:
     assert [item.job_id for item in jobs] == ["j-1", "j-2"]
 
     repo.close()
+
+
+def test_sqlite_repository_user_cookie_crud_and_default_switch(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+
+    repo.create_user_cookie(
+        cookie_id="c-1",
+        user_id="u-1",
+        name="main",
+        cookie_encrypted="enc-1",
+        is_default=True,
+        status="unknown",
+    )
+    repo.create_user_cookie(
+        cookie_id="c-2",
+        user_id="u-1",
+        name="backup",
+        cookie_encrypted="enc-2",
+        is_default=False,
+        status="unknown",
+    )
+
+    rows = repo.list_user_cookies("u-1")
+    assert [row.id for row in rows] == ["c-1", "c-2"]
+    assert rows[0].is_default is True
+
+    repo.clear_default_cookie_for_user("u-1")
+    repo.update_user_cookie(cookie_id="c-2", user_id="u-1", is_default=True)
+
+    updated_first = repo.get_user_cookie("c-1", "u-1")
+    updated_second = repo.get_user_cookie("c-2", "u-1")
+    assert updated_first is not None
+    assert updated_second is not None
+    assert updated_first.is_default is False
+    assert updated_second.is_default is True
+
+    repo.update_user_cookie(
+        cookie_id="c-2",
+        user_id="u-1",
+        status="valid",
+        last_validated_at="2026-01-01T00:00:00+00:00",
+        last_error_code=None,
+        set_last_validated_at=True,
+        set_last_error_code=True,
+    )
+    validated = repo.get_user_cookie("c-2", "u-1")
+    assert validated is not None
+    assert validated.status == "valid"
+    assert validated.last_validated_at == "2026-01-01T00:00:00+00:00"
+    assert validated.last_error_code is None
+
+    repo.delete_user_cookie("c-1", "u-1")
+    assert repo.get_user_cookie("c-1", "u-1") is None
+    repo.close()

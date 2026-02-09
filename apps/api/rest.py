@@ -6,7 +6,14 @@ from typing import Any
 
 from contracts import ControlCommandType
 
-from .models import IngestProbeRequest, JobCreateRequest, ProjectCreateRequest
+from .models import (
+    CookieCreateRequest,
+    CookiePatchRequest,
+    CookieValidateRequest,
+    IngestProbeRequest,
+    JobCreateRequest,
+    ProjectCreateRequest,
+)
 from .service import ApiControlPlane
 
 REST_ROUTES: tuple[str, ...] = (
@@ -19,6 +26,11 @@ REST_ROUTES: tuple[str, ...] = (
     "GET /jobs/{job_id}/artifacts",
     "POST /jobs/{job_id}/control/{command}",
     "POST /ingest/probe",
+    "POST /me/cookies",
+    "GET /me/cookies",
+    "PATCH /me/cookies/{cookie_id}",
+    "DELETE /me/cookies/{cookie_id}",
+    "POST /me/cookies/{cookie_id}/validate",
 )
 
 
@@ -102,4 +114,42 @@ def probe_ingest_formats(
     """POST /ingest/probe"""
 
     result = control_plane.probe_ingest_formats(IngestProbeRequest.model_validate(payload))
+    return result.model_dump(mode="json")
+
+
+def create_me_cookie(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, object]:
+    """POST /me/cookies"""
+
+    created = control_plane.create_cookie(CookieCreateRequest.model_validate(payload))
+    return created.model_dump(mode="json")
+
+
+def list_me_cookies(control_plane: ApiControlPlane) -> list[dict[str, object]]:
+    """GET /me/cookies"""
+
+    return [item.model_dump(mode="json") for item in control_plane.list_cookies()]
+
+
+def patch_me_cookie(
+    control_plane: ApiControlPlane, cookie_id: str, payload: dict[str, Any]
+) -> dict[str, object]:
+    """PATCH /me/cookies/{cookie_id}"""
+
+    updated = control_plane.patch_cookie(cookie_id, CookiePatchRequest.model_validate(payload))
+    return updated.model_dump(mode="json")
+
+
+def delete_me_cookie(control_plane: ApiControlPlane, cookie_id: str) -> dict[str, bool]:
+    """DELETE /me/cookies/{cookie_id}"""
+
+    control_plane.delete_cookie(cookie_id)
+    return {"deleted": True}
+
+
+def validate_me_cookie(
+    control_plane: ApiControlPlane, cookie_id: str, payload: dict[str, Any]
+) -> dict[str, object]:
+    """POST /me/cookies/{cookie_id}/validate"""
+
+    result = control_plane.validate_cookie(cookie_id, CookieValidateRequest.model_validate(payload))
     return result.model_dump(mode="json")

@@ -40,3 +40,19 @@ class JobRecord:
     error_message: str | None
     created_at: str
     updated_at: str
+
+
+@dataclass(slots=True)
+class UserCookieRecord:
+    """Encrypted cookie vault record scoped to one user."""
+
+    id: str
+    user_id: str
+    name: str
+    cookie_encrypted: str
+    is_default: bool
+    status: str
+    last_validated_at: str | None
+    last_error_code: str | None
+    created_at: str
+    updated_at: str

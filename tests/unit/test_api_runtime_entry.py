@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -60,6 +60,25 @@ def test_runtime_ws_connect_immediately_receives_snapshot(tmp_path: Path) -> Non
             assert first["payload"]["job_id"] == job_id
 
 
+def test_runtime_cookie_endpoint_returns_config_error_when_secret_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("APP_SECRET_KEY", raising=False)
+    with _make_client(tmp_path) as client:
+        response = client.post(
+            "/me/cookies",
+            json={
+                "name": "demo",
+                "cookie_netscape_text": (
+                    "# Netscape HTTP Cookie File\n"
+                    ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tdemo\n"
+                ),
+            },
+        )
+        assert response.status_code == 500
+        assert response.json()["code"] == "config_error"
+
+
 @pytest.mark.parametrize("raw_value,expected", [("true", True), ("false", False)])
 def test_runtime_event_bus_stub_mode_is_configurable(
     tmp_path: Path,
@@ -75,5 +94,5 @@ def test_runtime_event_bus_stub_mode_is_configurable(
     app = create_app(data_dir=tmp_path / "runtime")
     with TestClient(app) as client:
         _ = client.get("/healthz")
-        runtime = client.app.state.runtime
+        runtime = cast(Any, client.app).state.runtime
         assert runtime.event_bus._stub_mode is expected

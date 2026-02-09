@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
 
-from .models import InfraEvent, JobRecord, ProjectRecord
+from .models import InfraEvent, JobRecord, ProjectRecord, UserCookieRecord
 
 EventHandler = Callable[[InfraEvent], None]
 
@@ -83,6 +83,52 @@ class JobRepository(ABC):
     @abstractmethod
     def close(self) -> None:
         """Release underlying connection resources."""
+
+    @abstractmethod
+    def create_user_cookie(
+        self,
+        *,
+        cookie_id: str,
+        user_id: str,
+        name: str,
+        cookie_encrypted: str,
+        is_default: bool,
+        status: str,
+    ) -> None:
+        """Create one encrypted cookie row."""
+
+    @abstractmethod
+    def list_user_cookies(self, user_id: str) -> list[UserCookieRecord]:
+        """List all cookie rows for one user."""
+
+    @abstractmethod
+    def get_user_cookie(self, cookie_id: str, user_id: str) -> UserCookieRecord | None:
+        """Get one cookie row by id scoped to user."""
+
+    @abstractmethod
+    def update_user_cookie(
+        self,
+        *,
+        cookie_id: str,
+        user_id: str,
+        name: str | None = None,
+        cookie_encrypted: str | None = None,
+        is_default: bool | None = None,
+        status: str | None = None,
+        last_validated_at: str | None = None,
+        last_error_code: str | None = None,
+        set_last_validated_at: bool = False,
+        set_last_error_code: bool = False,
+    ) -> None:
+        """Update one cookie row fields."""
+
+    @abstractmethod
+    def delete_user_cookie(self, cookie_id: str, user_id: str) -> None:
+        """Delete one cookie row scoped to user."""
+
+    @abstractmethod
+    def clear_default_cookie_for_user(self, user_id: str) -> None:
+        """Clear default flag for all cookies of one user."""
 
 
 class WorkspaceStore(ABC):

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
+from base64 import urlsafe_b64encode
 from collections import defaultdict, deque
 from collections.abc import Callable
+from hashlib import sha256
 
+from cryptography.fernet import Fernet, InvalidToken
 from workers import WorkerRuntime
 
 from contracts import ControlCommandType, JobStatus
@@ -18,9 +22,11 @@ from infra import (
     InfraEvent,
     JobRepository,
     SQLiteJobRepository,
+    UserCookieRecord,
     WorkspaceStore,
 )
 from ingest import IngestRequest, probe_url_formats
+from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
 from pipeline import PipelineOrchestrator
 from pipeline.control import ControlAckPayload, evaluate_control_command
 from pipeline.dispatch import (
@@ -31,6 +37,11 @@ from pipeline.dispatch import (
 
 from .models import (
     ArtifactItem,
+    CookieCreateRequest,
+    CookieListItem,
+    CookiePatchRequest,
+    CookieValidateRequest,
+    CookieValidateResponse,
     IngestAssetSelection,
     IngestFormatItem,
     IngestParams,
@@ -39,9 +50,15 @@ from .models import (
     JobCreateRequest,
     JobSnapshot,
     ProjectCreateRequest,
+    utc_now_iso,
 )
 
 MAX_LOG_BUFFER = 100
+DEFAULT_COOKIE_USER_ID = "default_user"
+
+
+class ApiConfigError(RuntimeError):
+    """Raised when required API runtime configuration is missing."""
 
 
 def _as_optional_str(value: object) -> str | None:
@@ -115,6 +132,142 @@ class ApiControlPlane:
             "created_at": project.created_at,
             "updated_at": project.updated_at,
         }
+
+    def create_cookie(self, payload: CookieCreateRequest) -> CookieListItem:
+        """Create one user-scoped encrypted cookie entry."""
+
+        user_id = DEFAULT_COOKIE_USER_ID
+        if payload.is_default:
+            self._repository.clear_default_cookie_for_user(user_id)
+
+        cookie_id = f"c_{uuid.uuid4().hex[:12]}"
+        self._repository.create_user_cookie(
+            cookie_id=cookie_id,
+            user_id=user_id,
+            name=payload.name,
+            cookie_encrypted=self._encrypt_cookie(payload.cookie_netscape_text),
+            is_default=payload.is_default,
+            status="unknown",
+        )
+        created = self._repository.get_user_cookie(cookie_id, user_id)
+        if created is None:
+            raise RuntimeError("failed to persist cookie")
+        return self._to_cookie_list_item(created)
+
+    def list_cookies(self) -> list[CookieListItem]:
+        """List cookie metadata for current user scope."""
+
+        return [
+            self._to_cookie_list_item(row)
+            for row in self._repository.list_user_cookies(DEFAULT_COOKIE_USER_ID)
+        ]
+
+    def patch_cookie(self, cookie_id: str, payload: CookiePatchRequest) -> CookieListItem:
+        """Patch mutable cookie metadata/content without exposing plaintext."""
+
+        _ = self._require_cookie(cookie_id)
+        if payload.is_default:
+            self._repository.clear_default_cookie_for_user(DEFAULT_COOKIE_USER_ID)
+
+        self._repository.update_user_cookie(
+            cookie_id=cookie_id,
+            user_id=DEFAULT_COOKIE_USER_ID,
+            name=payload.name,
+            cookie_encrypted=(
+                self._encrypt_cookie(payload.cookie_netscape_text)
+                if payload.cookie_netscape_text is not None
+                else None
+            ),
+            is_default=payload.is_default,
+            status="unknown" if payload.cookie_netscape_text is not None else None,
+            last_validated_at=(None if payload.cookie_netscape_text is not None else None),
+            last_error_code=(None if payload.cookie_netscape_text is not None else None),
+            set_last_validated_at=payload.cookie_netscape_text is not None,
+            set_last_error_code=payload.cookie_netscape_text is not None,
+        )
+        updated = self._require_cookie(cookie_id)
+        return self._to_cookie_list_item(updated)
+
+    def delete_cookie(self, cookie_id: str) -> None:
+        """Delete one cookie entry in current user scope."""
+
+        _ = self._require_cookie(cookie_id)
+        self._repository.delete_user_cookie(cookie_id, DEFAULT_COOKIE_USER_ID)
+
+    def validate_cookie(
+        self, cookie_id: str, payload: CookieValidateRequest
+    ) -> CookieValidateResponse:
+        """Validate cookie by probing ingest URL using decrypted Netscape text."""
+
+        current = self._require_cookie(cookie_id)
+        cookie_text = self._decrypt_cookie(current.cookie_encrypted)
+        ts = utc_now_iso()
+        status = "valid"
+        error_code: str | None = None
+        try:
+            probe_url_formats(
+                IngestRequest(
+                    project_id="p_cookie_validate",
+                    job_id="j_cookie_validate",
+                    source_url=payload.source_url,
+                    cookie_content=cookie_text,
+                )
+            )
+        except IngestError as exc:
+            status = "expired" if exc.code == INGEST_AUTH_REQUIRED else "invalid"
+            error_code = exc.code
+
+        self._repository.update_user_cookie(
+            cookie_id=cookie_id,
+            user_id=DEFAULT_COOKIE_USER_ID,
+            status=status,
+            last_validated_at=ts,
+            last_error_code=error_code,
+            set_last_validated_at=True,
+            set_last_error_code=True,
+        )
+        return CookieValidateResponse(
+            id=cookie_id,
+            status=status,
+            last_validated_at=ts,
+            last_error_code=error_code,
+        )
+
+    def _require_cookie(self, cookie_id: str) -> UserCookieRecord:
+        row = self._repository.get_user_cookie(cookie_id, DEFAULT_COOKIE_USER_ID)
+        if row is None:
+            raise KeyError(f"cookie not found: {cookie_id}")
+        return row
+
+    def _to_cookie_list_item(self, row: UserCookieRecord) -> CookieListItem:
+        return CookieListItem(
+            id=row.id,
+            user_id=row.user_id,
+            name=row.name,
+            is_default=row.is_default,
+            status=row.status,
+            last_validated_at=row.last_validated_at,
+            last_error_code=row.last_error_code,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+
+    def _get_fernet(self) -> Fernet:
+        secret = os.getenv("APP_SECRET_KEY")
+        if not secret:
+            raise ApiConfigError("APP_SECRET_KEY is required for cookie vault operations")
+        digest = sha256(secret.encode("utf-8")).digest()
+        return Fernet(urlsafe_b64encode(digest))
+
+    def _encrypt_cookie(self, cookie_text: str) -> str:
+        return self._get_fernet().encrypt(cookie_text.encode("utf-8")).decode("utf-8")
+
+    def _decrypt_cookie(self, cookie_encrypted: str) -> str:
+        try:
+            decoded = self._get_fernet().decrypt(cookie_encrypted.encode("utf-8"))
+        except InvalidToken as exc:
+            raise ApiConfigError("APP_SECRET_KEY does not match stored cookie encryption") from exc
+        return decoded.decode("utf-8")
 
     def create_job(self, payload: JobCreateRequest) -> str:
         """Create one queued job under one project."""
@@ -274,8 +427,11 @@ class ApiControlPlane:
         normalized: dict[str, object] = {}
         if ingest.source_url is not None:
             normalized["source_url"] = ingest.source_url
-        if ingest.cookie_file_path is not None:
+        if ingest.cookie_id is not None:
+            normalized["cookie_id"] = ingest.cookie_id
+        elif ingest.cookie_file_path is not None:
             normalized["cookie_file_path"] = ingest.cookie_file_path
+            normalized["cookie_file_path_deprecated"] = True
         if ingest.cookie_secret_ref is not None:
             normalized["cookie_secret_ref"] = ingest.cookie_secret_ref
         if analysis_asset is not None:

@@ -21,15 +21,20 @@ from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
 from .rest import (
     control_job,
     create_job,
+    create_me_cookie,
     create_project,
+    delete_me_cookie,
     get_job,
     get_job_snapshot,
     get_project,
     list_job_artifacts,
+    list_me_cookies,
     list_project_jobs,
+    patch_me_cookie,
     probe_ingest_formats,
+    validate_me_cookie,
 )
-from .service import ApiControlPlane
+from .service import ApiConfigError, ApiControlPlane
 from .ws_gateway import JobWebSocketGateway
 
 
@@ -145,6 +150,17 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
             },
         )
 
+    @app.exception_handler(ApiConfigError)
+    async def _handle_api_config_error(_request: Request, exc: ApiConfigError) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "config_error",
+                "message": str(exc),
+                "retryable": False,
+            },
+        )
+
     @app.exception_handler(RequestValidationError)
     async def _handle_fastapi_validation_error(
         _request: Request, exc: RequestValidationError
@@ -175,7 +191,8 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         return {"status": "ok"}
 
     def _control_plane(request: Request) -> ApiControlPlane:
-        return request.app.state.runtime.control_plane
+        runtime: _Runtime = request.app.state.runtime
+        return runtime.control_plane
 
     @app.post("/projects")
     async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
@@ -214,6 +231,30 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
     @app.post("/ingest/probe")
     async def post_ingest_probe(payload: dict[str, Any], request: Request) -> dict[str, object]:
         return probe_ingest_formats(_control_plane(request), payload)
+
+    @app.post("/me/cookies")
+    async def post_me_cookies(payload: dict[str, Any], request: Request) -> dict[str, object]:
+        return create_me_cookie(_control_plane(request), payload)
+
+    @app.get("/me/cookies")
+    async def get_me_cookies(request: Request) -> list[dict[str, object]]:
+        return list_me_cookies(_control_plane(request))
+
+    @app.patch("/me/cookies/{cookie_id}")
+    async def patch_me_cookies(
+        cookie_id: str, payload: dict[str, Any], request: Request
+    ) -> dict[str, object]:
+        return patch_me_cookie(_control_plane(request), cookie_id, payload)
+
+    @app.delete("/me/cookies/{cookie_id}")
+    async def delete_me_cookies(cookie_id: str, request: Request) -> dict[str, bool]:
+        return delete_me_cookie(_control_plane(request), cookie_id)
+
+    @app.post("/me/cookies/{cookie_id}/validate")
+    async def post_me_cookie_validate(
+        cookie_id: str, payload: dict[str, Any], request: Request
+    ) -> dict[str, object]:
+        return validate_me_cookie(_control_plane(request), cookie_id, payload)
 
     @app.websocket("/ws/jobs/{job_id}")
     async def ws_jobs(websocket: WebSocket, job_id: str) -> None:

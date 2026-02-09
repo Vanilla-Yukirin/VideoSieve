@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
-from apps.api.models import IngestParams, JobCreateRequest, ProjectCreateRequest
+from apps.api.models import (
+    IngestAssetSelection,
+    IngestParams,
+    JobCreateRequest,
+    ProjectCreateRequest,
+)
 from apps.api.rest import create_job as rest_create_job
 from apps.api.service import ApiControlPlane
 from pydantic import ValidationError
@@ -71,7 +76,9 @@ def test_create_job_normalizes_analysis_only_payload(tmp_path: Path) -> None:
             project_id=pid,
             ingest=IngestParams(
                 source_url="https://test.com/video",
-                analysis_asset={"video_format_id": "30032", "audio_format_id": "30280"},
+                analysis_asset=IngestAssetSelection(
+                    video_format_id="30032", audio_format_id="30280"
+                ),
             ),
         )
     )
@@ -98,7 +105,9 @@ def test_create_job_normalizes_quality_only_payload(tmp_path: Path) -> None:
             project_id=pid,
             ingest=IngestParams(
                 source_url="https://test.com/video",
-                quality_asset={"video_format_id": "30116", "audio_format_id": "30280"},
+                quality_asset=IngestAssetSelection(
+                    video_format_id="30116", audio_format_id="30280"
+                ),
             ),
         )
     )
@@ -145,6 +154,62 @@ def test_create_job_rejects_ytdlp_advanced_fields(tmp_path: Path) -> None:
                 "ingest": {
                     "source_url": "https://test.com/video",
                     "ytdlp_sort": "res,br",
+                },
+            },
+        )
+
+
+def test_create_job_persists_cookie_id_when_present(tmp_path: Path) -> None:
+    control_plane, workspace = _make_control_plane(tmp_path)
+    pid = control_plane.create_project(ProjectCreateRequest(title="cookie_id"))
+
+    control_plane.create_job(
+        JobCreateRequest(
+            project_id=pid,
+            ingest=IngestParams(
+                source_url="https://test.com/video",
+                cookie_id="c_demo123",
+            ),
+        )
+    )
+
+    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    assert data["ingest"]["cookie_id"] == "c_demo123"
+    assert "cookie_file_path" not in data["ingest"]
+
+
+def test_create_job_cookie_id_takes_priority_over_cookie_file_path(tmp_path: Path) -> None:
+    control_plane, workspace = _make_control_plane(tmp_path)
+    pid = control_plane.create_project(ProjectCreateRequest(title="cookie_priority"))
+
+    control_plane.create_job(
+        JobCreateRequest(
+            project_id=pid,
+            ingest=IngestParams(
+                source_url="https://test.com/video",
+                cookie_id="c_priority",
+                cookie_file_path="/tmp/legacy.cookies.txt",
+            ),
+        )
+    )
+
+    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    assert data["ingest"]["cookie_id"] == "c_priority"
+    assert "cookie_file_path" not in data["ingest"]
+
+
+def test_create_job_rejects_cookie_content_in_payload(tmp_path: Path) -> None:
+    control_plane, _ = _make_control_plane(tmp_path)
+    pid = control_plane.create_project(ProjectCreateRequest(title="reject_cookie_content"))
+
+    with pytest.raises(ValidationError):
+        rest_create_job(
+            control_plane,
+            {
+                "project_id": pid,
+                "ingest": {
+                    "source_url": "https://test.com/video",
+                    "cookie_content": "SESSDATA=plaintext",
                 },
             },
         )

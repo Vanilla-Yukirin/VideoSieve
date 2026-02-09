@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from contracts import ControlCommandType
@@ -26,6 +28,7 @@ class IngestParams(ApiModel):
     source_url: str | None = None
     video_format_id: str | None = None
     audio_format_id: str | None = None
+    cookie_id: str | None = None
     cookie_file_path: str | None = None
     cookie_secret_ref: str | None = None
     analysis_asset: IngestAssetSelection | None = None
@@ -109,3 +112,101 @@ class WsControlCommand(ApiModel):
     """WS client command payload."""
 
     command: ControlCommandType
+
+
+def validate_netscape_cookie_text(raw: str) -> str:
+    """Validate Netscape cookie text lines and return normalized string."""
+
+    lines = [line.strip() for line in raw.splitlines()]
+    records = [line for line in lines if line and not line.startswith("#")]
+    if not records:
+        raise ValueError("cookie_netscape_text must include at least one cookie record")
+
+    for index, line in enumerate(records, start=1):
+        parts = line.split("\t")
+        if len(parts) != 7:
+            raise ValueError(f"cookie row {index} must contain exactly 7 tab-separated fields")
+        include_subdomains = parts[1]
+        secure = parts[3]
+        expires = parts[4]
+        name = parts[5]
+        value = parts[6]
+        if include_subdomains not in {"TRUE", "FALSE"}:
+            raise ValueError(f"cookie row {index} has invalid include_subdomains flag")
+        if secure not in {"TRUE", "FALSE"}:
+            raise ValueError(f"cookie row {index} has invalid secure flag")
+        if not expires.isdigit():
+            raise ValueError(f"cookie row {index} has invalid expires value")
+        if not name:
+            raise ValueError(f"cookie row {index} has empty cookie name")
+        if not value:
+            raise ValueError(f"cookie row {index} has empty cookie value")
+
+    normalized = "\n".join(lines).strip()
+    if not normalized.endswith("\n"):
+        normalized = f"{normalized}\n"
+    return normalized
+
+
+class CookieCreateRequest(ApiModel):
+    """Create one encrypted cookie vault entry."""
+
+    name: str
+    cookie_netscape_text: str
+    is_default: bool = False
+
+    @model_validator(mode="after")
+    def validate_cookie_text(self) -> CookieCreateRequest:
+        self.cookie_netscape_text = validate_netscape_cookie_text(self.cookie_netscape_text)
+        return self
+
+
+class CookiePatchRequest(ApiModel):
+    """Patch mutable cookie vault fields."""
+
+    name: str | None = None
+    cookie_netscape_text: str | None = None
+    is_default: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_patch_payload(self) -> CookiePatchRequest:
+        if self.name is None and self.cookie_netscape_text is None and self.is_default is None:
+            raise ValueError("at least one field must be provided")
+        if self.cookie_netscape_text is not None:
+            self.cookie_netscape_text = validate_netscape_cookie_text(self.cookie_netscape_text)
+        return self
+
+
+class CookieValidateRequest(ApiModel):
+    """Request payload for cookie validity probe."""
+
+    source_url: str = "https://www.bilibili.com"
+
+
+class CookieListItem(ApiModel):
+    """Public cookie metadata row without plaintext content."""
+
+    id: str
+    user_id: str
+    name: str
+    is_default: bool
+    status: str
+    last_validated_at: str | None = None
+    last_error_code: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class CookieValidateResponse(ApiModel):
+    """Response for cookie validation action."""
+
+    id: str
+    status: str
+    last_validated_at: str | None = None
+    last_error_code: str | None = None
+
+
+def utc_now_iso() -> str:
+    """Generate UTC ISO8601 timestamp string."""
+
+    return datetime.now(UTC).isoformat()

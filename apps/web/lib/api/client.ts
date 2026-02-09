@@ -8,6 +8,11 @@ import {
   CreateJobRequest,
   ArtifactItem,
   IngestProbeResponse,
+  CookieListItem,
+  CookieCreateRequest,
+  CookiePatchRequest,
+  CookieValidateRequest,
+  CookieValidateResponse,
 } from "./types";
 
 const API_BASE = "/api"; // Rewrites will handle the proxy
@@ -55,6 +60,35 @@ export const api = {
   // Probe: minimal contract — only source_url
   probeIngestFormats: (payload: { source_url: string }) =>
     fetchJson<IngestProbeResponse>("/ingest/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  // Cookie Vault
+  listMeCookies: () => fetchJson<CookieListItem[]>("/me/cookies"),
+
+  createMeCookie: (payload: CookieCreateRequest) =>
+    fetchJson<CookieListItem>("/me/cookies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  patchMeCookie: (cookieId: string, payload: CookiePatchRequest) =>
+    fetchJson<CookieListItem>(`/me/cookies/${cookieId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteMeCookie: (cookieId: string) =>
+    fetchJson<{ deleted: boolean }>(`/me/cookies/${cookieId}`, {
+      method: "DELETE",
+    }),
+
+  validateMeCookie: (cookieId: string, payload: CookieValidateRequest = {}) =>
+    fetchJson<CookieValidateResponse>(`/me/cookies/${cookieId}/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -81,10 +81,46 @@ export interface DualAssetIngestParams {
   source_url: string;
   analysis_asset: AssetSelection;
   quality_asset: AssetSelection;
+  cookie_id?: string;
 }
 
 export interface CreateJobRequest {
   project_id: string;
   summary_enabled?: boolean;
   ingest?: DualAssetIngestParams;
+}
+
+export interface CookieListItem {
+  id: string;
+  user_id: string;
+  name: string;
+  is_default: boolean;
+  status: "unknown" | "valid" | "expired" | "invalid";
+  last_validated_at?: string | null;
+  last_error_code?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CookieCreateRequest {
+  name: string;
+  cookie_netscape_text: string;
+  is_default?: boolean;
+}
+
+export interface CookiePatchRequest {
+  name?: string;
+  cookie_netscape_text?: string;
+  is_default?: boolean;
+}
+
+export interface CookieValidateRequest {
+  source_url?: string;
+}
+
+export interface CookieValidateResponse {
+  id: string;
+  status: "unknown" | "valid" | "expired" | "invalid";
+  last_validated_at?: string | null;
+  last_error_code?: string | null;
 }

@@ -11,7 +11,8 @@ import { Badge } from "@/components/Badge";
 import { ArrowLeft, PlayCircle, Clock } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
-import { DualAssetIngestParams } from "@/lib/api/types";
+import { CookieListItem, DualAssetIngestParams } from "@/lib/api/types";
+import { resolveDefaultCookieId } from "@/lib/cookies/helpers";
 
 export default function ProjectDetail() {
   const params = useParams();
@@ -21,6 +22,7 @@ export default function ProjectDetail() {
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [ingestParams, setIngestParams] = useState<DualAssetIngestParams | undefined>(undefined);
   const [summaryEnabled, setSummaryEnabled] = useState(false);
+  const [selectedCookieId, setSelectedCookieId] = useState("");
 
   const { data: project, error: projectError } = useSWR(
     projectId ? `/projects/${projectId}` : null,
@@ -32,6 +34,22 @@ export default function ProjectDetail() {
     () => api.getProjectJobs(projectId)
   );
 
+  const { data: cookies, error: cookiesError } = useSWR<CookieListItem[]>(
+    "/me/cookies",
+    () => api.listMeCookies()
+  );
+
+  useEffect(() => {
+    if (!cookies || cookies.length === 0) {
+      setSelectedCookieId("");
+      return;
+    }
+    const hasSelected = cookies.some((cookie) => cookie.id === selectedCookieId);
+    if (!selectedCookieId || !hasSelected) {
+      setSelectedCookieId(resolveDefaultCookieId(cookies));
+    }
+  }, [cookies, selectedCookieId]);
+
   // Auto-add to index on visit if valid
   useEffect(() => {
     if (project) addProject(project.project_id);
@@ -40,10 +58,17 @@ export default function ProjectDetail() {
   const handleCreateJob = async () => {
     setIsCreatingJob(true);
     try {
+      const ingestWithCookie = ingestParams
+        ? {
+            ...ingestParams,
+            ...(selectedCookieId ? { cookie_id: selectedCookieId } : {}),
+          }
+        : undefined;
+
       const { job_id } = await api.createJob({
         project_id: projectId,
         summary_enabled: summaryEnabled,
-        ingest: ingestParams,
+        ingest: ingestWithCookie,
       });
       await refreshJobs();
       router.push(`/jobs/${job_id}`);
@@ -99,6 +124,34 @@ export default function ProjectDetail() {
             </CardHeader>
             <CardContent className="space-y-4">
                 <IngestProbe onParamsReady={setIngestParams} disabled={isCreatingJob} />
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium" htmlFor="cookie-select">
+                    Cookie
+                  </label>
+                  <select
+                    id="cookie-select"
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={selectedCookieId}
+                    onChange={(e) => setSelectedCookieId(e.target.value)}
+                    disabled={isCreatingJob || Boolean(cookiesError)}
+                  >
+                    <option value="">Do not use cookie</option>
+                    {(cookies ?? []).map((cookie) => (
+                      <option key={cookie.id} value={cookie.id}>
+                        {cookie.name} ({cookie.status}){cookie.is_default ? " [default]" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Some videos may require login. Choose a cookie when needed.
+                  </p>
+                  {cookiesError ? (
+                    <p className="text-xs text-amber-700">
+                      Cookie list unavailable. Continuing in no-cookie mode.
+                    </p>
+                  ) : null}
+                </div>
 
                 {/* Summary toggle */}
                 <label className="flex items-center gap-2 text-sm">

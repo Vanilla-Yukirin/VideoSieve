@@ -6,6 +6,7 @@ import { useProjectIndex } from "@/lib/hooks/useProjectIndex";
 import { Button } from "@/components/Button";
 import { ProjectCard } from "@/components/ProjectCard";
 import { PlusCircle } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   const { projectIds, addProject, removeProject, isLoaded } = useProjectIndex();
@@ -37,6 +38,14 @@ export default function Home() {
         <Button onClick={handleCreate} isLoading={isCreating}>
           <PlusCircle className="mr-2 h-4 w-4" /> New Project
         </Button>
+      </div>
+
+      <div className="rounded-md border bg-muted/20 p-3 text-sm">
+        Need login cookies for private videos? Manage them in {" "}
+        <Link href="/settings/cookies" className="font-medium underline underline-offset-4">
+          Cookie Vault
+        </Link>
+        .
       </div>
 
       {runtimeMode === "mock" ? (

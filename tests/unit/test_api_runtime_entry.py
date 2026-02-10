@@ -97,6 +97,45 @@ def test_runtime_probe_returns_not_found_for_unknown_cookie_id(tmp_path: Path) -
         assert response.json()["code"] == "not_found"
 
 
+def test_runtime_cookie_validate_requires_source_url(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created = client.post(
+            "/me/cookies",
+            json={
+                "name": "demo",
+                "cookie_netscape_text": (
+                    "# Netscape HTTP Cookie File\n"
+                    ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tdemo\n"
+                ),
+            },
+        )
+        cookie_id = created.json()["id"]
+        response = client.post(f"/me/cookies/{cookie_id}/validate", json={})
+        assert response.status_code == 422
+        assert response.json()["code"] == "validation_error"
+
+
+def test_runtime_cookie_validate_rejects_homepage_url(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created = client.post(
+            "/me/cookies",
+            json={
+                "name": "demo",
+                "cookie_netscape_text": (
+                    "# Netscape HTTP Cookie File\n"
+                    ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tdemo\n"
+                ),
+            },
+        )
+        cookie_id = created.json()["id"]
+        response = client.post(
+            f"/me/cookies/{cookie_id}/validate",
+            json={"source_url": "https://www.bilibili.com"},
+        )
+        assert response.status_code == 422
+        assert response.json()["code"] == "validation_error"
+
+
 def test_runtime_auth_bootstrap_login_me_logout_flow(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         status = client.get("/auth/bootstrap-status")

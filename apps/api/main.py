@@ -71,6 +71,24 @@ def _read_bool_env(name: str, *, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _validation_details(exc: ValidationError | RequestValidationError) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for item in exc.errors():
+        cleaned = dict(item)
+        ctx = cleaned.get("ctx")
+        if isinstance(ctx, dict):
+            cleaned["ctx"] = {
+                key: (
+                    value
+                    if isinstance(value, (str, int, float, bool, list, dict, type(None)))
+                    else str(value)
+                )
+                for key, value in ctx.items()
+            }
+        details.append(cleaned)
+    return details
+
+
 def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool | None) -> _Runtime:
     data_dir = data_dir_override or Path(os.getenv("VIDEOSIEVE_API_DATA_DIR", "runtime/api"))
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +162,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
                 "code": "validation_error",
                 "message": "request validation failed",
                 "retryable": False,
-                "details": exc.errors(),
+                "details": _validation_details(exc),
             },
         )
 
@@ -190,7 +208,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
                 "code": "validation_error",
                 "message": "request validation failed",
                 "retryable": False,
-                "details": exc.errors(),
+                "details": _validation_details(exc),
             },
         )
 

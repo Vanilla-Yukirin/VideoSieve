@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -249,7 +250,21 @@ class CookiePatchRequest(ApiModel):
 class CookieValidateRequest(ApiModel):
     """Request payload for cookie validity probe."""
 
-    source_url: str = "https://www.bilibili.com"
+    source_url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_source_url(self) -> CookieValidateRequest:
+        raw = (self.source_url or "").strip()
+        if not raw:
+            raise ValueError("source_url is required")
+
+        parsed = urlparse(raw)
+        host = parsed.netloc.lower()
+        if host in {"bilibili.com", "www.bilibili.com"} and parsed.path in {"", "/"}:
+            raise ValueError("请传具体视频页 URL")
+
+        self.source_url = raw
+        return self
 
 
 class CookieListItem(ApiModel):

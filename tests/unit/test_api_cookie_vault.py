@@ -12,6 +12,7 @@ from apps.api.rest import (
     validate_me_cookie,
 )
 from apps.api.service import ApiConfigError, ApiControlPlane
+from pydantic import ValidationError
 
 from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
 from ingest import IngestFormatOption, IngestFormatProbeResult
@@ -92,7 +93,11 @@ def test_cookie_vault_validate_success_and_failure(
     monkeypatch.setattr(api_service, "probe_url_formats", _ok_probe)
     cookie_id = str(created["id"])
 
-    ok = validate_me_cookie(control_plane, cookie_id, {})
+    ok = validate_me_cookie(
+        control_plane,
+        cookie_id,
+        {"source_url": "https://www.bilibili.com/video/BV1demo"},
+    )
     assert ok["status"] == "valid"
     assert ok["last_error_code"] is None
 
@@ -105,9 +110,41 @@ def test_cookie_vault_validate_success_and_failure(
         )
 
     monkeypatch.setattr(api_service, "probe_url_formats", _bad_probe)
-    bad = validate_me_cookie(control_plane, cookie_id, {})
+    bad = validate_me_cookie(
+        control_plane,
+        cookie_id,
+        {"source_url": "https://www.bilibili.com/video/BV1demo"},
+    )
     assert bad["status"] == "expired"
     assert bad["last_error_code"] == INGEST_AUTH_REQUIRED
+
+
+def test_cookie_vault_validate_requires_source_url(tmp_path: Path) -> None:
+    control_plane = _make_control_plane(tmp_path)
+    created = create_me_cookie(
+        control_plane,
+        {"name": "probe", "cookie_netscape_text": COOKIE_TEXT},
+    )
+    cookie_id = str(created["id"])
+
+    with pytest.raises(ValidationError):
+        validate_me_cookie(control_plane, cookie_id, {})
+
+
+def test_cookie_vault_validate_rejects_homepage_url(tmp_path: Path) -> None:
+    control_plane = _make_control_plane(tmp_path)
+    created = create_me_cookie(
+        control_plane,
+        {"name": "probe", "cookie_netscape_text": COOKIE_TEXT},
+    )
+    cookie_id = str(created["id"])
+
+    with pytest.raises(ValidationError):
+        validate_me_cookie(
+            control_plane,
+            cookie_id,
+            {"source_url": "https://www.bilibili.com"},
+        )
 
 
 def test_cookie_vault_rejects_invalid_netscape_format(

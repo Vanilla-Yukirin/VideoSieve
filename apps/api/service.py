@@ -142,6 +142,7 @@ class ApiControlPlane:
         self._dispatched_jobs: set[str] = set()
         self._sessions: dict[str, str] = {}
         self._session_lock = threading.Lock()
+        self._validate_app_secret_or_raise()
         cooldown_raw = os.getenv("GUEST_JOB_COOLDOWN_SECONDS", "30")
         try:
             self._guest_cooldown_seconds = max(0, int(cooldown_raw))
@@ -489,6 +490,11 @@ class ApiControlPlane:
 
     def _guest_cookie_key(self) -> str:
         return os.getenv("GUEST_COOKIE_KEY", "").strip()
+
+    def _validate_app_secret_or_raise(self) -> None:
+        secret = os.getenv("APP_SECRET_KEY", "").strip()
+        if not secret:
+            raise ApiConfigError("APP_SECRET_KEY is required for API startup")
 
     def _read_bool_env(self, name: str, *, default: bool) -> bool:
         raw = os.getenv(name)

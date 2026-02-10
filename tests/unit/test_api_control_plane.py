@@ -33,6 +33,11 @@ from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJob
 from ingest import IngestFormatOption, IngestFormatProbeResult
 
 
+@pytest.fixture(autouse=True)
+def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+
+
 def _make_control_plane(
     tmp_path: Path,
     *,

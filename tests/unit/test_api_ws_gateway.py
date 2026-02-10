@@ -3,12 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from apps.api.models import JobCreateRequest, ProjectCreateRequest
 from apps.api.service import ApiControlPlane
 from apps.api.ws_gateway import JOB_WS_CHANNEL, JobWebSocketGateway
 
 from contracts import JobStatus
 from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
+
+
+@pytest.fixture(autouse=True)
+def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
 
 
 class _FakeSocket:

@@ -22,6 +22,11 @@ COOKIE_TEXT = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+
+
 def _make_control_plane(tmp_path: Path) -> ApiControlPlane:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
@@ -125,10 +130,5 @@ def test_cookie_vault_requires_app_secret_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("APP_SECRET_KEY", raising=False)
-    control_plane = _make_control_plane(tmp_path)
-
     with pytest.raises(ApiConfigError):
-        create_me_cookie(
-            control_plane,
-            {"name": "secure", "cookie_netscape_text": COOKIE_TEXT},
-        )
+        _ = _make_control_plane(tmp_path)

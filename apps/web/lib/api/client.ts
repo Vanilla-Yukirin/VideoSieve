@@ -5,6 +5,16 @@ import {
   ControlAck,
   ControlCommandType,
   CreateProjectRequest,
+  ApiErrorResponse,
+  AuthBootstrapStatusResponse,
+  AuthBootstrapRequest,
+  AuthLoginRequest,
+  AuthTokenResponse,
+  AuthMeResponse,
+  PublicAccessFlagsResponse,
+  SystemSettingsResponse,
+  SystemSettingsPatchRequest,
+  GuestCooldownResponse,
   CreateJobRequest,
   ArtifactItem,
   IngestProbeRequest,
@@ -15,18 +25,87 @@ import {
   CookieValidateRequest,
   CookieValidateResponse,
 } from "./types";
+import { withAuthHeaders } from "../auth/session";
 
 const API_BASE = "/api"; // Rewrites will handle the proxy
+
+export class ApiClientError extends Error {
+  status: number;
+  code?: string;
+  details?: ApiErrorResponse;
+
+  constructor(message: string, status: number, code?: string, details?: ApiErrorResponse) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, options);
   if (!res.ok) {
-    throw new Error(`API Error ${res.status}: ${await res.text()}`);
+    const bodyText = await res.text();
+    let parsed: ApiErrorResponse | undefined;
+    try {
+      parsed = JSON.parse(bodyText) as ApiErrorResponse;
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed?.code && parsed?.message) {
+      throw new ApiClientError(`API Error ${res.status}: ${parsed.message}`, res.status, parsed.code, parsed);
+    }
+    throw new ApiClientError(`API Error ${res.status}: ${bodyText}`, res.status);
   }
   return res.json();
 }
 
 export const api = {
+  // Auth
+  getAuthBootstrapStatus: () => fetchJson<AuthBootstrapStatusResponse>("/auth/bootstrap-status"),
+
+  bootstrapAuth: (payload: AuthBootstrapRequest) =>
+    fetchJson<AuthTokenResponse>("/auth/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  loginAuth: (payload: AuthLoginRequest) =>
+    fetchJson<AuthTokenResponse>("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  logoutAuth: (token: string | null) =>
+    fetchJson<{ ok: boolean }>("/auth/logout", {
+      method: "POST",
+      headers: withAuthHeaders(token),
+    }),
+
+  getAuthMe: (token: string | null) =>
+    fetchJson<AuthMeResponse>("/auth/me", {
+      headers: withAuthHeaders(token),
+    }),
+
+  getPublicAccessFlags: () => fetchJson<PublicAccessFlagsResponse>("/public/access-flags"),
+
+  getSystemSettings: (token: string | null) =>
+    fetchJson<SystemSettingsResponse>("/settings/system", {
+      headers: withAuthHeaders(token),
+    }),
+
+  patchSystemSettings: (token: string | null, payload: SystemSettingsPatchRequest) =>
+    fetchJson<SystemSettingsResponse>("/settings/system", {
+      method: "PATCH",
+      headers: withAuthHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    }),
+
+  getGuestCooldown: () => fetchJson<GuestCooldownResponse>("/guest/cooldown"),
+
   // Projects
   createProject: (payload: CreateProjectRequest) =>
     fetchJson<{ project_id: string }>("/projects", {
@@ -40,10 +119,10 @@ export const api = {
   getProjectJobs: (projectId: string) => fetchJson<Job[]>(`/projects/${projectId}/jobs`),
 
   // Jobs
-  createJob: (payload: CreateJobRequest) =>
+  createJob: (payload: CreateJobRequest, token: string | null = null) =>
     fetchJson<{ job_id: string }>("/jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withAuthHeaders(token, { "Content-Type": "application/json" }),
       body: JSON.stringify(payload),
     }),
 

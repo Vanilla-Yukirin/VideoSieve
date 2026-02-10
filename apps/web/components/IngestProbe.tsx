@@ -11,6 +11,7 @@ import { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
 
 import { Button } from "./Button";
 import { Card, CardContent } from "./Card";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 // Re-export helpers for backward compat
 export { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
@@ -24,6 +25,7 @@ type IngestProbeProps = {
 };
 
 export function IngestProbe({ onParamsReady, disabled = false, cookieId }: IngestProbeProps) {
+  const { t } = useI18n();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       setQualityAudio(defaultAudio);
       emitParams(trimmed, defaultVideo, defaultAudio, defaultVideo, defaultAudio);
     } catch (unknownError) {
-      const message = unknownError instanceof Error ? unknownError.message : "Probe failed";
+      const message = unknownError instanceof Error ? unknownError.message : t("error.probeFailed");
       setError(message);
     } finally {
       setLoading(false);
@@ -122,14 +124,14 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium">Video</label>
+          <label className="text-xs font-medium">{t("ingest.video")}</label>
           <select
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             value={selVid}
             onChange={(e) => onVideoChange(e.target.value)}
             disabled={disabled}
           >
-            <option value="">Auto</option>
+            <option value="">{t("ingest.auto")}</option>
             {videoOptions.map((f) => (
               <option key={f.format_id} value={f.format_id}>
                 {f.format_id} | {f.resolution ?? "?"} | {f.fps ?? "-"}fps | {f.vcodec ?? "-"}
@@ -139,14 +141,14 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-medium">Audio</label>
+          <label className="text-xs font-medium">{t("ingest.audio")}</label>
           <select
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             value={selAud}
             onChange={(e) => onAudioChange(e.target.value)}
             disabled={disabled}
           >
-            <option value="">Auto</option>
+            <option value="">{t("ingest.auto")}</option>
             {audioOptions.map((f) => (
               <option key={f.format_id} value={f.format_id}>
                 {f.format_id} | {f.acodec ?? "audio"} | {f.tbr?.toFixed(0) ?? "-"}k
@@ -163,14 +165,14 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       {/* URL input + Probe button */}
       <div className="space-y-2">
         <label className="text-sm font-medium" htmlFor="source-url-input">
-          Source URL
+          {t("ingest.sourceUrl")}
         </label>
         <div className="flex gap-2">
           <input
             id="source-url-input"
             type="text"
             className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-            placeholder="https://www.bilibili.com/video/BV..."
+            placeholder={t("ingest.urlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             disabled={loading || disabled}
@@ -180,12 +182,12 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
             disabled={loading || disabled || !url.trim()}
             variant="secondary"
           >
-            {loading ? "Probing..." : "Probe"}
+            {loading ? t("ingest.probing") : t("ingest.probe")}
           </Button>
         </div>
         {!cookieId?.trim() ? (
           <p className="text-xs text-amber-700">
-            No cookie selected. Probe may not show high-spec formats.
+            {t("ingest.noCookieHint")}
           </p>
         ) : null}
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -200,18 +202,18 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       {formats.length > 0 && (
         <details className="rounded-md border border-border p-3">
           <summary className="cursor-pointer text-sm font-medium">
-            Available formats ({formats.length})
+            {t("ingest.availableFormats", { count: formats.length })}
           </summary>
           <div className="mt-2 max-h-48 overflow-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-1 pr-2">ID</th>
-                  <th className="py-1 pr-2">Res</th>
-                  <th className="py-1 pr-2">FPS</th>
-                  <th className="py-1 pr-2">VCodec</th>
-                  <th className="py-1 pr-2">ACodec</th>
-                  <th className="py-1 pr-2">Type</th>
+                  <th className="py-1 pr-2">{t("ingest.table.id")}</th>
+                  <th className="py-1 pr-2">{t("ingest.table.res")}</th>
+                  <th className="py-1 pr-2">{t("ingest.table.fps")}</th>
+                  <th className="py-1 pr-2">{t("ingest.table.vcodec")}</th>
+                  <th className="py-1 pr-2">{t("ingest.table.acodec")}</th>
+                  <th className="py-1 pr-2">{t("ingest.table.type")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -223,7 +225,11 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
                     <td className="py-1 pr-2">{f.vcodec ?? "-"}</td>
                     <td className="py-1 pr-2">{f.acodec ?? "-"}</td>
                     <td className="py-1 pr-2">
-                      {f.is_video_only ? "video" : f.is_audio_only ? "audio" : "muxed"}
+                      {f.is_video_only
+                        ? t("ingest.type.video")
+                        : f.is_audio_only
+                          ? t("ingest.type.audio")
+                          : t("ingest.type.muxed")}
                     </td>
                   </tr>
                 ))}
@@ -237,8 +243,8 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       {formats.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormatSelector
-            label="Analysis Asset"
-            hint="Recommended: low-resolution AVC for fast analysis"
+            label={t("ingest.analysis")}
+            hint={t("ingest.analysisHint")}
             selectedVideo={analysisVideo}
             selectedAudio={analysisAudio}
             onVideoChange={(v) => {
@@ -252,8 +258,8 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
           />
 
           <FormatSelector
-            label="Quality Asset"
-            hint="Final output quality — choose highest resolution desired"
+            label={t("ingest.quality")}
+            hint={t("ingest.qualityHint")}
             selectedVideo={qualityVideo}
             selectedAudio={qualityAudio}
             onVideoChange={(v) => {
@@ -271,7 +277,7 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       {/* Dedupe hint */}
       {duplicateConfig && (
         <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
-          Analysis and quality assets have identical configuration — the download will be reused.
+          {t("ingest.duplicate")}
         </div>
       )}
     </div>

@@ -47,6 +47,56 @@ export interface CreateProjectRequest {
   title?: string;
 }
 
+export interface ApiErrorResponse {
+  code: string;
+  message: string;
+  retryable?: boolean;
+  remaining_seconds?: number;
+}
+
+export interface AuthBootstrapStatusResponse {
+  bootstrap_required: boolean;
+}
+
+export interface AuthBootstrapRequest {
+  username: string;
+  password: string;
+}
+
+export interface AuthLoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface AuthTokenResponse {
+  token: string;
+  username: string;
+}
+
+export interface AuthMeResponse {
+  username: string;
+}
+
+export interface PublicAccessFlagsResponse {
+  guest_mode_enabled: boolean;
+}
+
+export interface SystemSettingsResponse {
+  guest_mode_enabled: boolean;
+  guest_allow_cookie_input: boolean;
+}
+
+export interface SystemSettingsPatchRequest {
+  guest_mode_enabled?: boolean;
+  guest_allow_cookie_input?: boolean;
+}
+
+export interface GuestCooldownResponse {
+  active: boolean;
+  remaining_seconds: number;
+  cooldown_seconds: number;
+}
+
 export interface IngestFormatItem {
   format_id: string;
   ext?: string;

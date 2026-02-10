@@ -3,6 +3,7 @@ import { ControlCommandType } from "@/lib/api/types";
 import { api } from "@/lib/api/client";
 import { Button } from "./Button";
 import { Play, Pause, Square, Trash2 } from "lucide-react";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface ControlPanelProps {
   jobId: string;
@@ -10,6 +11,7 @@ interface ControlPanelProps {
 }
 
 export function ControlPanel({ jobId, status }: ControlPanelProps) {
+  const { t } = useI18n();
   const [loadingCmd, setLoadingCmd] = useState<ControlCommandType | null>(null);
 
   const handleCommand = async (cmd: ControlCommandType) => {
@@ -17,11 +19,11 @@ export function ControlPanel({ jobId, status }: ControlPanelProps) {
     try {
       const ack = await api.controlJob(jobId, cmd);
       if (!ack.accepted) {
-        alert(`Command rejected: ${ack.reason}`);
+        alert(t("control.reject", { reason: ack.reason ?? "-" }));
       }
     } catch (e) {
       console.error(e);
-      alert("Command failed to send");
+      alert(t("control.fail"));
     } finally {
       setLoadingCmd(null);
     }
@@ -40,14 +42,14 @@ export function ControlPanel({ jobId, status }: ControlPanelProps) {
             onClick={() => handleCommand("pause")}
             isLoading={loadingCmd === "pause"}
           >
-            <Pause className="mr-2 h-4 w-4" /> Pause
+            <Pause className="mr-2 h-4 w-4" /> {t("control.pause")}
           </Button>
           <Button
             variant="destructive"
             onClick={() => handleCommand("cancel")}
             isLoading={loadingCmd === "cancel"}
           >
-            <Square className="mr-2 h-4 w-4" /> Cancel
+            <Square className="mr-2 h-4 w-4" /> {t("control.cancel")}
           </Button>
         </>
       )}
@@ -59,14 +61,14 @@ export function ControlPanel({ jobId, status }: ControlPanelProps) {
             onClick={() => handleCommand("resume")}
             isLoading={loadingCmd === "resume"}
           >
-            <Play className="mr-2 h-4 w-4" /> Resume
+            <Play className="mr-2 h-4 w-4" /> {t("control.resume")}
           </Button>
           <Button
             variant="destructive"
             onClick={() => handleCommand("cancel")}
             isLoading={loadingCmd === "cancel"}
           >
-             <Square className="mr-2 h-4 w-4" /> Cancel
+             <Square className="mr-2 h-4 w-4" /> {t("control.cancel")}
           </Button>
         </>
       )}
@@ -76,13 +78,13 @@ export function ControlPanel({ jobId, status }: ControlPanelProps) {
         variant="outline"
         className="text-red-600 hover:text-red-700 hover:bg-red-50"
         onClick={() => {
-            if(confirm("Are you sure you want to delete this project?")) {
+            if(confirm(t("control.confirmDelete"))) {
                 handleCommand("delete");
             }
         }}
         isLoading={loadingCmd === "delete"}
       >
-        <Trash2 className="mr-2 h-4 w-4" /> Delete Project
+        <Trash2 className="mr-2 h-4 w-4" /> {t("control.delete")}
       </Button>
     </div>
   );

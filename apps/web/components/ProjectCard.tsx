@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/componen
 import { Trash } from "lucide-react";
 import useSWR from "swr";
 import { api } from "@/lib/api/client";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface ProjectCardProps {
   projectId: string;
@@ -13,6 +14,7 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
+  const { t } = useI18n();
   const { data: project, error, isLoading } = useSWR(
     projectId ? `/projects/${projectId}` : null,
     () => api.getProject(projectId).catch(() => null) // Return null on error (404)
@@ -37,14 +39,14 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
     return (
       <Card className="border-dashed border-muted-foreground/50 bg-muted/50">
         <CardHeader>
-          <CardTitle className="text-muted-foreground text-lg">Unknown Project</CardTitle>
+          <CardTitle className="text-muted-foreground text-lg">{t("projectCard.unknown")}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground break-all">{projectId}</p>
         </CardContent>
         <CardFooter>
           <Button variant="ghost" size="sm" onClick={() => onRemove(projectId)}>
-            <Trash className="mr-2 h-4 w-4" /> Remove from index
+            <Trash className="mr-2 h-4 w-4" /> {t("projectCard.remove")}
           </Button>
         </CardFooter>
       </Card>
@@ -56,7 +58,7 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start gap-2">
             <CardTitle className="text-lg line-clamp-2" title={project.title}>
-              {project.title || "Untitled"}
+              {project.title || t("projectCard.untitled")}
             </CardTitle>
             <Badge variant={project.status === "running" ? "default" : "secondary"}>
                 {project.status}
@@ -65,12 +67,12 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
       </CardHeader>
       <CardContent>
         <div className="text-xs text-muted-foreground mb-4 space-y-1">
-            <p>ID: {project.project_id}</p>
-            <p>Created: {new Date(project.created_at).toLocaleDateString()}</p>
+            <p>{t("project.idLabel")}: {project.project_id}</p>
+            <p>{t("projectCard.created")}: {new Date(project.created_at).toLocaleDateString()}</p>
         </div>
         <Link href={`/projects/${project.project_id}`} passHref>
           <Button variant="outline" className="w-full">
-            View Details
+            {t("projectCard.view")}
           </Button>
         </Link>
       </CardContent>

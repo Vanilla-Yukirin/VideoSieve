@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { api } from "@/lib/api/client";
+import { ApiClientError, api } from "@/lib/api/client";
 import { useProjectIndex } from "@/lib/hooks/useProjectIndex";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
@@ -11,10 +11,22 @@ import { Badge } from "@/components/Badge";
 import { ArrowLeft, PlayCircle, Clock } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
-import { CookieListItem, DualAssetIngestParams } from "@/lib/api/types";
+import { CookieListItem, DualAssetIngestParams, GuestCooldownResponse } from "@/lib/api/types";
 import { resolveDefaultCookieId } from "@/lib/cookies/helpers";
+import {
+  isGuestCookieInputDisabled,
+  isGuestCooldownBlocking,
+  sanitizeIngestForSubmit,
+} from "@/lib/auth/helpers";
+import {
+  getGuestAllowCookieInputCached,
+  getSessionToken,
+  setGuestAllowCookieInputCached,
+} from "@/lib/auth/session";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 export default function ProjectDetail() {
+  const { t } = useI18n();
   const params = useParams();
   const projectId = params.id as string;
   const router = useRouter();
@@ -23,6 +35,15 @@ export default function ProjectDetail() {
   const [ingestParams, setIngestParams] = useState<DualAssetIngestParams | undefined>(undefined);
   const [summaryEnabled, setSummaryEnabled] = useState(false);
   const [selectedCookieId, setSelectedCookieId] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
+  const [guestAllowCookieInput, setGuestAllowCookieInput] = useState<boolean>(
+    getGuestAllowCookieInputCached(),
+  );
+
+  const sessionToken = getSessionToken();
+  const isGuest = !sessionToken;
+  const guestCookieDisabled = isGuestCookieInputDisabled(isGuest, guestAllowCookieInput);
 
   const { data: project, error: projectError } = useSWR(
     projectId ? `/projects/${projectId}` : null,
@@ -35,11 +56,48 @@ export default function ProjectDetail() {
   );
 
   const { data: cookies, error: cookiesError } = useSWR<CookieListItem[]>(
-    "/me/cookies",
+    guestCookieDisabled ? null : "/me/cookies",
     () => api.listMeCookies()
   );
 
   useEffect(() => {
+    let cancelled = false;
+    const loadPolicy = async () => {
+      if (!sessionToken) {
+        setGuestAllowCookieInput(getGuestAllowCookieInputCached());
+        return;
+      }
+      try {
+        const settings = await api.getSystemSettings(sessionToken);
+        if (!cancelled) {
+          setGuestAllowCookieInput(settings.guest_allow_cookie_input);
+          setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
+        }
+      } catch (unknownError) {
+        if (
+          unknownError instanceof ApiClientError &&
+          unknownError.code === "auth_required"
+        ) {
+          router.replace("/login");
+          return;
+        }
+        if (!cancelled) {
+          setGuestAllowCookieInput(getGuestAllowCookieInputCached());
+        }
+      }
+    };
+
+    void loadPolicy();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionToken, router]);
+
+  useEffect(() => {
+    if (guestCookieDisabled) {
+      setSelectedCookieId("");
+      return;
+    }
     if (!cookies || cookies.length === 0) {
       setSelectedCookieId("");
       return;
@@ -48,7 +106,38 @@ export default function ProjectDetail() {
     if (!selectedCookieId || !hasSelected) {
       setSelectedCookieId(resolveDefaultCookieId(cookies));
     }
-  }, [cookies, selectedCookieId]);
+  }, [cookies, selectedCookieId, guestCookieDisabled]);
+
+  useEffect(() => {
+    if (!isGuest) {
+      setGuestCooldown(null);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshCooldown = async () => {
+      try {
+        const result = await api.getGuestCooldown();
+        if (!cancelled) {
+          setGuestCooldown(result);
+        }
+      } catch {
+        if (!cancelled) {
+          setGuestCooldown(null);
+        }
+      }
+    };
+
+    void refreshCooldown();
+    const intervalId = setInterval(() => {
+      void refreshCooldown();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [isGuest]);
 
   // Auto-add to index on visit if valid
   useEffect(() => {
@@ -57,42 +146,66 @@ export default function ProjectDetail() {
 
   const handleCreateJob = async () => {
     setIsCreatingJob(true);
+    setCreateError(null);
     try {
-      const ingestWithCookie = ingestParams
+      const candidateIngest = ingestParams
         ? {
             ...ingestParams,
-            ...(selectedCookieId ? { cookie_id: selectedCookieId } : {}),
+            ...(selectedCookieId.trim() ? { cookie_id: selectedCookieId.trim() } : {}),
           }
         : undefined;
+      const ingestWithCookie = sanitizeIngestForSubmit(candidateIngest, {
+        isGuest,
+        guestAllowCookieInput,
+      });
 
       const { job_id } = await api.createJob({
         project_id: projectId,
         summary_enabled: summaryEnabled,
         ingest: ingestWithCookie,
-      });
+      }, sessionToken);
       await refreshJobs();
       router.push(`/jobs/${job_id}`);
-    } catch (e) {
-      console.error(e);
-      alert("Failed to create job");
+    } catch (unknownError) {
+      if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
+        setCreateError(t("project.authRequired"));
+        router.replace("/login");
+      } else if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "guest_cooldown_active"
+      ) {
+        const remaining = unknownError.details?.remaining_seconds ?? guestCooldown?.remaining_seconds ?? 0;
+        setCreateError(t("project.cooldownActive", { seconds: remaining }));
+        setGuestCooldown({
+          active: true,
+          remaining_seconds: remaining,
+          cooldown_seconds: guestCooldown?.cooldown_seconds ?? remaining,
+        });
+      } else if (unknownError instanceof Error) {
+        setCreateError(unknownError.message);
+      } else {
+        setCreateError(t("control.fail"));
+      }
     } finally {
       setIsCreatingJob(false);
     }
   };
 
+  const isGuestCooldownActive = isGuestCooldownBlocking(isGuest, guestCooldown);
+
   if (projectError) {
     return (
       <div className="container mx-auto p-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">Project Not Found</h1>
+        <h1 className="text-2xl font-bold mb-4">{t("project.notFound")}</h1>
         <Link href="/">
-            <Button variant="outline">Go Back</Button>
+            <Button variant="outline">{t("project.goBack")}</Button>
         </Link>
       </div>
     );
   }
 
   if (!project) {
-    return <div className="p-8">Loading project...</div>;
+    return <div className="p-8">{t("settings.load")}</div>;
   }
 
   return (
@@ -119,40 +232,45 @@ export default function ProjectDetail() {
             <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                     <PlayCircle className="h-5 w-5 text-primary" />
-                    New Job
+                    {t("project.newJob")}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
                 <IngestProbe
                   onParamsReady={setIngestParams}
                   disabled={isCreatingJob}
-                  cookieId={selectedCookieId}
+                  cookieId={guestCookieDisabled ? undefined : selectedCookieId}
                 />
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="cookie-select">
-                    Cookie
+                    {t("project.cookie")}
                   </label>
                   <select
                     id="cookie-select"
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={selectedCookieId}
                     onChange={(e) => setSelectedCookieId(e.target.value)}
-                    disabled={isCreatingJob || Boolean(cookiesError)}
+                    disabled={isCreatingJob || Boolean(cookiesError) || guestCookieDisabled}
                   >
-                    <option value="">Do not use cookie</option>
+                    <option value="">{t("project.cookieNone")}</option>
                     {(cookies ?? []).map((cookie) => (
                       <option key={cookie.id} value={cookie.id}>
-                        {cookie.name} ({cookie.status}){cookie.is_default ? " [default]" : ""}
+                        {cookie.name} ({cookie.status}){cookie.is_default ? t("project.cookieDefaultSuffix") : ""}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-muted-foreground">
-                    Some videos may require login. Choose a cookie when needed.
+                    {t("project.cookieNeedLogin")}
                   </p>
+                  {guestCookieDisabled ? (
+                    <p className="text-xs text-amber-700">
+                      {t("project.cookieDisabled")}
+                    </p>
+                  ) : null}
                   {cookiesError ? (
                     <p className="text-xs text-amber-700">
-                      Cookie list unavailable. Continuing in no-cookie mode.
+                      {t("project.cookieUnavailable")}
                     </p>
                   ) : null}
                 </div>
@@ -166,27 +284,30 @@ export default function ProjectDetail() {
                     disabled={isCreatingJob}
                     className="h-4 w-4 rounded border-input"
                   />
-                  Enable summary generation
+                  {t("project.summary")}
                 </label>
                 
                 <div className="flex justify-end">
                     <Button 
                         onClick={handleCreateJob} 
                         isLoading={isCreatingJob}
-                        disabled={!ingestParams?.source_url}
+                        disabled={!ingestParams?.source_url || isGuestCooldownActive}
                     >
-                        Start Download & Process
+                        {isGuestCooldownActive
+                          ? t("project.cooldown", { seconds: guestCooldown?.remaining_seconds ?? 0 })
+                          : t("project.start")}
                     </Button>
                 </div>
+                {createError ? <p className="text-sm text-destructive">{createError}</p> : null}
             </CardContent>
         </Card>
 
         <div>
-            <h2 className="text-xl font-semibold mb-4">Job History</h2>
+            <h2 className="text-xl font-semibold mb-4">{t("project.history")}</h2>
             <div className="space-y-4">
                 {!jobs || jobs.length === 0 ? (
                     <div className="text-center py-10 text-muted-foreground border rounded-lg bg-muted/20">
-                        No jobs run yet. Start one above!
+                        {t("project.noJobs")}
                     </div>
                 ) : (
                     jobs.slice().reverse().map(job => (
@@ -204,12 +325,12 @@ export default function ProjectDetail() {
                                         </div>
                                         <div className="flex items-center text-xs text-muted-foreground gap-4">
                                             <span className="flex items-center"><Clock className="mr-1 h-3 w-3"/> {new Date(job.created_at).toLocaleString()}</span>
-                                            {job.stage && <span>Stage: {job.stage}</span>}
+                                            {job.stage && <span>{t("project.stageLabel")}: {job.stage}</span>}
                                         </div>
                                     </div>
                                     {job.error_message && (
                                         <div className="text-destructive text-sm max-w-md truncate">
-                                            Error: {job.error_message}
+                                            {t("project.errorLabel")}: {job.error_message}
                                         </div>
                                     )}
                                 </CardContent>

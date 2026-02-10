@@ -8,6 +8,7 @@ import { api } from "@/lib/api/client";
 import { CookieListItem } from "@/lib/api/types";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 type EditState = {
   id: string;
@@ -23,6 +24,7 @@ function statusClass(status: CookieListItem["status"]): string {
 }
 
 export default function CookieVaultSettingsPage() {
+  const { t } = useI18n();
   const { data: cookies, error, mutate, isLoading } = useSWR("/me/cookies", api.listMeCookies);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
@@ -36,7 +38,7 @@ export default function CookieVaultSettingsPage() {
   const onCreate = async (event: FormEvent) => {
     event.preventDefault();
     if (!createName.trim() || !createCookieText.trim()) {
-      setMessage("Name and Netscape cookie text are required.");
+      setMessage(t("cookie.required"));
       return;
     }
     setBusyId("create");
@@ -51,9 +53,9 @@ export default function CookieVaultSettingsPage() {
       setCreateCookieText("");
       setCreateDefault(false);
       await mutate();
-      setMessage("Cookie created.");
+      setMessage(t("cookie.created"));
     } catch (unknownError) {
-      const msg = unknownError instanceof Error ? unknownError.message : "Create failed";
+      const msg = unknownError instanceof Error ? unknownError.message : t("cookie.createFailed");
       setMessage(msg);
     } finally {
       setBusyId(null);
@@ -69,9 +71,9 @@ export default function CookieVaultSettingsPage() {
       if (edit?.id === cookieId) {
         setEdit(null);
       }
-      setMessage("Cookie deleted.");
+      setMessage(t("cookie.deleted"));
     } catch (unknownError) {
-      const msg = unknownError instanceof Error ? unknownError.message : "Delete failed";
+      const msg = unknownError instanceof Error ? unknownError.message : t("cookie.deleteFailed");
       setMessage(msg);
     } finally {
       setBusyId(null);
@@ -84,9 +86,9 @@ export default function CookieVaultSettingsPage() {
     try {
       await api.patchMeCookie(cookieId, { is_default: true });
       await mutate();
-      setMessage("Default cookie updated.");
+      setMessage(t("cookie.defaultUpdated"));
     } catch (unknownError) {
-      const msg = unknownError instanceof Error ? unknownError.message : "Set default failed";
+      const msg = unknownError instanceof Error ? unknownError.message : t("cookie.setDefaultFailed");
       setMessage(msg);
     } finally {
       setBusyId(null);
@@ -111,9 +113,9 @@ export default function CookieVaultSettingsPage() {
             : cookie,
         );
       }, false);
-      setMessage(`Validation completed: ${result.status}`);
+      setMessage(t("cookie.validationDone", { status: result.status }));
     } catch (unknownError) {
-      const msg = unknownError instanceof Error ? unknownError.message : "Validate failed";
+      const msg = unknownError instanceof Error ? unknownError.message : t("cookie.validateFailed");
       setMessage(msg);
     } finally {
       setBusyId(null);
@@ -124,7 +126,7 @@ export default function CookieVaultSettingsPage() {
     event.preventDefault();
     if (!edit) return;
     if (!edit.name.trim()) {
-      setMessage("Cookie name cannot be empty.");
+      setMessage(t("cookie.nameRequired"));
       return;
     }
     setBusyId(edit.id);
@@ -136,9 +138,9 @@ export default function CookieVaultSettingsPage() {
       });
       await mutate();
       setEdit(null);
-      setMessage("Cookie updated.");
+      setMessage(t("cookie.updated"));
     } catch (unknownError) {
-      const msg = unknownError instanceof Error ? unknownError.message : "Update failed";
+      const msg = unknownError instanceof Error ? unknownError.message : t("cookie.updateFailed");
       setMessage(msg);
     } finally {
       setBusyId(null);
@@ -149,19 +151,19 @@ export default function CookieVaultSettingsPage() {
     <main className="container mx-auto space-y-6 p-4 md:p-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Cookie Vault</h1>
+          <h1 className="text-2xl font-bold">{t("cookie.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            Manage login cookies by id. Cookie plaintext is never shown after submit.
+            {t("cookie.desc")}
           </p>
         </div>
         <Link href="/">
-          <Button variant="outline">Back to Projects</Button>
+          <Button variant="outline">{t("cookie.back")}</Button>
         </Link>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Add Cookie</CardTitle>
+          <CardTitle>{t("cookie.add")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-3" onSubmit={onCreate}>
@@ -169,14 +171,14 @@ export default function CookieVaultSettingsPage() {
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={createName}
               onChange={(e) => setCreateName(e.target.value)}
-              placeholder="Cookie name"
+              placeholder={t("cookie.namePlaceholder")}
               disabled={busyId === "create"}
             />
             <textarea
               className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
               value={createCookieText}
               onChange={(e) => setCreateCookieText(e.target.value)}
-              placeholder="# Netscape cookie file text"
+              placeholder={t("cookie.textPlaceholder")}
               disabled={busyId === "create"}
             />
             <label className="flex items-center gap-2 text-sm">
@@ -187,10 +189,10 @@ export default function CookieVaultSettingsPage() {
                 onChange={(e) => setCreateDefault(e.target.checked)}
                 disabled={busyId === "create"}
               />
-              Set as default cookie
+              {t("cookie.setAsDefault")}
             </label>
             <Button type="submit" isLoading={busyId === "create"}>
-              Create Cookie
+              {t("cookie.add")}
             </Button>
           </form>
         </CardContent>
@@ -198,11 +200,11 @@ export default function CookieVaultSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Saved Cookies</CardTitle>
+          <CardTitle>{t("cookie.saved")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isLoading ? <p className="text-sm text-muted-foreground">Loading cookies...</p> : null}
-          {error ? <p className="text-sm text-destructive">Failed to load cookies.</p> : null}
+          {isLoading ? <p className="text-sm text-muted-foreground">{t("cookie.loading")}</p> : null}
+          {error ? <p className="text-sm text-destructive">{t("cookie.loadFailed")}</p> : null}
 
           {rows.map((cookie) => {
             const isBusy = busyId === cookie.id;
@@ -222,15 +224,13 @@ export default function CookieVaultSettingsPage() {
                       className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-xs"
                       value={edit.cookieText}
                       onChange={(e) => setEdit({ ...edit, cookieText: e.target.value })}
-                      placeholder="Paste new Netscape cookie text to replace (optional)"
+                        placeholder={t("cookie.replacePlaceholder")}
                       disabled={isBusy}
                     />
                     <div className="flex gap-2">
-                      <Button type="submit" isLoading={isBusy}>
-                        Save
-                      </Button>
+                      <Button type="submit" isLoading={isBusy}>{t("common.save")}</Button>
                       <Button type="button" variant="outline" onClick={() => setEdit(null)} disabled={isBusy}>
-                        Cancel
+                        {t("common.cancel")}
                       </Button>
                     </div>
                   </form>
@@ -239,15 +239,15 @@ export default function CookieVaultSettingsPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <div className="font-medium">{cookie.name}</div>
-                        <div className="text-xs text-muted-foreground">id: {cookie.id}</div>
+                        <div className="text-xs text-muted-foreground">{t("project.idLabel")}: {cookie.id}</div>
                       </div>
                       <div className="text-xs">
                         <span className={statusClass(cookie.status)}>{cookie.status}</span>
-                        {cookie.is_default ? <span className="ml-2 rounded bg-muted px-2 py-0.5">default</span> : null}
+                        {cookie.is_default ? <span className="ml-2 rounded bg-muted px-2 py-0.5">{t("cookie.default")}</span> : null}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      last_validated_at: {cookie.last_validated_at ?? "-"}
+                      {t("cookie.lastValidated")}: {cookie.last_validated_at ?? "-"}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -256,7 +256,7 @@ export default function CookieVaultSettingsPage() {
                         onClick={() => setEdit({ id: cookie.id, name: cookie.name, cookieText: "" })}
                         disabled={isBusy}
                       >
-                        Edit
+                        {t("cookie.edit")}
                       </Button>
                       <Button
                         type="button"
@@ -264,15 +264,15 @@ export default function CookieVaultSettingsPage() {
                         onClick={() => onValidate(cookie.id)}
                         isLoading={isBusy}
                       >
-                        Validate
+                        {t("cookie.validate")}
                       </Button>
                       {!cookie.is_default ? (
                         <Button type="button" variant="outline" onClick={() => onSetDefault(cookie.id)} disabled={isBusy}>
-                          Set Default
+                          {t("cookie.setDefault")}
                         </Button>
                       ) : null}
                       <Button type="button" variant="destructive" onClick={() => onDelete(cookie.id)} disabled={isBusy}>
-                        Delete
+                        {t("cookie.delete")}
                       </Button>
                     </div>
                   </div>
@@ -282,7 +282,7 @@ export default function CookieVaultSettingsPage() {
           })}
 
           {!isLoading && !error && rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No cookies yet.</p>
+            <p className="text-sm text-muted-foreground">{t("cookie.none")}</p>
           ) : null}
 
           {message ? <p className="text-sm">{message}</p> : null}

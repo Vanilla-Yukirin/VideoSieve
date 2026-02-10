@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface LogViewerProps {
   logs: string[];
@@ -7,6 +8,7 @@ interface LogViewerProps {
 }
 
 export function LogViewer({ logs, className }: LogViewerProps) {
+  const { t } = useI18n();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -16,7 +18,7 @@ export function LogViewer({ logs, className }: LogViewerProps) {
   return (
     <div className={cn("bg-zinc-950 text-zinc-50 font-mono text-sm p-4 rounded-md overflow-y-auto log-scroll", className)}>
       {logs.length === 0 ? (
-        <span className="text-zinc-500 italic">No logs available...</span>
+        <span className="text-zinc-500 italic">{t("logs.empty")}</span>
       ) : (
         logs.map((log, i) => (
           <div key={i} className="whitespace-pre-wrap break-all border-b border-zinc-800/50 pb-0.5 mb-0.5 last:border-0">

@@ -11,8 +11,10 @@ import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { ArrowLeft, Wifi, WifiOff, FileText, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 export default function JobDetail() {
+  const { t } = useI18n();
   const params = useParams();
   const jobId = params.id as string;
   const state = useJobRealtime(jobId);
@@ -36,7 +38,7 @@ export default function JobDetail() {
             <div>
                 <h1 className="text-2xl font-bold tracking-tight font-mono">{jobId}</h1>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                    <span>Status:</span>
+                    <span>{t("job.status")}:</span>
                     <Badge variant={
                         state.status === "succeeded" ? "success" :
                         state.status === "failed" ? "destructive" :
@@ -44,12 +46,12 @@ export default function JobDetail() {
                     }>{state.status}</Badge>
                     
                     {state.isConnected ? (
-                         <span className="flex items-center text-green-600 ml-2" title="Realtime Connected">
-                            <Wifi className="h-3 w-3 mr-1" /> Live
+                         <span className="flex items-center text-green-600 ml-2" title={t("job.live")}>
+                            <Wifi className="h-3 w-3 mr-1" /> {t("job.live")}
                          </span>
                     ) : (
-                        <span className="flex items-center text-yellow-600 ml-2" title="Polling Fallback">
-                            <WifiOff className="h-3 w-3 mr-1" /> Offline (Polling)
+                        <span className="flex items-center text-yellow-600 ml-2" title={t("job.offline")}>
+                            <WifiOff className="h-3 w-3 mr-1" /> {t("job.offline")}
                         </span>
                     )}
                 </div>
@@ -62,7 +64,7 @@ export default function JobDetail() {
        <Card>
            <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between text-sm font-medium">
-                    <span>Stage: {state.current_stage || "Initializing..."}</span>
+                    <span>{t("job.stage")}: {state.current_stage || t("job.initializing")}</span>
                     <span>{state.progress.toFixed(1)}%</span>
                 </div>
                 <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
@@ -77,7 +79,7 @@ export default function JobDetail() {
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
            {/* Logs - Takes up 2 cols */}
            <div className="lg:col-span-2 flex flex-col gap-4">
-               <h3 className="text-lg font-semibold">Realtime Logs</h3>
+               <h3 className="text-lg font-semibold">{t("job.logs")}</h3>
                <LogViewer logs={state.latest_logs} className="h-[500px]" />
            </div>
 
@@ -85,11 +87,11 @@ export default function JobDetail() {
            <div className="space-y-6">
                <Card>
                    <CardHeader>
-                       <CardTitle className="text-lg">Artifacts</CardTitle>
+                        <CardTitle className="text-lg">{t("job.artifacts")}</CardTitle>
                    </CardHeader>
                    <CardContent>
                        {state.artifacts.length === 0 ? (
-                           <p className="text-sm text-muted-foreground italic">No artifacts yet.</p>
+                            <p className="text-sm text-muted-foreground italic">{t("job.noArtifacts")}</p>
                        ) : (
                            <ul className="space-y-2">
                                {state.artifacts.map((art) => (

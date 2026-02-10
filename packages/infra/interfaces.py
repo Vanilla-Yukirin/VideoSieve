@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
-from .models import InfraEvent, JobRecord, ProjectRecord, UserCookieRecord
+from .models import (
+    AuthUserRecord,
+    InfraEvent,
+    JobRecord,
+    OperationLogRecord,
+    ProjectRecord,
+    UserCookieRecord,
+)
 
 EventHandler = Callable[[InfraEvent], None]
 
@@ -129,6 +137,53 @@ class JobRepository(ABC):
     @abstractmethod
     def clear_default_cookie_for_user(self, user_id: str) -> None:
         """Clear default flag for all cookies of one user."""
+
+    @abstractmethod
+    def get_setting(self, key: str) -> str | None:
+        """Read one setting value_json by key."""
+
+    @abstractmethod
+    def set_setting(self, key: str, value_json: str) -> None:
+        """Upsert one setting value_json by key."""
+
+    @abstractmethod
+    def get_auth_user(self) -> AuthUserRecord | None:
+        """Read the single auth user record if present."""
+
+    @abstractmethod
+    def create_auth_user(self, *, user_id: str, username: str, password_hash: str) -> None:
+        """Create the single auth user record."""
+
+    @abstractmethod
+    def update_auth_user_password_hash(self, *, user_id: str, password_hash: str) -> None:
+        """Update password hash for one auth user by id."""
+
+    @abstractmethod
+    def append_operation_log(
+        self,
+        *,
+        log_id: str,
+        actor_type: str,
+        actor_id: str | None,
+        action: str,
+        status: str,
+        reason_code: str | None,
+        created_at: str | None = None,
+        meta_json: str = "{}",
+    ) -> None:
+        """Append one operation log entry."""
+
+    @abstractmethod
+    def list_recent_operation_logs(self, limit: int = 100) -> list[OperationLogRecord]:
+        """List operation logs ordered by newest first."""
+
+    @abstractmethod
+    def get_next_allowed_at(self) -> str | None:
+        """Read server-wide guest cooldown next_allowed_at."""
+
+    @abstractmethod
+    def try_acquire(self, now: datetime, cooldown_seconds: int) -> bool:
+        """Try to acquire cooldown slot atomically; return True when accepted."""
 
 
 class WorkspaceStore(ABC):

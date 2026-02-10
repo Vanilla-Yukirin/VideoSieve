@@ -7,7 +7,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .interfaces import JobRepository
-from .models import JobRecord, ProjectRecord, UserCookieRecord
+from .models import (
+    AuthUserRecord,
+    JobRecord,
+    OperationLogRecord,
+    ProjectRecord,
+    UserCookieRecord,
+    parse_iso8601,
+)
+
+GLOBAL_GUEST_COOLDOWN_KEY = "global_guest_job_cooldown"
 
 
 def _utc_now_iso() -> str:
@@ -63,6 +72,40 @@ class SQLiteJobRepository(JobRepository):
             CREATE INDEX IF NOT EXISTS idx_user_cookies_user_id ON user_cookies(user_id);
             CREATE INDEX IF NOT EXISTS idx_user_cookies_user_default
             ON user_cookies(user_id, is_default);
+
+            CREATE TABLE IF NOT EXISTS system_settings (
+              key TEXT PRIMARY KEY,
+              value_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_user (
+              id TEXT PRIMARY KEY,
+              username TEXT NOT NULL,
+              password_hash TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS operation_logs (
+              id TEXT PRIMARY KEY,
+              actor_type TEXT NOT NULL,
+              actor_id TEXT,
+              action TEXT NOT NULL,
+              status TEXT NOT NULL,
+              reason_code TEXT,
+              created_at TEXT NOT NULL,
+              meta_json TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at
+            ON operation_logs(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS guest_cooldown (
+              key TEXT PRIMARY KEY,
+              next_allowed_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -387,6 +430,195 @@ class SQLiteJobRepository(JobRepository):
             (_utc_now_iso(), user_id),
         )
         self._conn.commit()
+
+    def get_setting(self, key: str) -> str | None:
+        row = self._conn.execute(
+            """
+            SELECT value_json
+            FROM system_settings
+            WHERE key = ?
+            """,
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["value_json"])
+
+    def set_setting(self, key: str, value_json: str) -> None:
+        now = _utc_now_iso()
+        self._conn.execute(
+            """
+            INSERT INTO system_settings (key, value_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key)
+            DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            """,
+            (key, value_json, now),
+        )
+        self._conn.commit()
+
+    def get_auth_user(self) -> AuthUserRecord | None:
+        row = self._conn.execute(
+            """
+            SELECT id, username, password_hash, created_at, updated_at
+            FROM auth_user
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return AuthUserRecord(
+            id=row["id"],
+            username=row["username"],
+            password_hash=row["password_hash"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def create_auth_user(self, *, user_id: str, username: str, password_hash: str) -> None:
+        now = _utc_now_iso()
+        self._conn.execute(
+            """
+            INSERT INTO auth_user (id, username, password_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, username, password_hash, now, now),
+        )
+        self._conn.commit()
+
+    def update_auth_user_password_hash(self, *, user_id: str, password_hash: str) -> None:
+        self._conn.execute(
+            """
+            UPDATE auth_user
+            SET password_hash = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (password_hash, _utc_now_iso(), user_id),
+        )
+        self._conn.commit()
+
+    def append_operation_log(
+        self,
+        *,
+        log_id: str,
+        actor_type: str,
+        actor_id: str | None,
+        action: str,
+        status: str,
+        reason_code: str | None,
+        created_at: str | None = None,
+        meta_json: str = "{}",
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO operation_logs (
+              id,
+              actor_type,
+              actor_id,
+              action,
+              status,
+              reason_code,
+              created_at,
+              meta_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                log_id,
+                actor_type,
+                actor_id,
+                action,
+                status,
+                reason_code,
+                created_at if created_at is not None else _utc_now_iso(),
+                meta_json,
+            ),
+        )
+        self._conn.commit()
+
+    def list_recent_operation_logs(self, limit: int = 100) -> list[OperationLogRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT
+              id,
+              actor_type,
+              actor_id,
+              action,
+              status,
+              reason_code,
+              created_at,
+              meta_json
+            FROM operation_logs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [
+            OperationLogRecord(
+                id=row["id"],
+                actor_type=row["actor_type"],
+                actor_id=row["actor_id"],
+                action=row["action"],
+                status=row["status"],
+                reason_code=row["reason_code"],
+                created_at=row["created_at"],
+                meta_json=row["meta_json"],
+            )
+            for row in rows
+        ]
+
+    def get_next_allowed_at(self) -> str | None:
+        row = self._conn.execute(
+            """
+            SELECT next_allowed_at
+            FROM guest_cooldown
+            WHERE key = ?
+            """,
+            (GLOBAL_GUEST_COOLDOWN_KEY,),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["next_allowed_at"])
+
+    def try_acquire(self, now: datetime, cooldown_seconds: int) -> bool:
+        now_utc = now.astimezone(UTC)
+        now_iso = now_utc.isoformat()
+        next_allowed = now_utc.timestamp() + cooldown_seconds
+        next_allowed_iso = datetime.fromtimestamp(next_allowed, UTC).isoformat()
+
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                """
+                SELECT next_allowed_at
+                FROM guest_cooldown
+                WHERE key = ?
+                """,
+                (GLOBAL_GUEST_COOLDOWN_KEY,),
+            ).fetchone()
+
+            can_acquire = row is None or parse_iso8601(str(row["next_allowed_at"])) <= now_utc
+            if can_acquire:
+                self._conn.execute(
+                    """
+                    INSERT INTO guest_cooldown (key, next_allowed_at, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key)
+                    DO UPDATE SET
+                      next_allowed_at = excluded.next_allowed_at,
+                      updated_at = excluded.updated_at
+                    """,
+                    (GLOBAL_GUEST_COOLDOWN_KEY, next_allowed_iso, now_iso),
+                )
+            self._conn.commit()
+            return can_acquire
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def _to_user_cookie_record(self, row: sqlite3.Row) -> UserCookieRecord:
         return UserCookieRecord(

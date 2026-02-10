@@ -121,6 +121,74 @@ def test_runtime_probe_returns_config_error_when_secret_missing_with_cookie_id(
         assert response.json()["code"] == "config_error"
 
 
+def test_runtime_auth_bootstrap_login_me_logout_flow(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        status = client.get("/auth/bootstrap-status")
+        assert status.status_code == 200
+        assert status.json()["bootstrap_required"] is True
+
+        boot = client.post(
+            "/auth/bootstrap",
+            json={"username": "admin", "password": "password123"},
+        )
+        assert boot.status_code == 200
+        token = boot.json()["token"]
+
+        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200
+        assert me.json()["username"] == "admin"
+
+        logout = client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        assert logout.status_code == 200
+
+        me_after = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me_after.status_code == 401
+        assert me_after.json()["code"] == "auth_required"
+    assert not (tmp_path / "runtime" / "api_state.json").exists()
+
+
+def test_runtime_settings_patch_requires_guest_cookie_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GUEST_COOKIE_KEY", raising=False)
+    with _make_client(tmp_path) as client:
+        boot = client.post(
+            "/auth/bootstrap",
+            json={"username": "admin", "password": "password123"},
+        )
+        token = boot.json()["token"]
+
+        patched = client.patch(
+            "/settings/system",
+            json={"guest_allow_cookie_input": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert patched.status_code == 422
+        assert patched.json()["code"] == "guest_cookie_key_required"
+
+
+def test_runtime_guest_cooldown_shared_for_guest_submissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GUEST_JOB_COOLDOWN_SECONDS", "120")
+    with _make_client(tmp_path) as client:
+        project = client.post("/projects", json={"title": "demo"}).json()
+        project_id = project["project_id"]
+
+        first = client.post("/jobs", json={"project_id": project_id})
+        assert first.status_code == 200
+
+        cooldown = client.get("/guest/cooldown")
+        assert cooldown.status_code == 200
+        assert cooldown.json()["active"] is True
+        assert cooldown.json()["cooldown_seconds"] == 120
+
+        second = client.post("/jobs", json={"project_id": project_id})
+        assert second.status_code == 429
+        assert second.json()["code"] == "guest_cooldown_active"
+        assert int(second.json()["remaining_seconds"]) >= 1
+
+
 @pytest.mark.parametrize("raw_value,expected", [("true", True), ("false", False)])
 def test_runtime_event_bus_stub_mode_is_configurable(
     tmp_path: Path,

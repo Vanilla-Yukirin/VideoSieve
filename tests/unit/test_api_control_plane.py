@@ -14,8 +14,14 @@ from apps.api.rest import (
     create_job,
     create_me_cookie,
     create_project,
+    get_auth_bootstrap_status,
+    get_guest_cooldown,
     get_job_snapshot,
+    get_system_settings,
     list_job_artifacts,
+    patch_system_settings,
+    post_auth_bootstrap,
+    post_auth_login,
     probe_ingest_formats,
 )
 from apps.api.service import ApiControlPlane
@@ -452,3 +458,74 @@ def test_create_job_dispatch_has_duplicate_guard(tmp_path: Path) -> None:
 
     control_plane._dispatch_job_if_needed(project_id, job_id)
     assert calls == [(project_id, job_id)]
+
+
+def test_auth_bootstrap_login_and_settings_flow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GUEST_COOKIE_KEY", "guest-key")
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+
+    status = get_auth_bootstrap_status(control_plane)
+    assert status["bootstrap_required"] is True
+    assert "GET /auth/bootstrap-status" in REST_ROUTES
+
+    boot = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})
+    token = boot["token"]
+    assert boot["username"] == "admin"
+    auth_user = repository.get_auth_user()
+    assert auth_user is not None
+    assert auth_user.username == "admin"
+
+    me_settings = get_system_settings(control_plane, token)
+    assert "guest_mode_enabled" in me_settings
+    assert "guest_allow_cookie_input" in me_settings
+
+    patched = patch_system_settings(
+        control_plane,
+        token,
+        {"guest_mode_enabled": True, "guest_allow_cookie_input": True},
+    )
+    assert patched["guest_allow_cookie_input"] is True
+    assert repository.get_setting("guest_mode_enabled") == "true"
+    assert repository.get_setting("guest_allow_cookie_input") == "true"
+
+    login = post_auth_login(control_plane, {"username": "admin", "password": "password123"})
+    assert login["username"] == "admin"
+    assert repository.list_recent_operation_logs(limit=5)
+
+
+def test_guest_cooldown_rejects_second_submit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GUEST_JOB_COOLDOWN_SECONDS", "360")
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+
+    _ = create_job(control_plane, {"project_id": project_id}, actor="guest")
+    cooldown = get_guest_cooldown(control_plane)
+    assert cooldown["active"] is True
+    assert int(str(cooldown["remaining_seconds"])) >= 1
+    assert repository.get_next_allowed_at() is not None
+
+    with pytest.raises(Exception) as exc_info:
+        create_job(control_plane, {"project_id": project_id}, actor="guest")
+    assert getattr(exc_info.value, "code", None) == "guest_cooldown_active"
+    logs = repository.list_recent_operation_logs(limit=10)
+    assert any(log.action == "guest.job_submit" for log in logs)
+
+
+def test_settings_rejects_guest_cookie_input_without_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GUEST_COOKIE_KEY", raising=False)
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
+        "token"
+    ]
+
+    with pytest.raises(Exception) as exc_info:
+        patch_system_settings(control_plane, token, {"guest_allow_cookie_input": True})
+    assert getattr(exc_info.value, "code", None) == "guest_cookie_key_required"
+    logs = repository.list_recent_operation_logs(limit=5)
+    assert any(log.reason_code == "guest_cookie_key_required" for log in logs)

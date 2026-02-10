@@ -24,17 +24,25 @@ from .rest import (
     create_me_cookie,
     create_project,
     delete_me_cookie,
+    get_auth_bootstrap_status,
+    get_auth_me,
+    get_guest_cooldown,
     get_job,
     get_job_snapshot,
     get_project,
+    get_system_settings,
     list_job_artifacts,
     list_me_cookies,
     list_project_jobs,
     patch_me_cookie,
+    patch_system_settings,
+    post_auth_bootstrap,
+    post_auth_login,
+    post_auth_logout,
     probe_ingest_formats,
     validate_me_cookie,
 )
-from .service import ApiConfigError, ApiControlPlane
+from .service import ApiConfigError, ApiControlPlane, ApiError
 from .ws_gateway import JobWebSocketGateway
 
 
@@ -161,6 +169,16 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
             },
         )
 
+    @app.exception_handler(ApiError)
+    async def _handle_api_error(_request: Request, exc: ApiError) -> JSONResponse:
+        content: dict[str, object] = {
+            "code": exc.code,
+            "message": exc.message,
+            "retryable": False,
+        }
+        content.update(exc.details)
+        return JSONResponse(status_code=exc.status_code, content=content)
+
     @app.exception_handler(RequestValidationError)
     async def _handle_fastapi_validation_error(
         _request: Request, exc: RequestValidationError
@@ -194,6 +212,44 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         runtime: _Runtime = request.app.state.runtime
         return runtime.control_plane
 
+    def _token(request: Request) -> str | None:
+        auth = request.headers.get("Authorization")
+        if isinstance(auth, str) and auth.startswith("Bearer "):
+            return auth[len("Bearer ") :].strip() or None
+        return request.headers.get("X-Session-Token")
+
+    @app.get("/auth/bootstrap-status")
+    async def get_bootstrap_status(request: Request) -> dict[str, bool]:
+        return get_auth_bootstrap_status(_control_plane(request))
+
+    @app.post("/auth/bootstrap")
+    async def post_bootstrap(payload: dict[str, Any], request: Request) -> dict[str, str]:
+        return post_auth_bootstrap(_control_plane(request), payload)
+
+    @app.post("/auth/login")
+    async def post_login(payload: dict[str, Any], request: Request) -> dict[str, str]:
+        return post_auth_login(_control_plane(request), payload)
+
+    @app.post("/auth/logout")
+    async def post_logout(request: Request) -> dict[str, bool]:
+        return post_auth_logout(_control_plane(request), _token(request))
+
+    @app.get("/auth/me")
+    async def get_me(request: Request) -> dict[str, str]:
+        return get_auth_me(_control_plane(request), _token(request))
+
+    @app.get("/settings/system")
+    async def get_settings(request: Request) -> dict[str, bool]:
+        return get_system_settings(_control_plane(request), _token(request))
+
+    @app.patch("/settings/system")
+    async def patch_settings(request: Request, payload: dict[str, Any]) -> dict[str, bool]:
+        return patch_system_settings(_control_plane(request), _token(request), payload)
+
+    @app.get("/guest/cooldown")
+    async def get_guest_cooldown_status(request: Request) -> dict[str, object]:
+        return get_guest_cooldown(_control_plane(request))
+
     @app.post("/projects")
     async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
         return create_project(_control_plane(request), payload)
@@ -204,7 +260,12 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
 
     @app.post("/jobs")
     async def post_jobs(payload: dict[str, Any], request: Request) -> dict[str, str]:
-        return create_job(_control_plane(request), payload)
+        token = _token(request)
+        actor = "guest"
+        if token is not None:
+            _ = _control_plane(request).get_me(token)
+            actor = "user"
+        return create_job(_control_plane(request), payload, actor=actor)
 
     @app.get("/jobs/{job_id}")
     async def get_jobs(job_id: str, request: Request) -> dict[str, str | None]:

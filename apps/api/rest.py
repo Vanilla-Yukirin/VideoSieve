@@ -7,16 +7,27 @@ from typing import Any
 from contracts import ControlCommandType
 
 from .models import (
+    AuthBootstrapRequest,
+    AuthLoginRequest,
     CookieCreateRequest,
     CookiePatchRequest,
     CookieValidateRequest,
     IngestProbeRequest,
     JobCreateRequest,
     ProjectCreateRequest,
+    SystemSettingsPatchRequest,
 )
 from .service import ApiControlPlane
 
 REST_ROUTES: tuple[str, ...] = (
+    "GET /auth/bootstrap-status",
+    "POST /auth/bootstrap",
+    "POST /auth/login",
+    "POST /auth/logout",
+    "GET /auth/me",
+    "GET /settings/system",
+    "PATCH /settings/system",
+    "GET /guest/cooldown",
     "POST /projects",
     "GET /projects/{project_id}",
     "POST /jobs",
@@ -50,11 +61,72 @@ def get_project(control_plane: ApiControlPlane, project_id: str) -> dict[str, st
     return project
 
 
-def create_job(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:
+def create_job(
+    control_plane: ApiControlPlane,
+    payload: dict[str, Any],
+    *,
+    actor: str = "guest",
+) -> dict[str, str]:
     """POST /jobs"""
 
-    job_id = control_plane.create_job(JobCreateRequest.model_validate(payload))
+    job_id = control_plane.create_job(JobCreateRequest.model_validate(payload), actor=actor)
     return {"job_id": job_id}
+
+
+def get_auth_bootstrap_status(control_plane: ApiControlPlane) -> dict[str, bool]:
+    """GET /auth/bootstrap-status"""
+
+    return control_plane.get_bootstrap_status().model_dump(mode="json")
+
+
+def post_auth_bootstrap(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:
+    """POST /auth/bootstrap"""
+
+    return control_plane.bootstrap_user(AuthBootstrapRequest.model_validate(payload)).model_dump(
+        mode="json"
+    )
+
+
+def post_auth_login(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:
+    """POST /auth/login"""
+
+    return control_plane.login(AuthLoginRequest.model_validate(payload)).model_dump(mode="json")
+
+
+def post_auth_logout(control_plane: ApiControlPlane, token: str | None) -> dict[str, bool]:
+    """POST /auth/logout"""
+
+    control_plane.logout(token)
+    return {"ok": True}
+
+
+def get_auth_me(control_plane: ApiControlPlane, token: str | None) -> dict[str, str]:
+    """GET /auth/me"""
+
+    return control_plane.get_me(token).model_dump(mode="json")
+
+
+def get_system_settings(control_plane: ApiControlPlane, token: str | None) -> dict[str, bool]:
+    """GET /settings/system"""
+
+    return control_plane.get_system_settings(token).model_dump(mode="json")
+
+
+def patch_system_settings(
+    control_plane: ApiControlPlane,
+    token: str | None,
+    payload: dict[str, Any],
+) -> dict[str, bool]:
+    """PATCH /settings/system"""
+
+    request = SystemSettingsPatchRequest.model_validate(payload)
+    return control_plane.patch_system_settings(token, request).model_dump(mode="json")
+
+
+def get_guest_cooldown(control_plane: ApiControlPlane) -> dict[str, object]:
+    """GET /guest/cooldown"""
+
+    return control_plane.get_guest_cooldown().model_dump(mode="json")
 
 
 def get_job(control_plane: ApiControlPlane, job_id: str) -> dict[str, str | None]:

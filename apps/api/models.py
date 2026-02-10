@@ -47,6 +47,67 @@ class ProjectCreateRequest(ApiModel):
     title: str | None = None
 
 
+class AuthBootstrapRequest(ApiModel):
+    """Initial single-user bootstrap payload."""
+
+    username: str
+    password: str = Field(min_length=8)
+
+
+class AuthLoginRequest(ApiModel):
+    """Login payload for single-user mode."""
+
+    username: str
+    password: str
+
+
+class AuthTokenResponse(ApiModel):
+    """Session token response."""
+
+    token: str
+    username: str
+
+
+class AuthBootstrapStatusResponse(ApiModel):
+    """Bootstrap status response."""
+
+    bootstrap_required: bool
+
+
+class AuthMeResponse(ApiModel):
+    """Current authenticated user."""
+
+    username: str
+
+
+class SystemSettingsResponse(ApiModel):
+    """System settings consumed by settings page."""
+
+    guest_mode_enabled: bool
+    guest_allow_cookie_input: bool
+
+
+class SystemSettingsPatchRequest(ApiModel):
+    """Patch payload for mutable system settings."""
+
+    guest_mode_enabled: bool | None = None
+    guest_allow_cookie_input: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_non_empty_patch(self) -> SystemSettingsPatchRequest:
+        if self.guest_mode_enabled is None and self.guest_allow_cookie_input is None:
+            raise ValueError("at least one settings field must be provided")
+        return self
+
+
+class GuestCooldownResponse(ApiModel):
+    """Global guest cooldown status."""
+
+    active: bool
+    remaining_seconds: int = Field(ge=0)
+    cooldown_seconds: int = Field(ge=0)
+
+
 class JobCreateRequest(ApiModel):
     """Job create payload."""
 

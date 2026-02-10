@@ -87,6 +87,12 @@ class SystemSettingsResponse(ApiModel):
     guest_allow_cookie_input: bool
 
 
+class PublicAccessFlagsResponse(ApiModel):
+    """Public, unauthenticated access flags for entry routing."""
+
+    guest_mode_enabled: bool
+
+
 class SystemSettingsPatchRequest(ApiModel):
     """Patch payload for mutable system settings."""
 

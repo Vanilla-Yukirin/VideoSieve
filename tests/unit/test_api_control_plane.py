@@ -17,6 +17,7 @@ from apps.api.rest import (
     get_auth_bootstrap_status,
     get_guest_cooldown,
     get_job_snapshot,
+    get_public_access_flags,
     get_system_settings,
     list_job_artifacts,
     patch_system_settings,
@@ -529,3 +530,33 @@ def test_settings_rejects_guest_cookie_input_without_key(
     assert getattr(exc_info.value, "code", None) == "guest_cookie_key_required"
     logs = repository.list_recent_operation_logs(limit=5)
     assert any(log.reason_code == "guest_cookie_key_required" for log in logs)
+
+
+def test_public_access_flags_is_unauthenticated_and_minimal(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+
+    flags = get_public_access_flags(control_plane)
+    assert "GET /public/access-flags" in REST_ROUTES
+    assert set(flags.keys()) == {"guest_mode_enabled"}
+    assert isinstance(flags["guest_mode_enabled"], bool)
+
+
+def test_public_access_flags_matches_settings_value(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
+        "token"
+    ]
+    _ = patch_system_settings(control_plane, token, {"guest_mode_enabled": False})
+
+    flags = get_public_access_flags(control_plane)
+    settings = get_system_settings(control_plane, token)
+    assert flags["guest_mode_enabled"] is False
+    assert flags["guest_mode_enabled"] == settings["guest_mode_enabled"]
+
+
+def test_public_access_flags_handles_invalid_db_setting_value(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    repository.set_setting("guest_mode_enabled", '"not-a-bool"')
+
+    flags = get_public_access_flags(control_plane)
+    assert isinstance(flags["guest_mode_enabled"], bool)

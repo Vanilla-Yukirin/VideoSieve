@@ -59,6 +59,7 @@ from .models import (
     JobCreateRequest,
     JobSnapshot,
     ProjectCreateRequest,
+    PublicAccessFlagsResponse,
     SystemSettingsPatchRequest,
     SystemSettingsResponse,
     utc_now_iso,
@@ -263,6 +264,12 @@ class ApiControlPlane:
         return SystemSettingsResponse(
             guest_mode_enabled=settings[SETTING_GUEST_MODE_ENABLED],
             guest_allow_cookie_input=settings[SETTING_GUEST_ALLOW_COOKIE_INPUT],
+        )
+
+    def get_public_access_flags(self) -> PublicAccessFlagsResponse:
+        settings = self._current_settings()
+        return PublicAccessFlagsResponse(
+            guest_mode_enabled=settings[SETTING_GUEST_MODE_ENABLED],
         )
 
     def patch_system_settings(

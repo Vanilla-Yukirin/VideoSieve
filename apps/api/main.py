@@ -30,6 +30,7 @@ from .rest import (
     get_job,
     get_job_snapshot,
     get_project,
+    get_public_access_flags,
     get_system_settings,
     list_job_artifacts,
     list_me_cookies,
@@ -216,7 +217,12 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         auth = request.headers.get("Authorization")
         if isinstance(auth, str) and auth.startswith("Bearer "):
             return auth[len("Bearer ") :].strip() or None
-        return request.headers.get("X-Session-Token")
+        fallback = request.headers.get("X-Session-Token")
+        return fallback if isinstance(fallback, str) else None
+
+    @app.get("/public/access-flags")
+    async def get_public_flags(request: Request) -> dict[str, bool]:
+        return get_public_access_flags(_control_plane(request))
 
     @app.get("/auth/bootstrap-status")
     async def get_bootstrap_status(request: Request) -> dict[str, bool]:

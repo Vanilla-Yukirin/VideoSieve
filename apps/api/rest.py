@@ -20,6 +20,7 @@ from .models import (
 from .service import ApiControlPlane
 
 REST_ROUTES: tuple[str, ...] = (
+    "GET /public/access-flags",
     "GET /auth/bootstrap-status",
     "POST /auth/bootstrap",
     "POST /auth/login",
@@ -77,6 +78,12 @@ def get_auth_bootstrap_status(control_plane: ApiControlPlane) -> dict[str, bool]
     """GET /auth/bootstrap-status"""
 
     return control_plane.get_bootstrap_status().model_dump(mode="json")
+
+
+def get_public_access_flags(control_plane: ApiControlPlane) -> dict[str, bool]:
+    """GET /public/access-flags"""
+
+    return control_plane.get_public_access_flags().model_dump(mode="json")
 
 
 def post_auth_bootstrap(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:

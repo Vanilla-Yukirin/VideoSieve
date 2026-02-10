@@ -17,6 +17,10 @@ def _make_client(tmp_path: Path) -> Any:
 
 def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
+        public_flags = client.get("/public/access-flags")
+        assert public_flags.status_code == 200
+        assert set(public_flags.json().keys()) == {"guest_mode_enabled"}
+
         health = client.get("/healthz")
         assert health.status_code == 200
         assert health.json() == {"status": "ok"}
@@ -187,6 +191,28 @@ def test_runtime_guest_cooldown_shared_for_guest_submissions(
         assert second.status_code == 429
         assert second.json()["code"] == "guest_cooldown_active"
         assert int(second.json()["remaining_seconds"]) >= 1
+
+
+def test_runtime_public_access_flags_matches_private_settings(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        boot = client.post(
+            "/auth/bootstrap",
+            json={"username": "admin", "password": "password123"},
+        )
+        token = boot.json()["token"]
+
+        patched = client.patch(
+            "/settings/system",
+            json={"guest_mode_enabled": False},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert patched.status_code == 200
+
+        public_flags = client.get("/public/access-flags")
+        assert public_flags.status_code == 200
+        payload = public_flags.json()
+        assert payload == {"guest_mode_enabled": False}
+        assert "guest_allow_cookie_input" not in payload
 
 
 @pytest.mark.parametrize("raw_value,expected", [("true", True), ("false", False)])

@@ -173,7 +173,7 @@ export const api = {
       method: "DELETE",
     }),
 
-  validateMeCookie: (cookieId: string, payload: CookieValidateRequest = {}) =>
+  validateMeCookie: (cookieId: string, payload: CookieValidateRequest) =>
     fetchJson<CookieValidateResponse>(`/me/cookies/${cookieId}/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

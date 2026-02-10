@@ -86,12 +86,14 @@ describe("cookie vault client CRUD interactions", () => {
       last_error_code: null,
     });
 
-    await api.validateMeCookie("c_3", { source_url: "https://www.bilibili.com" });
+    await api.validateMeCookie("c_3", { source_url: "https://www.bilibili.com/video/BV1demo" });
 
     expect(global.fetch).toHaveBeenCalledWith(
       "/api/me/cookies/c_3/validate",
       expect.objectContaining({ method: "POST" }),
     );
+    const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
+    expect(options.body).toContain("source_url");
   });
 });
 

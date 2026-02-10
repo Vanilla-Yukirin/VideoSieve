@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 
@@ -15,6 +15,9 @@ type EditState = {
   name: string;
   cookieText: string;
 };
+
+const DEFAULT_VALIDATE_SOURCE_URL = "https://www.bilibili.com/video/BV1xx411c7mD";
+const VALIDATE_SOURCE_URL_STORAGE_KEY = "videosieve_cookie_validate_source_url";
 
 function statusClass(status: CookieListItem["status"]): string {
   if (status === "valid") return "text-green-700";
@@ -32,6 +35,14 @@ export default function CookieVaultSettingsPage() {
   const [createCookieText, setCreateCookieText] = useState("");
   const [createDefault, setCreateDefault] = useState(false);
   const [edit, setEdit] = useState<EditState | null>(null);
+  const [validateSourceUrl, setValidateSourceUrl] = useState(DEFAULT_VALIDATE_SOURCE_URL);
+
+  useEffect(() => {
+    const cached = window.localStorage.getItem(VALIDATE_SOURCE_URL_STORAGE_KEY)?.trim();
+    if (cached) {
+      setValidateSourceUrl(cached);
+    }
+  }, []);
 
   const rows = useMemo(() => cookies ?? [], [cookies]);
 
@@ -96,10 +107,17 @@ export default function CookieVaultSettingsPage() {
   };
 
   const onValidate = async (cookieId: string) => {
+    const sourceUrl = validateSourceUrl.trim();
+    if (!sourceUrl) {
+      setMessage(t("cookie.validateSourceRequired"));
+      return;
+    }
+
     setBusyId(cookieId);
     setMessage("");
     try {
-      const result = await api.validateMeCookie(cookieId, {});
+      window.localStorage.setItem(VALIDATE_SOURCE_URL_STORAGE_KEY, sourceUrl);
+      const result = await api.validateMeCookie(cookieId, { source_url: sourceUrl });
       await mutate((current) => {
         if (!current) return current;
         return current.map((cookie) =>
@@ -203,6 +221,20 @@ export default function CookieVaultSettingsPage() {
           <CardTitle>{t("cookie.saved")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="space-y-2 rounded-md border border-dashed p-3">
+            <label className="text-sm font-medium" htmlFor="validate-source-url">
+              {t("cookie.validateSourceLabel")}
+            </label>
+            <input
+              id="validate-source-url"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={validateSourceUrl}
+              onChange={(e) => setValidateSourceUrl(e.target.value)}
+              placeholder={t("cookie.validateSourcePlaceholder")}
+              disabled={Boolean(busyId)}
+            />
+          </div>
+
           {isLoading ? <p className="text-sm text-muted-foreground">{t("cookie.loading")}</p> : null}
           {error ? <p className="text-sm text-destructive">{t("cookie.loadFailed")}</p> : null}
 

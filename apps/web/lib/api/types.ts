@@ -170,7 +170,7 @@ export interface CookiePatchRequest {
 }
 
 export interface CookieValidateRequest {
-  source_url?: string;
+  source_url: string;
 }
 
 export interface CookieValidateResponse {

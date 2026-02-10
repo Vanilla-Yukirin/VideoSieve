@@ -82,6 +82,9 @@ export type MessageKey =
   | "cookie.defaultUpdated"
   | "cookie.setAsDefault"
   | "cookie.lastValidated"
+  | "cookie.validateSourceLabel"
+  | "cookie.validateSourcePlaceholder"
+  | "cookie.validateSourceRequired"
   | "ingest.probe"
   | "ingest.probing"
   | "ingest.sourceUrl"
@@ -232,6 +235,9 @@ export const messages: Record<Locale, MessageMap> = {
     "cookie.defaultUpdated": "默认 Cookie 已更新。",
     "cookie.setAsDefault": "设为默认 Cookie",
     "cookie.lastValidated": "最近校验时间",
+    "cookie.validateSourceLabel": "校验视频页 URL",
+    "cookie.validateSourcePlaceholder": "https://www.bilibili.com/video/BV...",
+    "cookie.validateSourceRequired": "请先填写用于校验的具体视频页 URL。",
     "ingest.probe": "探测",
     "ingest.probing": "探测中...",
     "ingest.sourceUrl": "源地址",
@@ -379,6 +385,9 @@ export const messages: Record<Locale, MessageMap> = {
     "cookie.defaultUpdated": "Default cookie updated.",
     "cookie.setAsDefault": "Set as default cookie",
     "cookie.lastValidated": "last_validated_at",
+    "cookie.validateSourceLabel": "Validate Source URL",
+    "cookie.validateSourcePlaceholder": "https://www.bilibili.com/video/BV...",
+    "cookie.validateSourceRequired": "Please enter a concrete video page URL before validating.",
     "ingest.probe": "Probe",
     "ingest.probing": "Probing...",
     "ingest.sourceUrl": "Source URL",

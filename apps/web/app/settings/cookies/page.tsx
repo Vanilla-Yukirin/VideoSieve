@@ -9,15 +9,18 @@ import { CookieListItem } from "@/lib/api/types";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import {
+  resolveInitialValidateSourceUrl,
+  validateSourceUrlInput,
+  DEFAULT_VALIDATE_SOURCE_URL,
+  VALIDATE_SOURCE_URL_STORAGE_KEY,
+} from "@/lib/cookies/validateSource";
 
 type EditState = {
   id: string;
   name: string;
   cookieText: string;
 };
-
-const DEFAULT_VALIDATE_SOURCE_URL = "https://www.bilibili.com/video/BV1xx411c7mD";
-const VALIDATE_SOURCE_URL_STORAGE_KEY = "videosieve_cookie_validate_source_url";
 
 function statusClass(status: CookieListItem["status"]): string {
   if (status === "valid") return "text-green-700";
@@ -38,10 +41,8 @@ export default function CookieVaultSettingsPage() {
   const [validateSourceUrl, setValidateSourceUrl] = useState(DEFAULT_VALIDATE_SOURCE_URL);
 
   useEffect(() => {
-    const cached = window.localStorage.getItem(VALIDATE_SOURCE_URL_STORAGE_KEY)?.trim();
-    if (cached) {
-      setValidateSourceUrl(cached);
-    }
+    const cached = window.localStorage.getItem(VALIDATE_SOURCE_URL_STORAGE_KEY);
+    setValidateSourceUrl(resolveInitialValidateSourceUrl(cached));
   }, []);
 
   const rows = useMemo(() => cookies ?? [], [cookies]);
@@ -107,17 +108,17 @@ export default function CookieVaultSettingsPage() {
   };
 
   const onValidate = async (cookieId: string) => {
-    const sourceUrl = validateSourceUrl.trim();
-    if (!sourceUrl) {
-      setMessage(t("cookie.validateSourceRequired"));
+    const checked = validateSourceUrlInput(validateSourceUrl);
+    if (!checked.ok) {
+      setMessage(t(checked.errorKey));
       return;
     }
 
     setBusyId(cookieId);
     setMessage("");
     try {
-      window.localStorage.setItem(VALIDATE_SOURCE_URL_STORAGE_KEY, sourceUrl);
-      const result = await api.validateMeCookie(cookieId, { source_url: sourceUrl });
+      window.localStorage.setItem(VALIDATE_SOURCE_URL_STORAGE_KEY, checked.source_url);
+      const result = await api.validateMeCookie(cookieId, { source_url: checked.source_url });
       await mutate((current) => {
         if (!current) return current;
         return current.map((cookie) =>

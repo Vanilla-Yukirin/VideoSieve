@@ -1,5 +1,10 @@
 import { api } from "../../apps/web/lib/api/client";
 import { resolveDefaultCookieId } from "../../apps/web/lib/cookies/helpers";
+import {
+  DEFAULT_VALIDATE_SOURCE_URL,
+  resolveInitialValidateSourceUrl,
+  validateSourceUrlInput,
+} from "../../apps/web/lib/cookies/validateSource";
 import { CookieListItem, CreateJobRequest } from "../../apps/web/lib/api/types";
 
 function mockFetchOk(payload: unknown) {
@@ -94,6 +99,35 @@ describe("cookie vault client CRUD interactions", () => {
     );
     const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
     expect(options.body).toContain("source_url");
+    expect(options.body).toContain("/video/");
+  });
+});
+
+describe("cookie validate source URL helpers", () => {
+  it("uses default validate URL when localStorage value is missing", () => {
+    expect(resolveInitialValidateSourceUrl(null)).toBe(DEFAULT_VALIDATE_SOURCE_URL);
+    expect(resolveInitialValidateSourceUrl(undefined)).toBe(DEFAULT_VALIDATE_SOURCE_URL);
+    expect(resolveInitialValidateSourceUrl("   ")).toBe(DEFAULT_VALIDATE_SOURCE_URL);
+  });
+
+  it("uses editable stored validate URL when present", () => {
+    expect(resolveInitialValidateSourceUrl("https://www.bilibili.com/video/BV777")).toBe(
+      "https://www.bilibili.com/video/BV777",
+    );
+    expect(resolveInitialValidateSourceUrl("  https://www.bilibili.com/video/BV888  ")).toBe(
+      "https://www.bilibili.com/video/BV888",
+    );
+  });
+
+  it("blocks empty source_url and does not send validate request", async () => {
+    const checked = validateSourceUrlInput("   ");
+    expect(checked).toEqual({ ok: false, errorKey: "cookie.validateSourceRequired" });
+
+    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn();
+    if (checked.ok) {
+      await api.validateMeCookie("should_not_call", { source_url: checked.source_url });
+    }
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 

@@ -2,6 +2,20 @@ import { useEffect, useRef, useReducer } from "react";
 import { api } from "../api/client";
 import { jobReducer, initialState } from "../state/jobReducer";
 
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8040").replace(/\/+$/, "");
+
+function toWebSocketOrigin(origin: string): string {
+  if (origin.startsWith("https://")) {
+    return `wss://${origin.slice("https://".length)}`;
+  }
+  if (origin.startsWith("http://")) {
+    return `ws://${origin.slice("http://".length)}`;
+  }
+  return origin;
+}
+
+const WS_ORIGIN = toWebSocketOrigin(API_ORIGIN);
+
 export function useJobRealtime(jobId: string) {
   const [state, dispatch] = useReducer(jobReducer, initialState);
 
@@ -31,7 +45,7 @@ export function useJobRealtime(jobId: string) {
     }
 
     let isMounted = true;
-    const wsUrl = `ws://127.0.0.1:8000/ws/jobs/${jobId}`;
+    const wsUrl = `${WS_ORIGIN}/ws/jobs/${jobId}`;
 
     function connect() {
       if (wsRef.current) return;

@@ -24,6 +24,10 @@ export default function JobDetail() {
      state.status === "failed" ? "bg-red-500" :
      state.status === "succeeded" ? "bg-green-500" :
      "bg-primary";
+  const sourceVideoUrl = `/api/jobs/${jobId}/source-video`;
+  const hasSourceVideo = state.artifacts.some(
+    (artifact) => artifact.path === "media/source.mp4" || artifact.path.endsWith("/source.mp4"),
+  );
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 max-w-6xl">
@@ -76,6 +80,17 @@ export default function JobDetail() {
            </CardContent>
        </Card>
 
+       {hasSourceVideo ? (
+         <Card>
+           <CardHeader>
+             <CardTitle className="text-lg">source.mp4</CardTitle>
+           </CardHeader>
+           <CardContent>
+             <video className="w-full rounded-md border bg-black" controls preload="metadata" src={sourceVideoUrl} />
+           </CardContent>
+         </Card>
+       ) : null}
+
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
            {/* Logs - Takes up 2 cols */}
            <div className="lg:col-span-2 flex flex-col gap-4">
@@ -100,16 +115,18 @@ export default function JobDetail() {
                                            <FileText className="h-4 w-4 mr-2 text-muted-foreground" />
                                            <span className="truncate max-w-[150px]" title={art.path}>{art.path.split('/').pop()}</span>
                                        </div>
-                                       <a 
-                                         href={`/api/workspace/${state.project_id}/${art.path}`} // Hypothetical download link if API supported it directly
-                                         target="_blank" 
-                                         rel="noopener noreferrer"
-                                         className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                       >
-                                           <Download className="h-4 w-4" />
-                                       </a>
-                                   </li>
-                               ))}
+                                        {art.path.endsWith("source.mp4") ? (
+                                          <a
+                                            href={sourceVideoUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                          >
+                                            <Download className="h-4 w-4" />
+                                          </a>
+                                        ) : null}
+                                    </li>
+                                ))}
                            </ul>
                        )}
                    </CardContent>

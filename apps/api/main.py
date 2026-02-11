@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 
 from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
@@ -306,6 +306,20 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
     @app.get("/jobs/{job_id}/artifacts")
     async def get_jobs_artifacts(request: Request, job_id: str) -> list[dict[str, object]]:
         return list_job_artifacts(_control_plane(request), job_id)
+
+    @app.get("/jobs/{job_id}/source-video")
+    async def get_jobs_source_video(request: Request, job_id: str) -> FileResponse:
+        runtime: _Runtime = request.app.state.runtime
+        job = get_job(_control_plane(request), job_id)
+        project_id = job.get("project_id")
+        if not isinstance(project_id, str):
+            raise ValueError(f"job has invalid project_id: {job_id}")
+
+        source_path = runtime.workspace.source_video_file(project_id)
+        if not source_path.exists():
+            raise KeyError(f"source video not found for job: {job_id}")
+
+        return FileResponse(path=source_path, media_type="video/mp4", filename="source.mp4")
 
     @app.post("/jobs/{job_id}/control/{command}")
     async def post_job_control(

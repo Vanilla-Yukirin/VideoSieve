@@ -15,6 +15,7 @@
 - `docs/10_system/state-machine.md`
 - `docs/10_system/events-and-websocket.md`
 - `docs/10_system/configuration.md`
+- `docs/10_system/artifact-realtime-plan.md`
 - `docs/10_system/workspace-layout.md`
 
 ## Modules

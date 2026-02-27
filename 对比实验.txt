@@ -1,0 +1,417 @@
+https://www.bilibili.com/video/BV1Pp61BiEH7/?vd_source=1f03ae86547be257dc2c7b629553a153
+
+https://www.bilibili.com/video/BV1upFrzUERB/?vd_source=1f03ae86547be257dc2c7b629553a153
+
+https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153
+
+
+我统一使用视频：
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp -F "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt"                                                                                                                       
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] Available formats for BV1gRFxzrETV: 
+ID     EXT RESOLUTION FPS │   FILESIZE  TBR PROTO │ VCODEC         VBR ACODEC      ABR 
+──────────────────────────────────────────────────────────────────────────────────────
+30216  m4a audio only     │ ≈976.16KiB  66k https │ audio only         mp4a.40.2   66k
+30232  m4a audio only     │ ≈  1.51MiB 105k https │ audio only         mp4a.40.2  105k
+30280  m4a audio only     │ ≈  2.68MiB 186k https │ audio only         mp4a.40.2  186k
+30016  mp4 640x360     30 │ ≈  1.49MiB 104k https │ avc1.640033   104k video only
+30011  mp4 640x360     30 │ ≈  2.07MiB 144k https │ hev1.1.6.L120 144k video only
+100022 mp4 640x360     30 │ ≈  1.66MiB 115k https │ av01.0.00M.10 115k video only
+30032  mp4 852x480     30 │ ≈  2.19MiB 152k https │ avc1.640033   152k video only
+30033  mp4 852x480     30 │ ≈  2.99MiB 208k https │ hev1.1.6.L120 208k video only
+100023 mp4 852x480     30 │ ≈  2.48MiB 172k https │ av01.0.00M.10 172k video only
+30064  mp4 1280x720    30 │ ≈  3.79MiB 263k https │ avc1.640033   263k video only
+30066  mp4 1280x720    30 │ ≈  4.75MiB 329k https │ hev1.1.6.L120 329k video only
+100024 mp4 1280x720    30 │ ≈  3.99MiB 277k https │ av01.0.00M.10 277k video only
+30080  mp4 1600x900    30 │ ≈  5.94MiB 412k https │ avc1.640033   412k video only
+30077  mp4 1600x900    30 │ ≈  7.11MiB 494k https │ hev1.1.6.L120 494k video only
+100026 mp4 1600x900    30 │ ≈  6.14MiB 426k https │ av01.0.00M.10 426k video only
+30116  mp4 1600x900    60 │ ≈  7.65MiB 531k https │ avc1.640033   531k video only
+30106  mp4 1600x900    60 │ ≈  9.44MiB 655k https │ hev1.1.6.L123 655k video only
+100028 mp4 1600x900    60 │ ≈  8.61MiB 597k https │ av01.0.00M.10 597k video only
+
+
+- 先别纠结“fps一定提速吗”，先做实验矩阵：
+  - 编码：AVC / HEVC / AV1
+  - 分辨率：1080 / 720 / 480
+  - 统计：解码耗时、keyframe耗时、OCR有效率
+- 用数据决定默认策略，而不是凭感觉。
+
+
+
+
+
+
+PS D:\Github\VideoSieve> D:/Software/anaconda3/Scripts/activate
+PS D:\Github\VideoSieve> conda activate VideoSieve
+(VideoSieve) PS D:\Github\VideoSieve> $ROOT = "D:/Github/VideoSieve"
+(VideoSieve) PS D:\Github\VideoSieve> $DATA = "$ROOT/data/bench/BV1gRFxzrETV"
+(VideoSieve) PS D:\Github\VideoSieve> $WS   = "$ROOT/workspaces/bench_bv1g"
+(VideoSieve) PS D:\Github\VideoSieve> New-Item -ItemType Directory -Force $DATA | Out-Null
+(VideoSieve) PS D:\Github\VideoSieve> New-Item -ItemType Directory -Force $WS   | Out-Null
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "30064+30280" -o "$DATA/avc_720.mp4"
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 30064+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.f30064.mp4 
+[download] 100% of    3.79MiB in 00:00:00 at 8.02MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 12.72MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.mp4"
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.f30064.mp4 (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.f30280.m4a (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "30066+30280" -o "$DATA/hevc_720.mp4"
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 30066+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.f30066.mp4 
+[download] 100% of    4.75MiB in 00:00:00 at 5.67MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 12.24MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.mp4" 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.f30066.mp4 (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.f30280.m4a (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "100024+30280" -o "$DATA/av1_720.mp4"
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 100024+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.f100024.mp4 
+[download] 100% of    3.99MiB in 00:00:00 at 9.01MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 12.34MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.mp4"
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.f30280.m4a (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.f100024.mp4 (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "30016+30280" -o "$DATA/avc_360.mp4" 
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 30016+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.f30016.mp4 
+[download] 100% of    1.49MiB in 00:00:00 at 6.18MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 13.09MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.mp4"
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.f30280.m4a (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.f30016.mp4 (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "30032+30280" -o "$DATA/avc_480.mp4"
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 30032+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.f30032.mp4 
+[download] 100% of    2.20MiB in 00:00:00 at 6.36MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 11.48MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.mp4"
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.f30032.mp4 (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.f30280.m4a (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> yt-dlp "https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153" --cookies "D:/secrets/bilibili.cookies.txt" -f "30080+30280" -o "$DATA/avc_900.mp4"
+[BiliBili] Extracting URL: https://www.bilibili.com/video/BV1gRFxzrETV/?vd_source=1f03ae86547be257dc2c7b629553a153 
+[BiliBili] 1gRFxzrETV: Downloading webpage 
+[BiliBili] BV1gRFxzrETV: Extracting videos in anthology 
+[BiliBili] 116030118560224: Extracting chapters 
+[info] BV1gRFxzrETV: Downloading 1 format(s): 30080+30280 
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.f30080.mp4 
+[download] 100% of    5.94MiB in 00:00:00 at 8.39MiB/s
+[download] Destination: D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.f30280.m4a 
+[download] 100% of    2.68MiB in 00:00:00 at 9.17MiB/s
+[Merger] Merging formats into "D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.mp4"
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.f30080.mp4 (pass -k to keep) 
+Deleting original file D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.f30280.m4a (pass -k to keep) 
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "$DATA/avc_720.mp4"  --workspace-root "$WS" --project-id "p_bv1g_avc720"  --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:33:10 INFO [demo] project_id=p_bv1g_avc720
+00:33:10 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.mp4
+00:33:10 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:33:10 INFO [demo] extracting frame features...
+00:33:12 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=16.33ms/sample elapsed=2.45s
+00:33:15 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=16.28ms/sample elapsed=4.89s
+00:33:16 INFO [extract] done sampled=363 decoded=3627 avg=16.36ms/sample elapsed=5.94s
+00:33:16 INFO [demo] extraction_done frame_features=363 elapsed=6.14s
+00:33:16 INFO [demo] selecting keyframes...
+00:33:16 INFO [select] segments=25 stable_candidates=25 fallback_candidates=1 selected=6 total=7.74ms
+00:33:16 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:33:16 INFO [demo] writing keyframe images...
+00:33:16 INFO [demo] image_write_done elapsed=0.23s
+00:33:16 INFO [demo] running OCR mock provider...
+00:33:16 INFO [demo] ocr_done rows=6 elapsed=0.02s
+00:33:16 INFO [demo] completed
+00:33:16 INFO [demo] frame_features: 363
+00:33:16 INFO [demo] keyframes_out: 6
+00:33:16 INFO [demo] stable_segments: 25
+00:33:16 INFO [demo] stable_candidates: 25
+00:33:16 INFO [demo] fallback_candidates: 1
+00:33:16 INFO [demo] ocr_rows_out: 6
+00:33:16 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\keyframes.jsonl
+00:33:16 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\images
+00:33:16 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\diff_curve.csv
+00:33:16 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\selection_trace.jsonl
+00:33:16 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\timing_report.json    
+00:33:16 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\ocr\ocr.jsonl
+00:33:16 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\logs\demo_real_video.log
+00:33:16 INFO [demo] selected frame details
+00:33:16 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.452}
+00:33:16 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.5221}
+00:33:16 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.492}
+00:33:16 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7015}
+00:33:16 INFO   - {"rank": 5, "ts": 111.333, "reason": "stable", "score": 0.5779}
+00:33:16 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7306}
+00:33:16 INFO [demo] stage_elapsed_seconds extract=6.14 select=0.01 write_images=0.23 ocr=0.02
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "$DATA/hevc_720.mp4" --workspace-root "$WS" --project-id "p_bv1g_hevc720" --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:33:22 INFO [demo] project_id=p_bv1g_hevc720
+00:33:22 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\hevc_720.mp4
+00:33:22 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:33:22 INFO [demo] extracting frame features...
+00:33:26 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=22.07ms/sample elapsed=3.31s
+00:33:29 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=19.82ms/sample elapsed=5.94s
+00:33:30 INFO [extract] done sampled=363 decoded=3627 avg=19.29ms/sample elapsed=7.00s
+00:33:30 INFO [demo] extraction_done frame_features=363 elapsed=7.13s
+00:33:30 INFO [demo] selecting keyframes...
+00:33:30 INFO [select] segments=26 stable_candidates=26 fallback_candidates=1 selected=6 total=7.46ms
+00:33:30 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:33:30 INFO [demo] writing keyframe images...
+00:33:30 INFO [demo] image_write_done elapsed=0.42s
+00:33:30 INFO [demo] running OCR mock provider...
+00:33:30 INFO [demo] ocr_done rows=6 elapsed=0.02s
+00:33:30 INFO [demo] completed
+00:33:30 INFO [demo] frame_features: 363
+00:33:30 INFO [demo] keyframes_out: 6
+00:33:30 INFO [demo] stable_segments: 26
+00:33:30 INFO [demo] stable_candidates: 26
+00:33:30 INFO [demo] fallback_candidates: 1
+00:33:30 INFO [demo] ocr_rows_out: 6
+00:33:30 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\frames\keyframes.jsonl
+00:33:30 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\frames\images
+00:33:30 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\frames\metrics\diff_curve.csv
+00:33:30 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\frames\metrics\selection_trace.jsonl
+00:33:30 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\frames\metrics\timing_report.json   
+00:33:30 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\ocr\ocr.jsonl
+00:33:30 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_hevc720\logs\demo_real_video.log
+00:33:30 INFO [demo] selected frame details
+00:33:30 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.525}
+00:33:30 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.512}
+00:33:30 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.4793}
+00:33:30 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7246}
+00:33:30 INFO   - {"rank": 5, "ts": 115.333, "reason": "stable", "score": 0.9082}
+00:33:30 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7275}
+00:33:30 INFO [demo] stage_elapsed_seconds extract=7.13 select=0.01 write_images=0.42 ocr=0.02
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "$DATA/av1_720.mp4"  --workspace-root "$WS" --project-id "p_bv1g_av1720"  --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:33:32 INFO [demo] project_id=p_bv1g_av1720
+00:33:32 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\av1_720.mp4
+00:33:32 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:33:32 INFO [demo] extracting frame features...
+00:33:38 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=38.15ms/sample elapsed=5.72s
+00:33:44 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=38.93ms/sample elapsed=11.68s
+00:33:47 INFO [extract] done sampled=363 decoded=3627 avg=39.67ms/sample elapsed=14.40s
+00:33:47 INFO [demo] extraction_done frame_features=363 elapsed=14.64s
+00:33:47 INFO [demo] selecting keyframes...
+00:33:47 INFO [select] segments=27 stable_candidates=27 fallback_candidates=1 selected=6 total=7.17ms
+00:33:47 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:33:47 INFO [demo] writing keyframe images...
+00:33:49 INFO [demo] image_write_done elapsed=1.91s
+00:33:49 INFO [demo] running OCR mock provider...
+00:33:49 INFO [demo] ocr_done rows=6 elapsed=0.02s
+00:33:49 INFO [demo] completed
+00:33:49 INFO [demo] frame_features: 363
+00:33:49 INFO [demo] keyframes_out: 6
+00:33:49 INFO [demo] stable_segments: 27
+00:33:49 INFO [demo] stable_candidates: 27
+00:33:49 INFO [demo] fallback_candidates: 1
+00:33:49 INFO [demo] ocr_rows_out: 6
+00:33:49 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\frames\keyframes.jsonl
+00:33:49 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\frames\images
+00:33:49 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\frames\metrics\diff_curve.csv
+00:33:49 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\frames\metrics\selection_trace.jsonl
+00:33:49 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\frames\metrics\timing_report.json    
+00:33:49 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\ocr\ocr.jsonl
+00:33:49 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_av1720\logs\demo_real_video.log
+00:33:49 INFO [demo] selected frame details
+00:33:49 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.5182}
+00:33:49 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.5214}
+00:33:49 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.4957}
+00:33:49 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7452}
+00:33:49 INFO   - {"rank": 5, "ts": 117.0, "reason": "stable", "score": 0.5961}
+00:33:49 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7314}
+00:33:49 INFO [demo] stage_elapsed_seconds extract=14.64 select=0.01 write_images=1.91 ocr=0.02
+(VideoSieve) PS D:\Github\VideoSieve> Select-String -Path "$WS/p_bv1g_avc720/logs/demo_real_video.log"  -Pattern "stage_elapsed_seconds"
+
+workspaces\bench_bv1g\p_bv1g_avc720\logs\demo_real_video.log:37:00:33:16 INFO [demo] stage_elapsed_seconds extract=6.14 select=0.01 wr
+ite_images=0.23 ocr=0.02
+
+(VideoSieve) PS D:\Github\VideoSieve> Select-String -Path "$WS/p_bv1g_hevc720/logs/demo_real_video.log" -Pattern "stage_elapsed_seconds"
+
+workspaces\bench_bv1g\p_bv1g_hevc720\logs\demo_real_video.log:37:00:33:30 INFO [demo] stage_elapsed_seconds extract=7.13 select=0.01 w
+rite_images=0.42 ocr=0.02
+
+(VideoSieve) PS D:\Github\VideoSieve> Select-String -Path "$WS/p_bv1g_av1720/logs/demo_real_video.log"  -Pattern "stage_elapsed_seconds"
+
+workspaces\bench_bv1g\p_bv1g_av1720\logs\demo_real_video.log:37:00:33:49 INFO [demo] stage_elapsed_seconds extract=14.64 select=0.01 w 
+rite_images=1.91 ocr=0.02
+
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "D:/Github/VideoSieve/data/bench/BV1gRFxzrETV/avc_360.mp4" --workspace-root "D:/Github/VideoSieve/workspaces/bench_bv1g" --project-id "p_bv1g_avc360" --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:34:38 INFO [demo] project_id=p_bv1g_avc360
+00:34:38 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_360.mp4
+00:34:38 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:34:38 INFO [demo] extracting frame features...
+00:34:38 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=3.78ms/sample elapsed=0.57s
+00:34:39 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=5.24ms/sample elapsed=1.57s
+00:34:40 INFO [extract] done sampled=363 decoded=3627 avg=5.30ms/sample elapsed=1.92s
+00:34:40 INFO [demo] extraction_done frame_features=363 elapsed=2.07s
+00:34:40 INFO [demo] selecting keyframes...
+00:34:40 INFO [select] segments=25 stable_candidates=25 fallback_candidates=1 selected=6 total=9.04ms
+00:34:40 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:34:40 INFO [demo] writing keyframe images...
+00:34:40 INFO [demo] image_write_done elapsed=0.11s
+00:34:40 INFO [demo] running OCR mock provider...
+00:34:40 INFO [demo] ocr_done rows=6 elapsed=0.02s
+00:34:40 INFO [demo] completed
+00:34:40 INFO [demo] frame_features: 363
+00:34:40 INFO [demo] keyframes_out: 6
+00:34:40 INFO [demo] stable_segments: 25
+00:34:40 INFO [demo] stable_candidates: 25
+00:34:40 INFO [demo] fallback_candidates: 1
+00:34:40 INFO [demo] ocr_rows_out: 6
+00:34:40 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\frames\keyframes.jsonl
+00:34:40 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\frames\images
+00:34:40 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\frames\metrics\diff_curve.csv
+00:34:40 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\frames\metrics\selection_trace.jsonl
+00:34:40 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\frames\metrics\timing_report.json    
+00:34:40 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\ocr\ocr.jsonl
+00:34:40 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc360\logs\demo_real_video.log
+00:34:40 INFO [demo] selected frame details
+00:34:40 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.4778}
+00:34:40 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.5391}
+00:34:40 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.468}
+00:34:40 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7726}
+00:34:40 INFO   - {"rank": 5, "ts": 117.0, "reason": "stable", "score": 0.8873}
+00:34:40 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7255}
+00:34:40 INFO [demo] stage_elapsed_seconds extract=2.07 select=0.01 write_images=0.11 ocr=0.02
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "D:/Github/VideoSieve/data/bench/BV1gRFxzrETV/avc_480.mp4" --workspace-root "D:/Github/VideoSieve/workspaces/bench_bv1g" --project-id "p_bv1g_avc480" --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:34:45 INFO [demo] project_id=p_bv1g_avc480
+00:34:45 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_480.mp4
+00:34:45 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:34:45 INFO [demo] extracting frame features...
+00:34:47 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=12.03ms/sample elapsed=1.80s
+00:34:49 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=11.61ms/sample elapsed=3.48s
+00:34:50 INFO [extract] done sampled=363 decoded=3627 avg=11.71ms/sample elapsed=4.25s
+00:34:50 INFO [demo] extraction_done frame_features=363 elapsed=4.40s
+00:34:50 INFO [demo] selecting keyframes...
+00:34:50 INFO [select] segments=25 stable_candidates=25 fallback_candidates=1 selected=6 total=19.03ms
+00:34:50 INFO [demo] selection_done keyframes=6 elapsed=0.03s
+00:34:50 INFO [demo] writing keyframe images...
+00:34:50 INFO [demo] image_write_done elapsed=0.30s
+00:34:50 INFO [demo] running OCR mock provider...
+00:34:50 INFO [demo] ocr_done rows=6 elapsed=0.03s
+00:34:50 INFO [demo] completed
+00:34:50 INFO [demo] frame_features: 363
+00:34:50 INFO [demo] keyframes_out: 6
+00:34:50 INFO [demo] stable_segments: 25
+00:34:50 INFO [demo] stable_candidates: 25
+00:34:50 INFO [demo] fallback_candidates: 1
+00:34:50 INFO [demo] ocr_rows_out: 6
+00:34:50 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\frames\keyframes.jsonl
+00:34:50 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\frames\images
+00:34:50 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\frames\metrics\diff_curve.csv
+00:34:50 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\frames\metrics\selection_trace.jsonl
+00:34:50 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\frames\metrics\timing_report.json    
+00:34:50 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\ocr\ocr.jsonl
+00:34:50 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc480\logs\demo_real_video.log
+00:34:50 INFO [demo] selected frame details
+00:34:50 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.5067}
+00:34:50 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.5141}
+00:34:50 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.4586}
+00:34:50 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7418}
+00:34:50 INFO   - {"rank": 5, "ts": 117.0, "reason": "stable", "score": 0.9636}
+00:34:50 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.719}
+00:34:50 INFO [demo] stage_elapsed_seconds extract=4.40 select=0.03 write_images=0.30 ocr=0.03
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "D:/Github/VideoSieve/data/bench/BV1gRFxzrETV/avc_720.mp4" --workspace-root "D:/Github/VideoSieve/workspaces/bench_bv1g" --project-id "p_bv1g_avc720" --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:34:50 INFO [demo] project_id=p_bv1g_avc720
+00:34:50 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_720.mp4
+00:34:50 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:34:50 INFO [demo] extracting frame features...
+00:34:53 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=18.65ms/sample elapsed=2.80s
+00:34:56 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=18.48ms/sample elapsed=5.54s
+00:34:57 INFO [extract] done sampled=363 decoded=3627 avg=18.46ms/sample elapsed=6.70s
+00:34:57 INFO [demo] extraction_done frame_features=363 elapsed=6.87s
+00:34:57 INFO [demo] selecting keyframes...
+00:34:57 INFO [select] segments=25 stable_candidates=25 fallback_candidates=1 selected=6 total=9.23ms
+00:34:57 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:34:57 INFO [demo] writing keyframe images...
+00:34:57 INFO [demo] image_write_done elapsed=0.27s
+00:34:57 INFO [demo] running OCR mock provider...
+00:34:57 INFO [demo] ocr_done rows=6 elapsed=0.00s
+00:34:57 INFO [demo] completed
+00:34:57 INFO [demo] frame_features: 363
+00:34:57 INFO [demo] keyframes_out: 6
+00:34:57 INFO [demo] stable_segments: 25
+00:34:57 INFO [demo] stable_candidates: 25
+00:34:57 INFO [demo] fallback_candidates: 1
+00:34:57 INFO [demo] ocr_rows_out: 6
+00:34:57 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\keyframes.jsonl
+00:34:57 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\images
+00:34:57 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\diff_curve.csv
+00:34:57 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\selection_trace.jsonl
+00:34:57 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\frames\metrics\timing_report.json    
+00:34:57 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\ocr\ocr.jsonl
+00:34:57 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc720\logs\demo_real_video.log
+00:34:57 INFO [demo] selected frame details
+00:34:57 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.452}
+00:34:57 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.5221}
+00:34:57 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.492}
+00:34:57 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.7015}
+00:34:57 INFO   - {"rank": 5, "ts": 111.333, "reason": "stable", "score": 0.5779}
+00:34:57 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7306}
+00:34:57 INFO [demo] stage_elapsed_seconds extract=6.87 select=0.01 write_images=0.27 ocr=0.00
+(VideoSieve) PS D:\Github\VideoSieve> python scripts/demo_real_video.py --video "D:/Github/VideoSieve/data/bench/BV1gRFxzrETV/avc_900.mp4" --workspace-root "D:/Github/VideoSieve/workspaces/bench_bv1g" --project-id "p_bv1g_avc900" --sample-fps 3 --min-gap 2 --fallback-gap 12 --min-hash-dist 8 --stable-lookback 12 --stable-mad-scale 3 --min-stable-len 4 --k-max 200
+00:35:00 INFO [demo] project_id=p_bv1g_avc900
+00:35:00 INFO [demo] video=D:\Github\VideoSieve\data\bench\BV1gRFxzrETV\avc_900.mp4
+00:35:00 INFO [demo] params sample_fps=3.0 min_gap=2.0 fallback_gap=12.0 min_hash_dist=8 stable_lookback=12 stable_mad_scale=3.0 min_stable_len=4 k_max=200
+00:35:00 INFO [demo] extracting frame features...
+00:35:04 INFO [extract] sampled=150 decoded=1491 video_ts=49.7s avg=29.44ms/sample elapsed=4.42s
+00:35:09 INFO [extract] sampled=300 decoded=2991 video_ts=99.7s avg=30.61ms/sample elapsed=9.18s
+00:35:11 INFO [extract] done sampled=363 decoded=3627 avg=29.82ms/sample elapsed=10.83s
+00:35:11 INFO [demo] extraction_done frame_features=363 elapsed=10.98s
+00:35:11 INFO [demo] selecting keyframes...
+00:35:11 INFO [select] segments=26 stable_candidates=26 fallback_candidates=1 selected=6 total=7.61ms
+00:35:11 INFO [demo] selection_done keyframes=6 elapsed=0.01s
+00:35:11 INFO [demo] writing keyframe images...
+00:35:11 INFO [demo] image_write_done elapsed=0.35s
+00:35:11 INFO [demo] running OCR mock provider...
+00:35:11 INFO [demo] ocr_done rows=6 elapsed=0.02s
+00:35:11 INFO [demo] completed
+00:35:11 INFO [demo] frame_features: 363
+00:35:11 INFO [demo] keyframes_out: 6
+00:35:11 INFO [demo] stable_segments: 26
+00:35:11 INFO [demo] stable_candidates: 26
+00:35:11 INFO [demo] fallback_candidates: 1
+00:35:11 INFO [demo] ocr_rows_out: 6
+00:35:11 INFO [demo] keyframes_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\frames\keyframes.jsonl
+00:35:11 INFO [demo] keyframes_images_dir: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\frames\images
+00:35:11 INFO [demo] metrics_csv: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\frames\metrics\diff_curve.csv
+00:35:11 INFO [demo] selection_trace_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\frames\metrics\selection_trace.jsonl
+00:35:11 INFO [demo] timing_report_json: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\frames\metrics\timing_report.json    
+00:35:11 INFO [demo] ocr_jsonl: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\ocr\ocr.jsonl
+00:35:11 INFO [demo] log_file: D:\Github\VideoSieve\workspaces\bench_bv1g\p_bv1g_avc900\logs\demo_real_video.log
+00:35:11 INFO [demo] selected frame details
+00:35:11 INFO   - {"rank": 1, "ts": 7.0, "reason": "stable", "score": 0.4991}
+00:35:11 INFO   - {"rank": 2, "ts": 13.0, "reason": "stable", "score": 0.527}
+00:35:11 INFO   - {"rank": 3, "ts": 23.333, "reason": "stable", "score": 0.4903}
+00:35:11 INFO   - {"rank": 4, "ts": 70.333, "reason": "stable", "score": 0.6749}
+00:35:11 INFO   - {"rank": 5, "ts": 116.667, "reason": "stable", "score": 0.7935}
+00:35:11 INFO   - {"rank": 6, "ts": 120.333, "reason": "sample", "score": 0.7275}
+00:35:11 INFO [demo] stage_elapsed_seconds extract=10.98 select=0.01 write_images=0.35 ocr=0.02
+(VideoSieve) PS D:\Github\VideoSieve> 
+
+
+

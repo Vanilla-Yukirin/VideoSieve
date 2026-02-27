@@ -12,6 +12,6 @@ This repository now uses a single-agent execution workflow by default.
 
 - Single-user first, guest mode optional and disabled by default.
 - ASR runs locally on server runtime.
-- Frame understanding runs as VLM-only (no traditional OCR engine fallback).
+- Frame understanding runs as FrameSummary-only with free-text outputs.
 - One VLM request per frame, free-text output allowed (no mandatory JSON schema from model).
 - Timeline and deliverables consume VLM output as evidence text.

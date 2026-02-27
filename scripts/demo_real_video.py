@@ -1,4 +1,4 @@
-"""Demo: real-video keyframe extraction + OCR baseline.
+"""Demo: real-video keyframe extraction + frame summary.
 
 Usage:
   conda activate VideoSieve
@@ -14,9 +14,9 @@ import secrets
 from pathlib import Path
 from time import perf_counter
 
+from frame_summary import FrameSummaryService, QwenFrameSummaryProvider
 from infra import FileSystemWorkspaceStore
 from keyframes import KeyframeAlgorithmService, extract_video_features, write_images_for_records
-from ocr import MockOCRProvider, OCRBaselineService
 
 
 def _gen_id(prefix: str) -> str:
@@ -44,7 +44,7 @@ def _configure_logger(log_path: Path, level: str) -> logging.Logger:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Real video keyframe + OCR demo")
+    parser = argparse.ArgumentParser(description="Real video keyframe + frame summary demo")
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--workspace-root", default="workspaces", help="Workspace root directory")
     parser.add_argument("--project-id", default=None, help="Optional fixed project id")
@@ -83,7 +83,9 @@ def main() -> int:
     logger.info("[demo] project_id=%s", project_id)
     logger.info("[demo] video=%s", source)
     logger.info(
-        "[demo] params sample_fps=%s min_gap=%s fallback_gap=%s min_hash_dist=%s stable_lookback=%s stable_mad_scale=%s min_stable_len=%s k_max=%s",
+        "[demo] params sample_fps=%s min_gap=%s fallback_gap=%s "
+        "min_hash_dist=%s stable_lookback=%s stable_mad_scale=%s "
+        "min_stable_len=%s k_max=%s",
         args.sample_fps,
         args.min_gap,
         args.fallback_gap,
@@ -135,12 +137,16 @@ def main() -> int:
     images_elapsed = perf_counter() - t_write_images
     logger.info("[demo] image_write_done elapsed=%.2fs", images_elapsed)
 
-    logger.info("[demo] running OCR mock provider...")
-    t_ocr = perf_counter()
-    ocr_service = OCRBaselineService(workspace, MockOCRProvider())
-    ocr_rows = ocr_service.run(project_id, language_hint="zh")
-    ocr_elapsed = perf_counter() - t_ocr
-    logger.info("[demo] ocr_done rows=%s elapsed=%.2fs", len(ocr_rows), ocr_elapsed)
+    logger.info("[demo] running frame summary provider...")
+    t_frame_summary = perf_counter()
+    frame_summary_service = FrameSummaryService(workspace, QwenFrameSummaryProvider())
+    frame_summary_rows = frame_summary_service.run(project_id, language_hint="zh")
+    frame_summary_elapsed = perf_counter() - t_frame_summary
+    logger.info(
+        "[demo] frame_summary_done rows=%s elapsed=%.2fs",
+        len(frame_summary_rows),
+        frame_summary_elapsed,
+    )
 
     logger.info("[demo] completed")
     logger.info("[demo] frame_features: %s", len(frames))
@@ -148,7 +154,7 @@ def main() -> int:
     logger.info("[demo] stable_segments: %s", diagnostics.stable_segment_count)
     logger.info("[demo] stable_candidates: %s", diagnostics.stable_candidate_count)
     logger.info("[demo] fallback_candidates: %s", diagnostics.fallback_candidate_count)
-    logger.info("[demo] ocr_rows_out: %s", len(ocr_rows))
+    logger.info("[demo] frame_summary_rows_out: %s", len(frame_summary_rows))
     logger.info("[demo] keyframes_jsonl: %s", workspace.keyframes_file(project_id))
     logger.info("[demo] keyframes_images_dir: %s", workspace.path(project_id, "frames", "images"))
     logger.info(
@@ -159,7 +165,7 @@ def main() -> int:
     timing_path = workspace.path(project_id, "frames", "metrics", "timing_report.json")
     logger.info("[demo] selection_trace_jsonl: %s", trace_path)
     logger.info("[demo] timing_report_json: %s", timing_path)
-    logger.info("[demo] ocr_jsonl: %s", workspace.ocr_file(project_id))
+    logger.info("[demo] frame_summary_jsonl: %s", workspace.frame_summary_file(project_id))
     logger.info("[demo] log_file: %s", log_path)
 
     if diagnostics.selected_details:
@@ -179,11 +185,12 @@ def main() -> int:
             )
 
     logger.info(
-        "[demo] stage_elapsed_seconds extract=%.2f select=%.2f write_images=%.2f ocr=%.2f",
+        "[demo] stage_elapsed_seconds extract=%.2f select=%.2f "
+        "write_images=%.2f frame_summary=%.2f",
         extract_elapsed,
         select_elapsed,
         images_elapsed,
-        ocr_elapsed,
+        frame_summary_elapsed,
     )
     return 0
 

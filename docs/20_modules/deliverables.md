@@ -7,7 +7,7 @@
 ## Inputs
 
 - `fusion/timeline.json`
-- `ocr/ocr.jsonl` (VLM free-text frame summaries, optional direct evidence)
+- `frame_summary/frame_summary.jsonl` (frame-level free-text summaries, optional direct evidence)
 
 ## Outputs
 

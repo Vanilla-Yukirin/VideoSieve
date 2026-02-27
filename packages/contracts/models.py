@@ -47,7 +47,7 @@ class StageName(StrEnum):
     HOTWORDS = "hotwords"
     ASR = "asr"
     KEYFRAMES = "keyframes"
-    OCR = "ocr"
+    FRAME_SUMMARY = "frame_summary"
     FUSION = "fusion"
     DELIVERABLES = "deliverables"
     EXPORT = "export"

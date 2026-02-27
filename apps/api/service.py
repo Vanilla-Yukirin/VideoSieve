@@ -518,7 +518,7 @@ class ApiControlPlane:
     def _initialize_settings_from_env_once(self) -> None:
         _ = self._read_setting_bool(
             SETTING_GUEST_MODE_ENABLED,
-            default=self._read_bool_env("ENABLE_GUEST_MODE", default=True),
+            default=self._read_bool_env("ENABLE_GUEST_MODE", default=False),
         )
         _ = self._read_setting_bool(
             SETTING_GUEST_ALLOW_COOKIE_INPUT,
@@ -529,7 +529,7 @@ class ApiControlPlane:
         return {
             SETTING_GUEST_MODE_ENABLED: self._read_setting_bool(
                 SETTING_GUEST_MODE_ENABLED,
-                default=self._read_bool_env("ENABLE_GUEST_MODE", default=True),
+                default=self._read_bool_env("ENABLE_GUEST_MODE", default=False),
             ),
             SETTING_GUEST_ALLOW_COOKIE_INPUT: self._read_setting_bool(
                 SETTING_GUEST_ALLOW_COOKIE_INPUT,

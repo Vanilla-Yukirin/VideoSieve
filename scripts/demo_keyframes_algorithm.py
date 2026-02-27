@@ -15,9 +15,9 @@ import random
 import secrets
 from pathlib import Path
 
+from frame_summary import FrameSummaryService, QwenFrameSummaryProvider
 from infra import FileSystemWorkspaceStore
 from keyframes import FrameFeature, KeyframeAlgorithmService
-from ocr import MockOCRProvider, OCRBaselineService
 
 
 def _gen_id(prefix: str) -> str:
@@ -108,20 +108,20 @@ def main() -> int:
         fallback_gap_seconds=args.fallback_gap,
         k_max=args.k_max,
     )
-    ocr_service = OCRBaselineService(workspace, MockOCRProvider())
-    ocr_rows = ocr_service.run(project_id, language_hint="zh")
+    frame_summary_service = FrameSummaryService(workspace, QwenFrameSummaryProvider())
+    frame_summary_rows = frame_summary_service.run(project_id, language_hint="zh")
 
     print("[demo] keyframe algorithm run complete")
     print(f"[demo] source: {source_label}")
     print(f"[demo] project_id: {project_id}")
     print(f"[demo] frames_in: {len(frames)}")
     print(f"[demo] keyframes_out: {len(records)}")
-    print(f"[demo] ocr_rows_out: {len(ocr_rows)}")
+    print(f"[demo] frame_summary_rows_out: {len(frame_summary_rows)}")
     print(f"[demo] keyframes_jsonl: {workspace.keyframes_file(project_id)}")
     print(
         f"[demo] metrics_csv: {workspace.path(project_id, 'frames', 'metrics', 'diff_curve.csv')}"
     )
-    print(f"[demo] ocr_jsonl: {workspace.ocr_file(project_id)}")
+    print(f"[demo] frame_summary_jsonl: {workspace.frame_summary_file(project_id)}")
     return 0
 
 

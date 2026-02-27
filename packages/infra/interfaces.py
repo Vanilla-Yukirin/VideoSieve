@@ -218,5 +218,5 @@ class WorkspaceStore(ABC):
         """Return `frames/keyframes.jsonl` path for one project."""
 
     @abstractmethod
-    def ocr_file(self, project_id: str) -> Path:
-        """Return `ocr/ocr.jsonl` path for one project."""
+    def frame_summary_file(self, project_id: str) -> Path:
+        """Return `frame_summary/frame_summary.jsonl` path for one project."""

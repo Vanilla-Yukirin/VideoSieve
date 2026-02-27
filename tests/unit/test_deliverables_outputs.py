@@ -28,7 +28,7 @@ def test_deliverables_writes_expected_files_and_content(tmp_path: Path) -> None:
                 "text": "first chunk",
                 "transcript_refs": ["seg_0001"],
                 "frame_refs": ["frame_000001"],
-                "ocr_refs": ["frame_000001:block_0001"],
+                "frame_summary_refs": ["frame_000001:summary"],
             }
         ],
     }

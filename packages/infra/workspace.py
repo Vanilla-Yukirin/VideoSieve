@@ -14,7 +14,7 @@ WORKSPACE_DIRS: tuple[str, ...] = (
     "frames",
     "frames/images",
     "frames/metrics",
-    "ocr",
+    "frame_summary",
     "fusion",
     "outputs",
     "logs",
@@ -65,8 +65,8 @@ class FileSystemWorkspaceStore(WorkspaceStore):
     def keyframes_file(self, project_id: str) -> Path:
         return self.path(project_id, "frames", "keyframes.jsonl")
 
-    def ocr_file(self, project_id: str) -> Path:
-        return self.path(project_id, "ocr", "ocr.jsonl")
+    def frame_summary_file(self, project_id: str) -> Path:
+        return self.path(project_id, "frame_summary", "frame_summary.jsonl")
 
     def timeline_file(self, project_id: str) -> Path:
         return self.path(project_id, "fusion", "timeline.json")

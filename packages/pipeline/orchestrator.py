@@ -10,13 +10,13 @@ from asr import ASRProvider, BaselineASRProvider, write_transcript_jsonl
 from contracts import ControlCommandType, JobStatus, StageName
 from core import apply_job_transition
 from deliverables import DeliverablesService
+from frame_summary import FrameSummaryService, QwenFrameSummaryProvider
 from fusion import FusionService
 from hotwords import run_hotwords_from_meta
 from infra.interfaces import EventBus, JobRepository, WorkspaceStore
 from infra.models import JobRecord
 from ingest import IngestRequest, run_ingest
 from keyframes import KeyframeBaselineService
-from ocr import MockOCRProvider, OCRBaselineService
 
 from .checkpoint import CheckpointStore
 from .control import ControlAckPayload, evaluate_control_command
@@ -302,8 +302,8 @@ class PipelineOrchestrator:
             )
             return
 
-        if stage is StageName.OCR:
-            OCRBaselineService(self._workspace, provider=MockOCRProvider()).run(
+        if stage is StageName.FRAME_SUMMARY:
+            FrameSummaryService(self._workspace, provider=QwenFrameSummaryProvider()).run(
                 project_id,
                 language_hint=language_hint,
             )

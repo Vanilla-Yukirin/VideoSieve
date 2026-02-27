@@ -24,7 +24,7 @@
 - `docs/20_modules/hotwords.md`
 - `docs/20_modules/asr.md`
 - `docs/20_modules/keyframes.md`
-- `docs/20_modules/ocr.md`
+- `docs/20_modules/frame-summary.md`
 - `docs/20_modules/fusion.md`
 - `docs/20_modules/deliverables.md`
 - `docs/20_modules/pipeline-orchestrator.md`

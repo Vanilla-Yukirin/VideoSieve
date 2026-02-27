@@ -15,6 +15,7 @@ from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJob
 @pytest.fixture(autouse=True)
 def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
 
 
 class _FakeSocket:

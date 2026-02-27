@@ -54,7 +54,7 @@
 
 3. **Celery Workers（执行引擎）**（`workers/`，入口层；业务逻辑在 `packages/` 中）
 
-- 实际跑下载、转写、抽帧、OCR、融合、生成产物
+- 实际跑下载、转写、抽帧、FrameSummary、融合、生成产物
 - 默认单 agent 统一执行（需要时可扩展并行 worker）
 
 **基础设施**
@@ -153,8 +153,8 @@ workspaces/{project_id}/
       ...
     metrics/
       diff_curve.csv          # 可观测曲线（用于阈值调参）
-  ocr/
-    ocr.jsonl                 # 每张关键帧的文字块/bbox/conf
+  frame_summary/
+    frame_summary.jsonl       # 每张关键帧的自由文本画面总结
   fusion/
     timeline.json             # 对齐后的“交错序列”（下游唯一输入）
   outputs/
@@ -182,7 +182,7 @@ VideoSieve/
 │   ├── hotwords/               # 热词生成/管理
 │   ├── asr/                    # ASR 适配层（在线/本地/LLM 兜底）
 │   ├── keyframes/              # 抽帧策略（stable/scene/cluster）
-│   ├── ocr/                    # OCR 适配层
+│   ├── frame_summary/          # 帧级画面总结适配层
 │   ├── fusion/                 # 对齐与 chunk 组装
 │   └── deliverables/           # 转译/翻译/摘要/图文输出
 ├── workers/
@@ -221,7 +221,7 @@ VideoSieve/
 - `contracts`：不依赖任何内部包。
 - `core`：仅依赖 `contracts`。
 - `infra`：可依赖 `core`、`contracts`，封装外部系统。
-- `ingest/hotwords/asr/keyframes/ocr/fusion/deliverables`：可依赖 `core`、`contracts`、受控 `infra` 接口。
+- `ingest/hotwords/asr/keyframes/frame_summary/fusion/deliverables`：可依赖 `core`、`contracts`、受控 `infra` 接口。
 - `pipeline`：可依赖全部业务包 + `core/contracts/infra`。
 - `apps/api`：可依赖 `pipeline`、`core`、`contracts`、`infra`。
 - `workers`：可依赖 `pipeline`、`infra`（入口层，不放算法）。
@@ -229,7 +229,7 @@ VideoSieve/
 
 ### 禁止依赖
 
-- `apps/*` 直接调用 Provider SDK（例如 ASR/OCR 云 SDK）。
+- `apps/*` 直接调用 Provider SDK（例如 ASR/VLM 云 SDK）。
 - 业务包直接处理 Celery 控制细节（应由 `pipeline` 统一）。
 - 模块间裸 `dict` 约定字段，不经 `contracts` 定义。
 - 在 worker 入口散落状态机逻辑。
@@ -242,14 +242,14 @@ VideoSieve/
 
 - `Project`：一个视频项目（URL 或本地文件）+ 配置快照引用
 - `Job`：一次运行（同一个 project 可多次 job，便于调参重跑）
-- `Stage`：ingest/asr/keyframes/ocr/fusion/deliverables/export
+- `Stage`：ingest/asr/keyframes/frame_summary/fusion/deliverables/export
 
 ## 4.2 状态机（建议）
 
 - project/job 状态：`queued → running → (paused) → succeeded/failed/cancelled`
 - stage 状态：`pending → running → succeeded/failed/skipped`
 
-> 进度计算：建议以 stage 权重（例如 ingest 5%、asr 35%、keyframes 20%、ocr 15%、fusion 10%、deliverables 15%）+ stage 内子步骤百分比综合。
+> 进度计算：建议以 stage 权重（例如 ingest 5%、asr 35%、keyframes 20%、frame_summary 15%、fusion 10%、deliverables 15%）+ stage 内子步骤百分比综合。
 
 ------
 
@@ -278,9 +278,9 @@ VideoSieve/
     - A1-1 不登录：公开视频
     - A1-2 登录：cookiefile/cookies-from-browser（你已接受 Docker/环境差异，属于部署问题）
     - A1-3 清晰度策略：
-        - 低清优先（节省带宽与存储，OCR可能足够）
+        - 低清优先（节省带宽与存储，FrameSummary 可能足够）
         - 高清存档（后处理用低清，存档用高清）
-        - 自适应升级（如果 OCR 可读性低→二次下载更高清）
+        - 自适应升级（如果画面总结信息不足→二次下载更高清）
 
 **A2：本地上传**
 
@@ -386,7 +386,7 @@ VideoSieve/
 
 ### 目标
 
-从长视频中抽取“信息密度高、适合 OCR/笔记”的少量代表帧；避免 PPT 动画中间态；支持讲师画面/3b1b 动画等复杂场景。
+从长视频中抽取“信息密度高、适合画面总结/笔记”的少量代表帧；避免 PPT 动画中间态；支持讲师画面/3b1b 动画等复杂场景。
 
 ### 输入/输出
 
@@ -454,7 +454,7 @@ VideoSieve/
 ### 输入/输出
 
 - 输入：`frames/images/*.jpg`
-- 输出：`ocr/ocr.jsonl`（`summary_text` + `blocks` + `provider` + `lang` + `conf`）
+- 输出：`frame_summary/frame_summary.jsonl`（`description_text` + `provider` + `lang`）
 
 ### 方案分支
 
@@ -478,11 +478,11 @@ VideoSieve/
 
 ### 目标
 
-把 ASR、关键帧、OCR 统一成一个“时间轴 timeline”，下游只读 timeline 即可生成任何产物。
+把 ASR、关键帧、FrameSummary 统一成一个“时间轴 timeline”，下游只读 timeline 即可生成任何产物。
 
 ### 输入/输出
 
-- 输入：`transcript.jsonl`、`keyframes.jsonl`、`ocr.jsonl`
+- 输入：`transcript.jsonl`、`keyframes.jsonl`、`frame_summary.jsonl`
 - 输出：`fusion/timeline.json`
 
 ### 方案分支
@@ -501,12 +501,12 @@ VideoSieve/
 - 每个 chunk 显式记录引用源：
     - transcript segment ids
     - frame ids
-    - OCR block ids
+    - frame summary refs
         这样后续输出能回溯证据，便于纠错与再生成。
 
 ### 可观测性
 
-- 每个 chunk 包含的字幕时长、关键帧数量、OCR 文本长度
+- 每个 chunk 包含的字幕时长、关键帧数量、frame summary 文本长度
 - 对齐覆盖率（有帧但无字幕/有字幕但无帧的比例）
 
 ------
@@ -574,14 +574,14 @@ VideoSieve/
 
 **H1：固定 pipeline（线性 stage 链）**
 
-- ingest → hotwords → asr → keyframes → ocr → fusion → deliverables
+- ingest → hotwords → asr → keyframes → frame_summary → fusion → deliverables
 - 简单可靠，适合 MVP
 
 **H2：条件分支 pipeline（推荐中期）**
 
 - 根据视频类型/抽帧产出情况动态选择策略：
     - 帧太少 → 触发兜底采样/聚类
-    - OCR 质量差 → 触发更高清下载
+    - frame summary 质量差 → 触发更高清下载
     - ASR 置信度低 → 触发二次转写
 
 **H3：可重跑粒度**
@@ -672,11 +672,11 @@ VideoSieve/
 - 算法级：
   - ASR 低置信度比例、热词命中率。
   - keyframe 数量、重复率、diff 曲线。
-  - OCR 低置信度比例。
+  - frame summary 空响应比例。
 
 ### 错误规范
 
-- 统一错误码：`PROVIDER_TIMEOUT`、`DOWNLOAD_FORBIDDEN`、`OCR_EMPTY` 等。
+- 统一错误码：`PROVIDER_TIMEOUT`、`DOWNLOAD_FORBIDDEN`、`FRAME_SUMMARY_EMPTY` 等。
 - 错误返回包含 `code/message/hint/retryable`。
 - 所有错误必须可关联 `project_id + job_id + stage`。
 

@@ -6,7 +6,7 @@
 - stage duration/retry/failure code
 - ASR confidence and hotword hit rate
 - keyframe count/duplication/diff curve
-- OCR confidence distribution
+- frame summary success ratio and latency distribution
 
 ## Logs
 

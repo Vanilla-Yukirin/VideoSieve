@@ -37,7 +37,7 @@
 
 1. **Celery Workers（执行引擎）**
 
-- 实际跑下载、转写、抽帧、OCR、融合、生成产物
+- 实际跑下载、转写、抽帧、FrameSummary、融合、生成产物
 - 支持多 worker 并行执行多个项目
 
 1. **Redis**
@@ -124,8 +124,8 @@ workspaces/{project_id}/
       ...
     metrics/
       diff_curve.csv          # 可观测曲线（用于阈值调参）
-  ocr/
-    ocr.jsonl                 # 每张关键帧的文字块/bbox/conf
+  frame_summary/
+    frame_summary.jsonl       # 每张关键帧的自由文本画面总结
   fusion/
     timeline.json             # 对齐后的“交错序列”（下游唯一输入）
   outputs/
@@ -148,7 +148,7 @@ repo/
     hotwords/                 # 热词生成/管理
     asr/                      # ASR适配层（在线/本地/LLM兜底）
     keyframes/                # 抽帧策略（stable/scene/cluster）
-    ocr/                      # OCR适配层
+    frame_summary/            # FrameSummary适配层
     fusion/                   # 对齐与chunk组装
     deliverables/             # 转译/翻译/摘要/图文输出
     api_server/               # FastAPI HTTP + WS 网关
@@ -165,14 +165,14 @@ repo/
 
 - `Project`：一个视频项目（URL 或本地文件）+ 配置快照引用
 - `Job`：一次运行（同一个 project 可多次 job，便于调参重跑）
-- `Stage`：ingest/asr/keyframes/ocr/fusion/deliverables/export
+- `Stage`：ingest/asr/keyframes/frame_summary/fusion/deliverables/export
 
 ## 4.2 状态机（建议）
 
 - project/job 状态：`queued → running → (paused) → succeeded/failed/cancelled`
 - stage 状态：`pending → running → succeeded/failed/skipped`
 
-> 进度计算：建议以 stage 权重（例如 ingest 5%、asr 35%、keyframes 20%、ocr 15%、fusion 10%、deliverables 15%）+ stage 内子步骤百分比综合。
+> 进度计算：建议以 stage 权重（例如 ingest 5%、asr 35%、keyframes 20%、frame_summary 15%、fusion 10%、deliverables 15%）+ stage 内子步骤百分比综合。
 
 ------
 
@@ -201,9 +201,9 @@ repo/
     - A1-1 不登录：公开视频
     - A1-2 登录：cookiefile/cookies-from-browser（你已接受 Docker/环境差异，属于部署问题）
     - A1-3 清晰度策略：
-        - 低清优先（节省带宽与存储，OCR可能足够）
+        - 低清优先（节省带宽与存储，FrameSummary 可能足够）
         - 高清存档（后处理用低清，存档用高清）
-        - 自适应升级（如果 OCR 可读性低→二次下载更高清）
+        - 自适应升级（如果画面总结信息不足→二次下载更高清）
 
 **A2：本地上传**
 
@@ -309,7 +309,7 @@ repo/
 
 ### 目标
 
-从长视频中抽取“信息密度高、适合 OCR/笔记”的少量代表帧；避免 PPT 动画中间态；支持讲师画面/3b1b 动画等复杂场景。
+从长视频中抽取“信息密度高、适合画面总结/笔记”的少量代表帧；避免 PPT 动画中间态；支持讲师画面/3b1b 动画等复杂场景。
 
 ### 输入/输出
 
@@ -368,7 +368,7 @@ repo/
 
 ------
 
-## 5.5 单元 E：OCR（关键帧文字抽取）
+## 5.5 单元 E：FrameSummary（关键帧画面总结）
 
 ### 目标
 
@@ -377,11 +377,11 @@ repo/
 ### 输入/输出
 
 - 输入：`frames/images/*.jpg`
-- 输出：`ocr/ocr.jsonl`（blocks + bbox + conf + lang）
+- 输出：`frame_summary/frame_summary.jsonl`（description_text + provider + lang）
 
 ### 方案分支
 
-**E1：OCR-only（默认）**
+**E1：FrameSummary-only（默认）**
 
 - 快、便宜、可解释，适合 PPT 为主
 - 输出结构稳定，可直接拼接到 timeline
@@ -389,17 +389,17 @@ repo/
 **E2：VLM 直接读图（可选补充）**
 
 - 对图表/手写/复杂示意更强，但成本更高
-- 通常用于“OCR 低置信度或无文本时”补充描述
+- 通常用于“画面总结信息不足时”补充描述
 
-**E3：OCR + VLM（最终形态）**
+**E3：FrameSummary + VLM（最终形态）**
 
-- OCR 提供“可引用文字”
+- FrameSummary 提供“可引用文本描述”
 - VLM 提供“这一页讲什么/图表含义”的语义摘要
 
 ### 可观测性
 
 - 每帧文字块数量、低置信度比例
-- OCR 覆盖率（有文本的帧占比）
+- FrameSummary 覆盖率（非空描述帧占比）
 
 ### 风险/兜底
 
@@ -411,11 +411,11 @@ repo/
 
 ### 目标
 
-把 ASR、关键帧、OCR 统一成一个“时间轴 timeline”，下游只读 timeline 即可生成任何产物。
+把 ASR、关键帧、FrameSummary 统一成一个“时间轴 timeline”，下游只读 timeline 即可生成任何产物。
 
 ### 输入/输出
 
-- 输入：`transcript.jsonl`、`keyframes.jsonl`、`ocr.jsonl`
+- 输入：`transcript.jsonl`、`keyframes.jsonl`、`frame_summary.jsonl`
 - 输出：`fusion/timeline.json`
 
 ### 方案分支
@@ -434,12 +434,12 @@ repo/
 - 每个 chunk 显式记录引用源：
     - transcript segment ids
     - frame ids
-    - OCR block ids
+    - frame summary refs
         这样后续输出能回溯证据，便于纠错与再生成。
 
 ### 可观测性
 
-- 每个 chunk 包含的字幕时长、关键帧数量、OCR 文本长度
+- 每个 chunk 包含的字幕时长、关键帧数量、frame summary 文本长度
 - 对齐覆盖率（有帧但无字幕/有字幕但无帧的比例）
 
 ------
@@ -507,14 +507,14 @@ repo/
 
 **H1：固定 pipeline（线性 stage 链）**
 
-- ingest → hotwords → asr → keyframes → ocr → fusion → deliverables
+- ingest → hotwords → asr → keyframes → frame_summary → fusion → deliverables
 - 简单可靠，适合 MVP
 
 **H2：条件分支 pipeline（推荐中期）**
 
 - 根据视频类型/抽帧产出情况动态选择策略：
     - 帧太少 → 触发兜底采样/聚类
-    - OCR 质量差 → 触发更高清下载
+    - frame summary 质量差 → 触发更高清下载
     - ASR 置信度低 → 触发二次转写
 
 **H3：可重跑粒度**
@@ -573,9 +573,9 @@ repo/
 - stable-frame（先全帧）+ diff 曲线
 - UI 增加关键帧预览
 
-**M3（OCR + 图文交错）**
+**M3（FrameSummary + 图文交错）**
 
-- OCR-only + timeline + illustrated_notes
+- FrameSummary-only + timeline + illustrated_notes
 
 **M4（复杂视频适配）**
 

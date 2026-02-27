@@ -45,7 +45,7 @@
 - `packages/pipeline`
   - stage 编排、状态推进、中断检查、安全点、重试与断点续跑。
 - `packages/infra`
-  - Redis、数据库、文件存储、第三方 ASR/OCR/VLM Provider 适配。
+  - Redis、数据库、文件存储、第三方 ASR/VLM Provider 适配。
 - `Redis`
   - Celery broker。
   - 事件通道（建议 Redis Streams；可先 Pub/Sub）。
@@ -80,7 +80,7 @@ VideoSieve/
 │   ├── hotwords/               # 热词生成与管理
 │   ├── asr/                    # ASR 适配
 │   ├── keyframes/              # 抽帧策略
-│   ├── ocr/                    # OCR 适配
+│   ├── frame_summary/          # FrameSummary 适配
 │   ├── fusion/                 # 时间轴对齐
 │   └── deliverables/           # 转译/摘要/图文输出
 ├── workers/
@@ -106,7 +106,7 @@ VideoSieve/
 - `contracts`: 不依赖任何内部包。
 - `core`: 仅依赖 `contracts`。
 - `infra`: 可依赖 `core`、`contracts`，封装外部系统。
-- `ingest/hotwords/asr/keyframes/ocr/fusion/deliverables`: 可依赖 `core`、`contracts`、受控 `infra` 接口。
+- `ingest/hotwords/asr/keyframes/frame_summary/fusion/deliverables`: 可依赖 `core`、`contracts`、受控 `infra` 接口。
 - `pipeline`: 可依赖全部业务包 + `core/contracts/infra`。
 - `apps/api`: 可依赖 `pipeline`、`core`、`contracts`、`infra`。
 - `workers`: 可依赖 `pipeline`、`infra`（入口层，不放算法）。
@@ -114,7 +114,7 @@ VideoSieve/
 
 ### 4.2 禁止依赖
 
-- `apps/*` 直接调用 Provider SDK（例如 ASR/OCR 云 SDK）。
+- `apps/*` 直接调用 Provider SDK（例如 ASR/VLM 云 SDK）。
 - 业务包直接处理 Celery 控制细节（应由 `pipeline` 统一）。
 - 模块间裸 `dict` 约定字段，不经 `contracts` 定义。
 - 在 worker 入口散落状态机逻辑。
@@ -139,8 +139,8 @@ workspaces/{project_id}/
     keyframes.jsonl
     images/*.jpg
     metrics/diff_curve.csv
-  ocr/
-    ocr.jsonl
+  frame_summary/
+    frame_summary.jsonl
   fusion/
     timeline.json
   outputs/
@@ -169,7 +169,7 @@ workspaces/{project_id}/
 
 - `Project`: 视频项目（来源、元信息、配置引用）。
 - `Job`: 一次运行实例（同一 Project 可多 Job）。
-- `Stage`: `ingest/hotwords/asr/keyframes/ocr/fusion/deliverables/export`。
+- `Stage`: `ingest/hotwords/asr/keyframes/frame_summary/fusion/deliverables/export`。
 
 ### 6.2 状态机
 
@@ -183,7 +183,7 @@ workspaces/{project_id}/
   - hotwords 5%
   - asr 30%
   - keyframes 20%
-  - ocr 15%
+  - frame_summary 15%
   - fusion 10%
   - deliverables 15%
 - 总进度 = stage 权重 * stage 内子步骤百分比累计。
@@ -219,7 +219,7 @@ workspaces/{project_id}/
 - `hotwords`: 规则抽取 + 模型精炼 + 用户编辑版本。
 - `asr`: 在线优先，本地兜底，低置信度段可二次校正。
 - `keyframes`: stable/ROI/scene/cluster 混合策略，输出可观测指标。
-- `ocr`: OCR 主线，必要时 VLM 补充语义。
+- `frame_summary`: 帧级画面总结主线。
 - `fusion`: 基于时间窗与章节边界组装 timeline，保留证据链。
 - `deliverables`: 转译、摘要、图文交错输出与占位符回填。
 - `pipeline`: 串联 stage、管理重试、断点续跑、控制命令生效点。
@@ -233,11 +233,11 @@ workspaces/{project_id}/
 - 算法级：
   - ASR 低置信度比例、热词命中率。
   - keyframe 数量、重复率、diff 曲线。
-  - OCR 低置信度比例。
+  - frame summary 空响应比例。
 
 ### 9.2 错误规范
 
-- 统一错误码：`PROVIDER_TIMEOUT`、`DOWNLOAD_FORBIDDEN`、`OCR_EMPTY` 等。
+- 统一错误码：`PROVIDER_TIMEOUT`、`DOWNLOAD_FORBIDDEN`、`FRAME_SUMMARY_EMPTY` 等。
 - 错误返回包含 `code/message/hint/retryable`。
 - 所有错误必须可关联 `project_id + job_id + stage`。
 
@@ -245,7 +245,7 @@ workspaces/{project_id}/
 
 - `M1`: ingest + asr + deliverables（转译/摘要）+ 并行 + 进度 + cancel。
 - `M2`: keyframes（stable + 指标）+ 前端预览。
-- `M3`: ocr + fusion + illustrated notes。
+- `M3`: frame_summary + fusion + illustrated notes。
 - `M4`: ROI/cluster、ASR 二次校正、策略自动兜底。
 
 ## 11. ADR 列表（建议在 docs/adr 维护）

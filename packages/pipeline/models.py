@@ -11,7 +11,7 @@ STAGE_SEQUENCE: tuple[StageName, ...] = (
     StageName.HOTWORDS,
     StageName.ASR,
     StageName.KEYFRAMES,
-    StageName.OCR,
+    StageName.FRAME_SUMMARY,
     StageName.FUSION,
     StageName.DELIVERABLES,
 )
@@ -21,7 +21,7 @@ STAGE_WEIGHTS: dict[StageName, float] = {
     StageName.HOTWORDS: 5.0,
     StageName.ASR: 35.0,
     StageName.KEYFRAMES: 20.0,
-    StageName.OCR: 15.0,
+    StageName.FRAME_SUMMARY: 15.0,
     StageName.FUSION: 10.0,
     StageName.DELIVERABLES: 10.0,
 }

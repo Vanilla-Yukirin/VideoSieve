@@ -107,13 +107,13 @@ Example JSONL line:
 {"schema_version":"1.0","frame_id":"frame_00012","ts":126.4,"path":"workspaces/p_20260208_001/frames/images/slide_000012.jpg","hash":"a91f...","score":0.82,"reason":"stable"}
 ```
 
-### 3.3 OCRResult (`ocr/ocr.jsonl`) [已实现]
+### 3.3 FrameSummary (`frame_summary/frame_summary.jsonl`) [已实现]
 
-- Required: `schema_version`, `frame_id`, `blocks[]`, `lang`, `conf`
+- Required: `schema_version`, `frame_id`, `lang`, `provider`, `description_text`
 
 Example JSONL line:
 ```json
-{"schema_version":"1.0","frame_id":"frame_00012","lang":"zh","conf":0.89,"blocks":[{"text":"特征值与特征向量","bbox":[120,80,640,160],"conf":0.92}]}
+{"schema_version":"1.1","frame_id":"frame_00012","lang":"zh","provider":"qwen_frame_summary","description_text":"画面上半部分是标题“特征值与特征向量”，下半部分是公式推导说明。"}
 ```
 
 ### 3.4 Timeline (`fusion/timeline.json`) [已实现]
@@ -122,7 +122,7 @@ Example JSONL line:
   - top level: `schema_version`, `project_id`, `job_id`, `chunks[]`
   - per chunk: `chunk_id`, `start`, `end`, `text`
 - Optional per chunk:
-  - `transcript_refs[]`, `frame_refs[]`, `ocr_refs[]`
+  - `transcript_refs[]`, `frame_refs[]`, `frame_summary_refs[]`
 
 ### 3.5 ArtifactDescriptor [规划中（planned）]
 

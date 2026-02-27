@@ -1,4 +1,4 @@
-"""Assemble ASR, keyframes, and OCR into `fusion/timeline.json`."""
+"""Assemble ASR, keyframes, and frame summaries into timeline output."""
 
 from __future__ import annotations
 
@@ -32,14 +32,14 @@ class FusionService:
 
         transcript_path = self._workspace_store.path(project_id, "asr", "transcript.jsonl")
         keyframes_path = self._workspace_store.path(project_id, "frames", "keyframes.jsonl")
-        ocr_path = self._workspace_store.path(project_id, "ocr", "ocr.jsonl")
+        frame_summary_path = self._workspace_store.frame_summary_file(project_id)
         timeline_path = self._workspace_store.path(project_id, "fusion", "timeline.json")
 
         transcript_rows = self._read_jsonl(transcript_path, required=True)
         keyframe_rows = self._read_jsonl(keyframes_path, required=False)
-        ocr_rows = self._read_jsonl(ocr_path, required=False)
+        frame_summary_rows = self._read_jsonl(frame_summary_path, required=False)
 
-        chunks = self._build_chunks(transcript_rows, keyframe_rows, ocr_rows)
+        chunks = self._build_chunks(transcript_rows, keyframe_rows, frame_summary_rows)
         timeline: dict[str, object] = {
             "schema_version": SCHEMA_VERSION,
             "project_id": project_id,
@@ -76,7 +76,7 @@ class FusionService:
         self,
         transcript_rows: list[dict[str, object]],
         keyframe_rows: list[dict[str, object]],
-        ocr_rows: list[dict[str, object]],
+        frame_summary_rows: list[dict[str, object]],
     ) -> list[dict[str, object]]:
         if not transcript_rows:
             return []
@@ -84,7 +84,7 @@ class FusionService:
         transcript_rows.sort(key=lambda row: self._to_float(row["start"]))
         keyframe_rows.sort(key=lambda row: self._to_float(row["ts"]))
 
-        ocr_index = self._build_ocr_ref_index(ocr_rows)
+        frame_summary_index = self._build_frame_summary_ref_index(frame_summary_rows)
 
         if not keyframe_rows:
             chunks: list[dict[str, object]] = []
@@ -98,7 +98,7 @@ class FusionService:
                         "text": str(segment["text"]).strip(),
                         "transcript_refs": [seg_id],
                         "frame_refs": [],
-                        "ocr_refs": [],
+                        "frame_summary_refs": [],
                     }
                 )
             return chunks
@@ -134,7 +134,7 @@ class FusionService:
                     "text": text,
                     "transcript_refs": transcript_refs,
                     "frame_refs": [frame_id],
-                    "ocr_refs": ocr_index.get(frame_id, []),
+                    "frame_summary_refs": frame_summary_index.get(frame_id, []),
                 }
             )
 
@@ -150,7 +150,7 @@ class FusionService:
             ),
             "transcript_refs": [str(seg["segment_id"]) for seg in transcript_rows],
             "frame_refs": [],
-            "ocr_refs": [],
+            "frame_summary_refs": [],
         }
         return [fallback_chunk]
 
@@ -172,19 +172,15 @@ class FusionService:
         raise TypeError(f"Expected numeric value, got {type(value).__name__}")
 
     @staticmethod
-    def _build_ocr_ref_index(ocr_rows: list[dict[str, object]]) -> dict[str, list[str]]:
+    def _build_frame_summary_ref_index(
+        frame_summary_rows: list[dict[str, object]],
+    ) -> dict[str, list[str]]:
         refs_by_frame: dict[str, list[str]] = {}
-        for row in ocr_rows:
+        for row in frame_summary_rows:
             frame_id = str(row.get("frame_id", ""))
             if not frame_id:
                 continue
 
-            blocks = row.get("blocks", [])
-            if not isinstance(blocks, list):
-                refs_by_frame[frame_id] = []
-                continue
-
-            refs_by_frame[frame_id] = [
-                f"{frame_id}:block_{idx:04d}" for idx, _ in enumerate(blocks, start=1)
-            ]
+            text = str(row.get("description_text", "")).strip()
+            refs_by_frame[frame_id] = [f"{frame_id}:summary"] if text else []
         return refs_by_frame

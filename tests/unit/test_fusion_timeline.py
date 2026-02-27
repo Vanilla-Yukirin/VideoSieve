@@ -16,10 +16,10 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
 
     transcript_path = store.path(project_id, "asr", "transcript.jsonl")
     keyframes_path = store.path(project_id, "frames", "keyframes.jsonl")
-    ocr_path = store.path(project_id, "ocr", "ocr.jsonl")
+    frame_summary_path = store.path(project_id, "frame_summary", "frame_summary.jsonl")
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
     keyframes_path.parent.mkdir(parents=True, exist_ok=True)
-    ocr_path.parent.mkdir(parents=True, exist_ok=True)
+    frame_summary_path.parent.mkdir(parents=True, exist_ok=True)
 
     transcript_rows = [
         {
@@ -71,24 +71,24 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    ocr_rows = [
+    frame_summary_rows = [
         {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "frame_id": "frame_000001",
             "lang": "en",
-            "conf": 0.9,
-            "blocks": [{"text": "Title", "bbox": [0, 0, 10, 10], "conf": 0.99}],
+            "provider": "qwen_frame_summary",
+            "description_text": "Frame one summary",
         },
         {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "frame_id": "frame_000002",
             "lang": "en",
-            "conf": 0.9,
-            "blocks": [{"text": "Body", "bbox": [0, 0, 10, 10], "conf": 0.99}],
+            "provider": "qwen_frame_summary",
+            "description_text": "Frame two summary",
         },
     ]
-    ocr_path.write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in ocr_rows) + "\n",
+    frame_summary_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in frame_summary_rows) + "\n",
         encoding="utf-8",
     )
 
@@ -111,7 +111,7 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
         "text",
         "transcript_refs",
         "frame_refs",
-        "ocr_refs",
+        "frame_summary_refs",
     }
     for chunk in payload["chunks"]:
         assert required_fields.issubset(set(chunk.keys()))
@@ -149,4 +149,4 @@ def test_fusion_missing_or_sparse_inputs_have_predictable_behavior(tmp_path: Pat
 
     assert len(payload["chunks"]) == 1
     assert payload["chunks"][0]["frame_refs"] == []
-    assert payload["chunks"][0]["ocr_refs"] == []
+    assert payload["chunks"][0]["frame_summary_refs"] == []

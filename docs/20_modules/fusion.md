@@ -2,13 +2,13 @@
 
 ## Purpose
 
-把 ASR、关键帧、OCR 统一组装为 `timeline.json`。
+把 ASR、关键帧、FrameSummary 统一组装为 `timeline.json`。
 
 ## Inputs
 
 - `asr/transcript.jsonl`
 - `frames/keyframes.jsonl`
-- `ocr/ocr.jsonl`
+- `frame_summary/frame_summary.jsonl`
 
 ## Outputs
 

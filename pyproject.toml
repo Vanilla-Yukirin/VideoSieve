@@ -32,7 +32,7 @@ packages = [
   "packages/hotwords",
   "packages/asr",
   "packages/keyframes",
-  "packages/ocr",
+  "packages/frame_summary",
   "apps/api",
   "workers",
 ]

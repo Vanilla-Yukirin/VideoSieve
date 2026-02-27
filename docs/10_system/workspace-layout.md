@@ -22,8 +22,8 @@ workspaces/{project_id}/
     metrics/diff_curve.csv
     metrics/selection_trace.jsonl
     metrics/timing_report.json
-  ocr/
-    ocr.jsonl
+  frame_summary/
+    frame_summary.jsonl
   fusion/
     timeline.json
   outputs/

@@ -47,3 +47,14 @@
 - 可选：当 project 下所有 job 已删除后，支持自动删除该 project（或提供可配置策略）
 
 ---
+
+### 5. 关键帧实时更新导致页面滚动跳动
+**文件**: `apps/web/app/jobs/[id]/page.tsx`, `apps/web/lib/hooks/useJobRealtime.ts`
+
+**问题**: 新建 job 后，关键帧通过 WebSocket 实时更新。每当新图片到达时，关键帧区域和右侧 artifacts 列表同时更新，触发页面重排（layout shift），导致浏览器滚动位置被动变化，界面自动向下跳动。
+
+**期望行为**:
+- 新增关键帧时不应造成页面滚动位置跳动
+- 可考虑：锁定滚动位置、使用 CSS `content-visibility` 优化、或仅在用户主动滚动到底部时才加载新图片
+
+---

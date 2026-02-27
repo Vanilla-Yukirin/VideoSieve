@@ -115,6 +115,8 @@ export type MessageKey =
   | "job.keyframesTitle"
   | "job.keyframeAlt"
   | "job.keyframesZipLabel"
+  | "job.keyframesZipNotFound"
+  | "job.keyframesZipDownloadFailed"
   | "logs.empty"
   | "control.pause"
   | "control.resume"
@@ -277,6 +279,8 @@ export const messages: Record<Locale, MessageMap> = {
     "job.keyframesTitle": "关键帧 ({count})",
     "job.keyframeAlt": "关键帧",
     "job.keyframesZipLabel": "关键帧图片压缩包 ({count})",
+    "job.keyframesZipNotFound": "该任务未生成关键帧压缩包（旧任务或流程未启用）。",
+    "job.keyframesZipDownloadFailed": "下载失败，请稍后重试。",
     "logs.empty": "暂无日志...",
     "control.pause": "暂停",
     "control.resume": "恢复",
@@ -436,6 +440,8 @@ export const messages: Record<Locale, MessageMap> = {
     "job.keyframesTitle": "Keyframes ({count})",
     "job.keyframeAlt": "keyframe",
     "job.keyframesZipLabel": "Keyframe images zip ({count})",
+    "job.keyframesZipNotFound": "This job does not have a keyframe images zip (old job or feature not enabled).",
+    "job.keyframesZipDownloadFailed": "Download failed. Please try again later.",
     "logs.empty": "No logs available...",
     "control.pause": "Pause",
     "control.resume": "Resume",

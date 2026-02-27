@@ -99,6 +99,23 @@ export default function JobDetail() {
     setTimeout(() => setCopyStatus("idle"), 1500);
   };
 
+  const handleDownloadKeyframesZip = async () => {
+    try {
+      const response = await fetch(keyframesZipUrl, { method: "HEAD" });
+      if (!response.ok) {
+        if (response.status === 404) {
+          alert(t("job.keyframesZipNotFound"));
+        } else {
+          alert(t("job.keyframesZipDownloadFailed"));
+        }
+        return;
+      }
+      window.location.assign(keyframesZipUrl);
+    } catch {
+      alert(t("job.keyframesZipDownloadFailed"));
+    }
+  };
+
   const openPreview = (index: number) => setPreviewIndex(index);
   const closePreview = () => setPreviewIndex(null);
   const showPrev = () => {
@@ -253,14 +270,14 @@ export default function JobDetail() {
                                     <ImageIcon className="h-4 w-4 mr-2 text-muted-foreground" />
                                     <span className="truncate max-w-[170px]" title={t("job.keyframesZipLabel")}>{t("job.keyframesZipLabel", { count: keyframeImages.length })}</span>
                                   </div>
-                                  <a
-                                    href={keyframesZipUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={handleDownloadKeyframesZip}
                                     className="opacity-70 group-hover:opacity-100 transition-opacity"
+                                    aria-label={t("job.keyframesZipLabel", { count: keyframeImages.length })}
                                   >
                                     <Download className="h-4 w-4" />
-                                  </a>
+                                  </button>
                                 </li>
                               ) : null}
                               {nonImageArtifacts.map((art) => (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -516,3 +517,29 @@ class KeyframeAlgorithmService:
             "same_source_resolved": diagnostics.same_source_resolved,
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def build_images_zip(workspace_store: WorkspaceStore, project_id: str, job_id: str) -> Path:
+    """Create ``frames/images.zip`` from ``frames/images/*.jpg|*.jpeg``."""
+
+    images_dir = workspace_store.job_path(project_id, job_id, "frames", "images")
+    if not images_dir.exists() or not images_dir.is_dir():
+        raise FileNotFoundError(f"keyframe images directory not found: {images_dir}")
+
+    image_files = sorted(
+        [
+            path
+            for path in images_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg"}
+        ],
+        key=lambda item: item.name,
+    )
+    if not image_files:
+        raise FileNotFoundError(f"keyframe images not found: {images_dir}")
+
+    zip_path = workspace_store.job_path(project_id, job_id, "frames", "images.zip")
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for image_path in image_files:
+            archive.write(image_path, arcname=image_path.name)
+    return zip_path

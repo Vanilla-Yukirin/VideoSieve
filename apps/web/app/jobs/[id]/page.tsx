@@ -51,6 +51,12 @@ export default function JobDetail() {
     const lower = artifact.path.toLowerCase();
     return lower.startsWith("frames/images/") && (lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
   });
+  const nonImageArtifacts = state.artifacts.filter((artifact) => {
+    const lower = artifact.path.toLowerCase();
+    if (lower === "frames/images.zip") return false;
+    return !(lower.startsWith("frames/images/") && (lower.endsWith(".jpg") || lower.endsWith(".jpeg")));
+  });
+  const keyframesZipUrl = `/api/jobs/${jobId}/artifacts/keyframes-zip`;
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
@@ -196,8 +202,11 @@ export default function JobDetail() {
               <CardTitle className="text-lg">{t("job.keyframesTitle", { count: keyframeImages.length })}</CardTitle>
             </CardHeader>
             <CardContent className="max-h-[420px] overflow-y-auto">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                {keyframeImages.slice(0, 24).map((artifact, index) => {
+              <div
+                className="grid min-h-[280px] grid-cols-2 gap-3 md:grid-cols-4"
+                style={{ overflowAnchor: "none" }}
+              >
+                {keyframeImages.map((artifact, index) => {
                   const imageUrl = `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(artifact.path)}`;
                   return (
                      <button
@@ -223,37 +232,60 @@ export default function JobDetail() {
            </div>
 
            {/* Sidebar: Artifacts & Info */}
-           <div className="space-y-6">
-               <Card>
-                   <CardHeader>
-                        <CardTitle className="text-lg">{t("job.artifacts")}</CardTitle>
-                   </CardHeader>
-                   <CardContent>
-                       {state.artifacts.length === 0 ? (
+            <div className="space-y-6">
+                <Card>
+                    <CardHeader>
+                         <CardTitle className="text-lg">{t("job.artifacts")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <details className="group" style={{ overflowAnchor: "none" }}>
+                        <summary className="cursor-pointer text-sm text-muted-foreground">
+                          {t("job.artifacts")}
+                        </summary>
+                        <div className="mt-3 max-h-[340px] overflow-y-auto">
+                          {nonImageArtifacts.length === 0 && keyframeImages.length === 0 ? (
                             <p className="text-sm text-muted-foreground italic">{t("job.noArtifacts")}</p>
-                       ) : (
-                           <ul className="space-y-2">
-                               {state.artifacts.map((art) => (
-                                   <li key={art.path} className="flex items-center justify-between text-sm p-2 rounded hover:bg-accent group">
-                                        <div className="flex items-center truncate">
-                                            {art.path.toLowerCase().endsWith(".jpg") || art.path.toLowerCase().endsWith(".jpeg") ? <ImageIcon className="h-4 w-4 mr-2 text-muted-foreground" /> : <FileText className="h-4 w-4 mr-2 text-muted-foreground" />}
-                                            <span className="truncate max-w-[150px]" title={art.path}>{art.path.split('/').pop()}</span>
-                                        </div>
-                                         <a
-                                             href={art.path.endsWith("source.mp4") ? sourceVideoUrl : `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(art.path)}`}
-                                             target="_blank"
-                                             rel="noopener noreferrer"
-                                             className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                           >
-                                             <Download className="h-4 w-4" />
-                                           </a>
-                                    </li>
-                                ))}
+                          ) : (
+                            <ul className="space-y-2">
+                              {keyframeImages.length > 0 ? (
+                                <li className="flex items-center justify-between text-sm p-2 rounded hover:bg-accent group">
+                                  <div className="flex items-center truncate">
+                                    <ImageIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                                    <span className="truncate max-w-[170px]" title={t("job.keyframesZipLabel")}>{t("job.keyframesZipLabel", { count: keyframeImages.length })}</span>
+                                  </div>
+                                  <a
+                                    href={keyframesZipUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="opacity-70 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </a>
+                                </li>
+                              ) : null}
+                              {nonImageArtifacts.map((art) => (
+                                <li key={art.path} className="flex items-center justify-between text-sm p-2 rounded hover:bg-accent group">
+                                  <div className="flex items-center truncate">
+                                    <FileText className="h-4 w-4 mr-2 text-muted-foreground" />
+                                    <span className="truncate max-w-[170px]" title={art.path}>{art.path.split('/').pop()}</span>
+                                  </div>
+                                  <a
+                                    href={art.path.endsWith("source.mp4") ? sourceVideoUrl : `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(art.path)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </a>
+                                </li>
+                              ))}
                             </ul>
-                       )}
-                   </CardContent>
-               </Card>
-           </div>
+                          )}
+                        </div>
+                      </details>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
 
       {activePreviewArtifact && activePreviewUrl ? (

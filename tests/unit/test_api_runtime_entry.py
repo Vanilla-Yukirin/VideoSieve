@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -134,6 +135,66 @@ def test_runtime_artifact_download_route_supports_relative_data_dir(
         response = client.get(f"/jobs/{job_id}/artifacts/download/outputs/clean_transcript.md")
         assert response.status_code == 200
         assert response.text == "ok"
+
+
+def test_runtime_keyframes_zip_route_returns_archive(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        frames_dir = tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "frames"
+        images_dir = frames_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        (images_dir / "slide_000001.jpg").write_bytes(b"fake-jpg-1")
+        (images_dir / "slide_000002.jpeg").write_bytes(b"fake-jpg-2")
+        zip_path = frames_dir / "images.zip"
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("slide_000001.jpg", b"fake-jpg-1")
+            archive.writestr("slide_000002.jpeg", b"fake-jpg-2")
+
+        response = client.get(f"/jobs/{job_id}/artifacts/keyframes-zip")
+        assert response.status_code == 200
+        assert response.headers.get("content-type") == "application/zip"
+        assert "attachment; filename=" in response.headers.get("content-disposition", "")
+
+        archive_path = tmp_path / "bundle.zip"
+        archive_path.write_bytes(response.content)
+        with zipfile.ZipFile(archive_path) as archive:
+            names = sorted(archive.namelist())
+        assert names == ["slide_000001.jpg", "slide_000002.jpeg"]
+
+
+def test_runtime_keyframes_zip_route_returns_not_found_when_missing(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        response = client.get(f"/jobs/{job_id}/artifacts/keyframes-zip")
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
+
+
+def test_runtime_keyframes_zip_route_returns_not_found_when_images_dir_empty(
+    tmp_path: Path,
+) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        images_dir = (
+            tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "frames" / "images"
+        )
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        response = client.get(f"/jobs/{job_id}/artifacts/keyframes-zip")
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
 
 
 def test_runtime_error_mapping_for_not_found_and_validation(tmp_path: Path) -> None:

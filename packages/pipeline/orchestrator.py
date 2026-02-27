@@ -23,6 +23,7 @@ from keyframes import (
     KeyframeAlgorithmService,
     KeyframeBaselineService,
     KeyframeRecord,
+    build_images_zip,
     write_images_for_records,
 )
 
@@ -379,6 +380,7 @@ class PipelineOrchestrator:
                         "verify video decode and ffmpeg/cv2 runtime"
                     )
                     raise RuntimeError(message)
+                build_images_zip(self._workspace, project_id, job_id)
             return
 
         if stage is StageName.FRAME_SUMMARY:

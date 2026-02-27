@@ -352,6 +352,30 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
 
         return FileResponse(path=candidate, filename=candidate.name)
 
+    @app.get("/jobs/{job_id}/artifacts/keyframes-zip")
+    async def get_jobs_keyframes_zip(request: Request, job_id: str) -> FileResponse:
+        runtime: _Runtime = request.app.state.runtime
+        job = get_job(_control_plane(request), job_id)
+        project_id = job.get("project_id")
+        if not isinstance(project_id, str):
+            raise ValueError(f"job has invalid project_id: {job_id}")
+
+        images_dir = runtime.workspace.job_path(project_id, job_id, "frames", "images")
+        if not images_dir.exists() or not images_dir.is_dir():
+            raise KeyError(f"keyframe image directory not found for job: {job_id}")
+        image_files = [
+            path
+            for path in images_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg"}
+        ]
+        if not image_files:
+            raise KeyError(f"keyframe images not found for job: {job_id}")
+
+        zip_path = runtime.workspace.job_path(project_id, job_id, "frames", "images.zip")
+        if not zip_path.exists() or not zip_path.is_file():
+            raise KeyError(f"keyframe zip not found for job: {job_id}")
+        return FileResponse(path=zip_path, media_type="application/zip", filename=zip_path.name)
+
     @app.get("/jobs/{job_id}/source-video")
     async def get_jobs_source_video(request: Request, job_id: str) -> FileResponse:
         runtime: _Runtime = request.app.state.runtime

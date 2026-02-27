@@ -114,6 +114,7 @@ export type MessageKey =
   | "job.copyWorkspaceFail"
   | "job.keyframesTitle"
   | "job.keyframeAlt"
+  | "job.keyframesZipLabel"
   | "logs.empty"
   | "control.pause"
   | "control.resume"
@@ -275,6 +276,7 @@ export const messages: Record<Locale, MessageMap> = {
     "job.copyWorkspaceFail": "复制失败",
     "job.keyframesTitle": "关键帧 ({count})",
     "job.keyframeAlt": "关键帧",
+    "job.keyframesZipLabel": "关键帧图片压缩包 ({count})",
     "logs.empty": "暂无日志...",
     "control.pause": "暂停",
     "control.resume": "恢复",
@@ -433,6 +435,7 @@ export const messages: Record<Locale, MessageMap> = {
     "job.copyWorkspaceFail": "Copy failed",
     "job.keyframesTitle": "Keyframes ({count})",
     "job.keyframeAlt": "keyframe",
+    "job.keyframesZipLabel": "Keyframe images zip ({count})",
     "logs.empty": "No logs available...",
     "control.pause": "Pause",
     "control.resume": "Resume",

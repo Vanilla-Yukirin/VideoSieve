@@ -33,6 +33,10 @@ Deployment keys (Env):
 - `GUEST_ALLOW_COOKIE_INPUT`
 - `GUEST_COOKIE_KEY`
 - `GUEST_JOB_COOLDOWN_SECONDS`
+- `QWEN_API_KEY`
+- `QWEN_BASE_URL`
+- `VLM_MODEL`
+- `VLM_TIMEOUT_SECONDS`
 
 System settings keys (DB-facing naming):
 - `guest_mode_enabled`
@@ -43,6 +47,7 @@ Notes:
 - Env names are deployment-facing; DB names are product-facing persisted flags.
 - Mapping from Env keys to DB keys at first bootstrap is implemented for current system settings keys.
 - `system_settings` persistence (get/set upsert) exists in infra repository. `Implemented`
+- Guest mode default is disabled when `ENABLE_GUEST_MODE` is not set. `Implemented`
 
 ## 4. Guest Config Legality and Rejection Rules
 

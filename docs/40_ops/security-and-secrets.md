@@ -36,6 +36,7 @@ Status markers:
 - `GUEST_ALLOW_COOKIE_INPUT`
 - `GUEST_COOKIE_KEY`
 - `GUEST_JOB_COOLDOWN_SECONDS`
+- `QWEN_API_KEY`
 
 Constraint:
 - `implemented` if `guest_allow_cookie_input=true` in persisted settings while `GUEST_COOKIE_KEY` is empty, runtime must reject configuration.

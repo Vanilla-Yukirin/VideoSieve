@@ -1,4 +1,4 @@
-"""OCR provider protocol and baseline result models."""
+"""VLM text-extraction provider protocol and result models."""
 
 from __future__ import annotations
 
@@ -31,6 +31,8 @@ class OCRFrameResult:
     lang: str
     conf: float
     blocks: tuple[OCRBlock, ...]
+    summary_text: str
+    provider: str
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -38,6 +40,8 @@ class OCRFrameResult:
             "frame_id": self.frame_id,
             "lang": self.lang,
             "conf": self.conf,
+            "provider": self.provider,
+            "summary_text": self.summary_text,
             "blocks": [block.to_json() for block in self.blocks],
         }
 
@@ -53,3 +57,4 @@ class OCRProvider(Protocol):
         language_hint: str | None = None,
     ) -> OCRFrameResult:
         """Return OCR result for one frame image."""
+        ...

@@ -55,7 +55,7 @@
 3. **Celery Workers（执行引擎）**（`workers/`，入口层；业务逻辑在 `packages/` 中）
 
 - 实际跑下载、转写、抽帧、OCR、融合、生成产物
-- 支持多 worker 并行执行多个项目
+- 默认单 agent 统一执行（需要时可扩展并行 worker）
 
 **基础设施**
 
@@ -445,42 +445,32 @@ VideoSieve/
 
 ------
 
-## 5.5 单元 E：OCR（关键帧文字抽取）
+## 5.5 单元 E：VLM 画面理解（关键帧描述+文字提取）
 
 ### 目标
 
-从关键帧中提取可引用文字（尤其 PPT 标题、要点、公式），为笔记与摘要提供强证据。
+对每张关键帧发起一次 VLM 请求，直接返回自由文本结果，用于“画面描述 + 可见文字提取”。
 
 ### 输入/输出
 
 - 输入：`frames/images/*.jpg`
-- 输出：`ocr/ocr.jsonl`（blocks + bbox + conf + lang）
+- 输出：`ocr/ocr.jsonl`（`summary_text` + `blocks` + `provider` + `lang` + `conf`）
 
 ### 方案分支
 
-**E1：OCR-only（默认）**
+**E1：VLM-only（默认）**
 
-- 快、便宜、可解释，适合 PPT 为主
-- 输出结构稳定，可直接拼接到 timeline
-
-**E2：VLM 直接读图（可选补充）**
-
-- 对图表/手写/复杂示意更强，但成本更高
-- 通常用于“OCR 低置信度或无文本时”补充描述
-
-**E3：OCR + VLM（最终形态）**
-
-- OCR 提供“可引用文字”
-- VLM 提供“这一页讲什么/图表含义”的语义摘要
+- 单次请求同时完成“描述画面 + 提取文字”
+- 不强制模型返回 JSON，直接保留原始自由文本
 
 ### 可观测性
 
-- 每帧文字块数量、低置信度比例
-- OCR 覆盖率（有文本的帧占比）
+- 每帧 VLM 响应耗时、失败率
+- 非空 `summary_text` 覆盖率
 
 ### 风险/兜底
 
-- 字太小/压缩严重：触发“更高清下载”或“提高抽帧 ROI/缩放预处理”（策略层面）
+- 模型网络失败或超时：写入离线占位文本，保持流水线不中断
 
 ------
 
@@ -650,9 +640,9 @@ VideoSieve/
 - stable-frame（先全帧）+ diff 曲线
 - UI 增加关键帧预览
 
-**M3（OCR + 图文交错）**
+**M3（VLM 画面理解 + 图文交错）**
 
-- OCR-only + timeline + illustrated_notes
+- VLM-only frame summary + timeline + illustrated_notes
 
 **M4（复杂视频适配）**
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-提取关键帧文字，为笔记和摘要提供证据。
+使用 VLM 对关键帧做一次自由文本理解，直接产出“画面描述 + 可见文字提取”。
 
 ## Inputs
 
@@ -14,30 +14,28 @@
 
 ## Current Implementation
 
-- Implemented as adapter pattern: `OCRProvider` interface + pluggable provider
-- Baseline provider is `MockOCRProvider` for deterministic local integration testing
+- Implemented as adapter pattern: `OCRProvider` interface + `VLMOnlyProvider`
 - Runtime flow reads `frames/keyframes.jsonl`, then writes one JSONL row per selected frame to `ocr/ocr.jsonl`
-- Output fields follow current contract baseline: `schema_version`, `frame_id`, `lang`, `conf`, `blocks[]`
-- Current `blocks[]` contains `text`, `bbox`, `conf`; real provider integration keeps the same envelope
+- One frame triggers one VLM request with a free-text prompt (no mandatory JSON response)
+- Output keeps baseline envelope and adds VLM metadata fields: `provider`, `summary_text`
 
 ## Options
 
-- A: OCR-only (default)
-- B: VLM supplement
-- C: OCR + VLM hybrid
+- A: VLM-only (default)
 
 ## Params
 
 - `language_hint` (default `None`): language passed to provider (baseline demo often sets `zh`)
-- `provider` (default `MockOCRProvider`): OCR adapter implementation used by `OCRBaselineService`
+- `provider` (default `VLMOnlyProvider`): VLM adapter implementation used by `OCRBaselineService`
+- `QWEN_API_KEY` / `QWEN_BASE_URL` / `VLM_MODEL` / `VLM_TIMEOUT_SECONDS`: runtime provider config
 
 ## Metrics
 
-- text block count per frame
-- low-confidence ratio
-- OCR coverage ratio
+- per-frame response success ratio
+- per-frame latency
+- non-empty summary ratio
 
 ## Failure & Fallback
 
-- trigger higher resolution source
-- apply ROI/crop/scale pre-processing
+- network/API failure returns offline placeholder text and keeps pipeline moving
+- keep full free-text summary in `summary_text` for downstream timeline and deliverables

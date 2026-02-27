@@ -22,6 +22,10 @@ Status markers:
 - `implemented` required: `APP_SECRET_KEY`
 - `implemented` optional with defaults: `ENABLE_GUEST_MODE`, `GUEST_ALLOW_COOKIE_INPUT`, `GUEST_JOB_COOLDOWN_SECONDS`, `VIDEOSIEVE_EVENTBUS_STUB_MODE`
 - `implemented` conditionally required: `GUEST_COOKIE_KEY` when guest cookie input is enabled by persisted settings
+- `implemented` VLM runtime keys: `QWEN_API_KEY`, `QWEN_BASE_URL`, `VLM_MODEL`, `VLM_TIMEOUT_SECONDS`
+
+Default policy:
+- `implemented` guest mode defaults to disabled when `ENABLE_GUEST_MODE` is not set.
 
 ## Web Env (Minimum Required)
 

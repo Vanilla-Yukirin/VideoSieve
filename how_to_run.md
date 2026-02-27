@@ -25,10 +25,20 @@ copy .env.example .env.local
 ```env
 APP_SECRET_KEY=dev-secret-change-me
 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
-ENABLE_GUEST_MODE=true
+ENABLE_GUEST_MODE=false
 GUEST_ALLOW_COOKIE_INPUT=false
 GUEST_JOB_COOLDOWN_SECONDS=120
+QWEN_API_KEY=your-key
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+VLM_MODEL=qwen3.5-plus
+VLM_TIMEOUT_SECONDS=60
 ```
+
+VLM（画面描述 + 文字提取）建议至少配置：
+
+- `QWEN_API_KEY`
+- `QWEN_BASE_URL`
+- `VLM_MODEL`
 
 ## 2. 启动后端（终端 1）
 
@@ -62,6 +72,7 @@ npm --prefix apps/web run dev
   - 必填：`APP_SECRET_KEY`
   - 推荐：`NEXT_PUBLIC_API_ORIGIN`
   - 可选：`ENABLE_GUEST_MODE`、`GUEST_ALLOW_COOKIE_INPUT`、`GUEST_JOB_COOLDOWN_SECONDS`、`GUEST_COOKIE_KEY`
+  - VLM：`QWEN_API_KEY`、`QWEN_BASE_URL`、`VLM_MODEL`、`VLM_TIMEOUT_SECONDS`
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
 
 ## 常见问题（Windows）

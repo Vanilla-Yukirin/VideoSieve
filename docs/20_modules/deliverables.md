@@ -7,6 +7,7 @@
 ## Inputs
 
 - `fusion/timeline.json`
+- `ocr/ocr.jsonl` (VLM free-text frame summaries, optional direct evidence)
 
 ## Outputs
 
@@ -19,7 +20,7 @@
 
 - A: same-language cleanup
 - B: optional translation
-- C: concise summary
+- C: concise summary (prefer ASR + VLM frame summaries)
 - D: image placeholder and post-fill
 
 ## Params

@@ -12,7 +12,7 @@
 
 ## M3 - 图文交错
 
-- OCR-only + timeline + illustrated notes
+- VLM-only frame summary + timeline + illustrated notes
 
 ## M4 - 复杂视频适配
 

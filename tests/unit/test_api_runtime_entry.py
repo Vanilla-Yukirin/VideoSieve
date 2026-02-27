@@ -229,6 +229,39 @@ def test_runtime_cookie_validate_rejects_homepage_url(tmp_path: Path) -> None:
         assert response.json()["code"] == "validation_error"
 
 
+def test_runtime_cookie_validate_marks_invalid_on_decrypt_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _make_client(tmp_path) as client:
+        created = client.post(
+            "/me/cookies",
+            json={
+                "name": "demo",
+                "cookie_netscape_text": (
+                    "# Netscape HTTP Cookie File\n"
+                    ".bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\tdemo\n"
+                ),
+            },
+        )
+        cookie_id = created.json()["id"]
+
+        monkeypatch.setenv("APP_SECRET_KEY", "different-secret")
+        response = client.post(
+            f"/me/cookies/{cookie_id}/validate",
+            json={"source_url": "https://www.bilibili.com/video/BV1demo"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "invalid"
+        assert payload["last_error_code"] == "cookie_decrypt_failed"
+
+        listed = client.get("/me/cookies")
+        assert listed.status_code == 200
+        rows = listed.json()
+        assert any(row["id"] == cookie_id and row["status"] == "invalid" for row in rows)
+
+
 def test_runtime_auth_bootstrap_login_me_logout_flow(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         status = client.get("/auth/bootstrap-status")

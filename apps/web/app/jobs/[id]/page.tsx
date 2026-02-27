@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useJobRealtime } from "@/lib/hooks/useJobRealtime";
@@ -9,7 +9,18 @@ import { ControlPanel } from "@/components/ControlPanel";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
-import { ArrowLeft, Wifi, WifiOff, FileText, Download, Image as ImageIcon, Copy } from "lucide-react";
+import {
+  ArrowLeft,
+  Wifi,
+  WifiOff,
+  FileText,
+  Download,
+  Image as ImageIcon,
+  Copy,
+  X,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
@@ -41,6 +52,35 @@ export default function JobDetail() {
     return lower.startsWith("frames/images/") && (lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
   });
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPreviewIndex(null);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        setPreviewIndex((current) => {
+          if (current === null || keyframeImages.length === 0) return current;
+          return (current + 1) % keyframeImages.length;
+        });
+      }
+      if (event.key === "ArrowLeft") {
+        setPreviewIndex((current) => {
+          if (current === null || keyframeImages.length === 0) return current;
+          return (current - 1 + keyframeImages.length) % keyframeImages.length;
+        });
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [previewIndex, keyframeImages.length]);
 
   const copyWorkspaceHint = async () => {
     if (!state.project_id) return;
@@ -52,6 +92,26 @@ export default function JobDetail() {
     }
     setTimeout(() => setCopyStatus("idle"), 1500);
   };
+
+  const openPreview = (index: number) => setPreviewIndex(index);
+  const closePreview = () => setPreviewIndex(null);
+  const showPrev = () => {
+    setPreviewIndex((current) => {
+      if (current === null || keyframeImages.length === 0) return current;
+      return (current - 1 + keyframeImages.length) % keyframeImages.length;
+    });
+  };
+  const showNext = () => {
+    setPreviewIndex((current) => {
+      if (current === null || keyframeImages.length === 0) return current;
+      return (current + 1) % keyframeImages.length;
+    });
+  };
+
+  const activePreviewArtifact = previewIndex === null ? null : keyframeImages[previewIndex] ?? null;
+  const activePreviewUrl = activePreviewArtifact
+    ? `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(activePreviewArtifact.path)}`
+    : null;
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 max-w-6xl">
@@ -135,19 +195,24 @@ export default function JobDetail() {
             <CardHeader>
               <CardTitle className="text-lg">{t("job.keyframesTitle", { count: keyframeImages.length })}</CardTitle>
             </CardHeader>
-           <CardContent>
-             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-               {keyframeImages.slice(0, 24).map((artifact) => {
-                 const imageUrl = `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(artifact.path)}`;
-                 return (
-                    <a key={artifact.path} href={imageUrl} target="_blank" rel="noopener noreferrer" className="group block overflow-hidden rounded border border-border/70 bg-muted/20">
-                      <img src={imageUrl} alt={artifact.path.split("/").pop() || t("job.keyframeAlt")} className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]" loading="lazy" />
-                    </a>
-                  );
-                })}
-             </div>
-           </CardContent>
-         </Card>
+            <CardContent className="max-h-[420px] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {keyframeImages.slice(0, 24).map((artifact, index) => {
+                  const imageUrl = `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(artifact.path)}`;
+                  return (
+                     <button
+                      key={artifact.path}
+                      type="button"
+                      onClick={() => openPreview(index)}
+                      className="group block overflow-hidden rounded border border-border/70 bg-muted/20"
+                     >
+                       <img src={imageUrl} alt={artifact.path.split("/").pop() || t("job.keyframeAlt")} className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]" loading="lazy" />
+                     </button>
+                   );
+                 })}
+              </div>
+            </CardContent>
+          </Card>
        ) : null}
 
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -189,7 +254,60 @@ export default function JobDetail() {
                    </CardContent>
                </Card>
            </div>
-       </div>
-    </div>
+        </div>
+
+      {activePreviewArtifact && activePreviewUrl ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={closePreview}
+        >
+          <div
+            className="relative w-full max-w-5xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={activePreviewUrl}
+              alt={activePreviewArtifact.path.split("/").pop() || t("job.keyframeAlt")}
+              className="max-h-[82vh] w-full rounded-md object-contain"
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-2 rounded bg-black/50 p-2 text-white"
+              onClick={closePreview}
+              aria-label="Close preview"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className="absolute left-2 top-1/2 -translate-y-1/2 rounded bg-black/50 p-2 text-white"
+              onClick={showPrev}
+              aria-label="Previous image"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-black/50 p-2 text-white"
+              onClick={showNext}
+              aria-label="Next image"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+            <a
+              href={activePreviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute bottom-2 right-2 rounded bg-black/50 p-2 text-white"
+              aria-label="Download image"
+            >
+              <Download className="h-5 w-5" />
+            </a>
+          </div>
+        </div>
+      ) : null}
+     </div>
   );
 }

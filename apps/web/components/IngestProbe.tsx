@@ -13,6 +13,76 @@ import { Button } from "./Button";
 import { Card, CardContent } from "./Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
+function parsePixels(resolution?: string): number {
+  if (!resolution) return 0;
+  const match = resolution.toLowerCase().match(/(\d{3,5})\s*[x*]\s*(\d{3,5})/);
+  if (!match) return 0;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return 0;
+  return width * height;
+}
+
+function isAvcCodec(codec?: string): boolean {
+  if (!codec) return false;
+  const normalized = codec.toLowerCase();
+  return normalized.includes("avc") || normalized.includes("h264");
+}
+
+function pickAnalysisVideoFormat(formats: IngestFormatItem[]): string {
+  const videoOnly = formats.filter((item) => item.is_video_only);
+  if (videoOnly.length === 0) return "";
+  const avcOnly = videoOnly.filter((item) => isAvcCodec(item.vcodec));
+  const candidates = avcOnly.length > 0 ? avcOnly : videoOnly;
+  const sorted = [...candidates].sort((a, b) => {
+    const pixelDiff = parsePixels(a.resolution) - parsePixels(b.resolution);
+    if (pixelDiff !== 0) return pixelDiff;
+    const fpsDiff = (a.fps ?? 0) - (b.fps ?? 0);
+    if (fpsDiff !== 0) return fpsDiff;
+    const tbrDiff = (a.tbr ?? 0) - (b.tbr ?? 0);
+    if (tbrDiff !== 0) return tbrDiff;
+    return a.format_id.localeCompare(b.format_id);
+  });
+  return sorted[0]?.format_id ?? "";
+}
+
+function pickQualityVideoFormat(formats: IngestFormatItem[]): string {
+  const videoOnly = formats.filter((item) => item.is_video_only);
+  if (videoOnly.length === 0) return "";
+  const sorted = [...videoOnly].sort((a, b) => {
+    const pixelDiff = parsePixels(b.resolution) - parsePixels(a.resolution);
+    if (pixelDiff !== 0) return pixelDiff;
+    const fpsDiff = (b.fps ?? 0) - (a.fps ?? 0);
+    if (fpsDiff !== 0) return fpsDiff;
+    const tbrDiff = (b.tbr ?? 0) - (a.tbr ?? 0);
+    if (tbrDiff !== 0) return tbrDiff;
+    return a.format_id.localeCompare(b.format_id);
+  });
+  return sorted[0]?.format_id ?? "";
+}
+
+function pickAnalysisAudioFormat(formats: IngestFormatItem[]): string {
+  const audioOnly = formats.filter((item) => item.is_audio_only);
+  if (audioOnly.length === 0) return "";
+  const sorted = [...audioOnly].sort((a, b) => {
+    const tbrDiff = (a.tbr ?? 0) - (b.tbr ?? 0);
+    if (tbrDiff !== 0) return tbrDiff;
+    return a.format_id.localeCompare(b.format_id);
+  });
+  return sorted[0]?.format_id ?? "";
+}
+
+function pickQualityAudioFormat(formats: IngestFormatItem[]): string {
+  const audioOnly = formats.filter((item) => item.is_audio_only);
+  if (audioOnly.length === 0) return "";
+  const sorted = [...audioOnly].sort((a, b) => {
+    const tbrDiff = (b.tbr ?? 0) - (a.tbr ?? 0);
+    if (tbrDiff !== 0) return tbrDiff;
+    return a.format_id.localeCompare(b.format_id);
+  });
+  return sorted[0]?.format_id ?? "";
+}
+
 // Re-export helpers for backward compat
 export { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
 
@@ -83,15 +153,22 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
       setTitle(response.title);
       setFormats(response.formats);
 
-      // Default selection: first video + first audio for both
-      const defaultVideo = response.formats.find((f) => f.is_video_only)?.format_id ?? "";
-      const defaultAudio = response.formats.find((f) => f.is_audio_only)?.format_id ?? "";
+      const defaultAnalysisVideo = pickAnalysisVideoFormat(response.formats);
+      const defaultAnalysisAudio = pickAnalysisAudioFormat(response.formats);
+      const defaultQualityVideo = pickQualityVideoFormat(response.formats);
+      const defaultQualityAudio = pickQualityAudioFormat(response.formats);
 
-      setAnalysisVideo(defaultVideo);
-      setAnalysisAudio(defaultAudio);
-      setQualityVideo(defaultVideo);
-      setQualityAudio(defaultAudio);
-      emitParams(trimmed, defaultVideo, defaultAudio, defaultVideo, defaultAudio);
+      setAnalysisVideo(defaultAnalysisVideo);
+      setAnalysisAudio(defaultAnalysisAudio);
+      setQualityVideo(defaultQualityVideo);
+      setQualityAudio(defaultQualityAudio);
+      emitParams(
+        trimmed,
+        defaultAnalysisVideo,
+        defaultAnalysisAudio,
+        defaultQualityVideo,
+        defaultQualityAudio,
+      );
     } catch (unknownError) {
       const message = unknownError instanceof Error ? unknownError.message : t("error.probeFailed");
       setError(message);

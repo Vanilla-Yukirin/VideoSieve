@@ -386,10 +386,31 @@ class ApiControlPlane:
         """Validate cookie by probing ingest URL using decrypted Netscape text."""
 
         current = self._require_cookie(cookie_id)
-        cookie_text = self._decrypt_cookie(current.cookie_encrypted)
         ts = utc_now_iso()
         status = "valid"
         error_code: str | None = None
+
+        try:
+            cookie_text = self._decrypt_cookie(current.cookie_encrypted)
+        except ApiConfigError:
+            status = "invalid"
+            error_code = "cookie_decrypt_failed"
+            self._repository.update_user_cookie(
+                cookie_id=cookie_id,
+                user_id=DEFAULT_COOKIE_USER_ID,
+                status=status,
+                last_validated_at=ts,
+                last_error_code=error_code,
+                set_last_validated_at=True,
+                set_last_error_code=True,
+            )
+            return CookieValidateResponse(
+                id=cookie_id,
+                status=status,
+                last_validated_at=ts,
+                last_error_code=error_code,
+            )
+
         try:
             probe_url_formats(
                 IngestRequest(
@@ -992,7 +1013,7 @@ class ApiControlPlane:
             self._repository.update_project_status(project_id, decision.target_status.value)
 
         if command is ControlCommandType.DELETE and decision.request_cleanup:
-            root = self._workspace.project_root(project_id)
+            root = self._workspace.job_root(project_id, job_id)
             if root.exists():
                 for child in sorted(
                     root.glob("**/*"), key=lambda item: len(item.parts), reverse=True

@@ -33,12 +33,13 @@ def test_delete_is_two_phase_and_returns_pending_cleanup_when_not_terminal(tmp_p
         "code": DELETE_PENDING_CLEANUP,
     }
 
-    workspace.ensure_project_layout("p1")
-    assert workspace.project_root("p1").exists()
+    workspace.ensure_job_layout("p1", "j1")
+    assert workspace.job_root("p1", "j1").exists()
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
     result = orchestrator.run_job(project_id="p1", job_id="j1", source_path=str(source))
 
     assert result.status == JobStatus.CANCELLED.value
-    assert not workspace.project_root("p1").exists()
+    assert not workspace.job_root("p1", "j1").exists()
+    assert workspace.project_root("p1").exists()

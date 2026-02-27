@@ -170,7 +170,7 @@ class PipelineOrchestrator:
                 self._checkpoint_store.save(checkpoint)
                 self._set_job_status(project_id, job_id, JobStatus.CANCELLED, stage=None)
                 if job_id in self._pending_delete:
-                    self._cleanup_project_workspace(project_id)
+                    self._cleanup_job_workspace(project_id, job_id)
                     self._pending_delete.discard(job_id)
                 return PipelineRunResult(
                     project_id=project_id,
@@ -217,7 +217,7 @@ class PipelineOrchestrator:
         if command is ControlCommandType.DELETE:
             self._pending_delete.add(job_id)
             if decision.request_cleanup:
-                self._cleanup_project_workspace(project_id)
+                self._cleanup_job_workspace(project_id, job_id)
                 self._pending_delete.discard(job_id)
 
         if command is ControlCommandType.RESUME and decision.accepted and decision.target_status:
@@ -429,8 +429,8 @@ class PipelineOrchestrator:
             payload={"level": level, "message": message},
         )
 
-    def _cleanup_project_workspace(self, project_id: str) -> None:
-        root = self._workspace.project_root(project_id)
+    def _cleanup_job_workspace(self, project_id: str, job_id: str) -> None:
+        root = self._workspace.job_root(project_id, job_id)
         if root.exists():
             shutil.rmtree(root)
 

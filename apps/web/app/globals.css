@@ -4,59 +4,98 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 225 28% 8%;
+    --foreground: 210 22% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 225 25% 11%;
+    --card-foreground: 210 22% 96%;
 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 200 92% 60%;
+    --primary-foreground: 225 28% 8%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 223 22% 16%;
+    --secondary-foreground: 210 22% 96%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 223 20% 15%;
+    --muted-foreground: 214 15% 74%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 200 30% 20%;
+    --accent-foreground: 210 22% 96%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 355 82% 62%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 223 20% 24%;
+    --input: 223 20% 20%;
+    --ring: 200 92% 60%;
 
-    --radius: 0.5rem;
+    --radius: 0.45rem;
+
+    --fs-xs: 0.8125rem;
+    --fs-sm: 0.9375rem;
+    --fs-md: 1rem;
+    --fs-lg: 1.125rem;
+    --fs-xl: 1.375rem;
+
+    --lh-xs: 1.15rem;
+    --lh-sm: 1.35rem;
+    --lh-md: 1.5rem;
+    --lh-lg: 1.65rem;
+    --lh-xl: 1.9rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 225 30% 6%;
+    --foreground: 210 22% 96%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 225 26% 10%;
+    --card-foreground: 210 22% 96%;
 
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 200 92% 60%;
+    --primary-foreground: 225 28% 8%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 223 22% 16%;
+    --secondary-foreground: 210 22% 96%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 223 20% 14%;
+    --muted-foreground: 214 15% 74%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 200 30% 20%;
+    --accent-foreground: 210 22% 96%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 355 76% 58%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --border: 223 20% 22%;
+    --input: 223 20% 18%;
+    --ring: 200 92% 60%;
+  }
+}
+
+@layer utilities {
+  .text-ui-xs {
+    font-size: var(--fs-xs);
+    line-height: var(--lh-xs);
+  }
+
+  .text-ui-sm {
+    font-size: var(--fs-sm);
+    line-height: var(--lh-sm);
+  }
+
+  .text-ui-md {
+    font-size: var(--fs-md);
+    line-height: var(--lh-md);
+  }
+
+  .text-ui-lg {
+    font-size: var(--fs-lg);
+    line-height: var(--lh-lg);
+  }
+
+  .text-ui-xl {
+    font-size: var(--fs-xl);
+    line-height: var(--lh-xl);
   }
 }
 
@@ -66,7 +105,21 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, system-ui, sans-serif;
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(1200px 600px at -10% -20%, hsl(var(--primary) / 0.16), transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, hsl(190 82% 45% / 0.12), transparent 58%),
+      linear-gradient(180deg, hsl(225 26% 8%), hsl(226 28% 7%) 40%, hsl(226 30% 6%));
+    background-attachment: fixed;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 }
 

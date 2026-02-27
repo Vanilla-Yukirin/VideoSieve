@@ -16,7 +16,13 @@ export function LogViewer({ logs, className }: LogViewerProps) {
   }, [logs]);
 
   return (
-    <div className={cn("bg-zinc-950 text-zinc-50 font-mono text-sm p-4 rounded-md overflow-y-auto log-scroll", className)}>
+    <div
+      className={cn(
+        "log-scroll overflow-y-auto rounded-md border border-zinc-700/70 bg-zinc-950/95 p-4 text-sm text-zinc-100",
+        className,
+      )}
+      style={{ fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+    >
       {logs.length === 0 ? (
         <span className="text-zinc-500 italic">{t("logs.empty")}</span>
       ) : (

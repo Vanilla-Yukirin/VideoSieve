@@ -7,7 +7,6 @@ import { useProjectIndex } from "@/lib/hooks/useProjectIndex";
 import { Button } from "@/components/Button";
 import { ProjectCard } from "@/components/ProjectCard";
 import { LogOut, PlusCircle } from "lucide-react";
-import Link from "next/link";
 import {
   clearSessionToken,
   getSessionToken,
@@ -118,10 +117,10 @@ export default function Home() {
   }
 
   return (
-    <main className="container mx-auto p-4 md:p-8 space-y-8">
+    <main className="space-y-8 px-2 md:px-4">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("home.title")}</h1>
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{t("home.title")}</h1>
           <p className="text-muted-foreground mt-1">
             {isGuest
               ? t("home.subtitle.guest")
@@ -129,16 +128,6 @@ export default function Home() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!isGuest ? (
-            <>
-              <Link href="/settings/system">
-                <Button variant="outline">{t("home.systemSettings")}</Button>
-              </Link>
-              <Link href="/settings/cookies">
-                <Button variant="outline">{t("home.cookieVault")}</Button>
-              </Link>
-            </>
-          ) : null}
           <Button onClick={handleCreate} isLoading={isCreating}>
             <PlusCircle className="mr-2 h-4 w-4" /> {t("home.newProject")}
           </Button>
@@ -157,7 +146,7 @@ export default function Home() {
       </div>
 
       {runtimeMode === "mock" ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-400/50 bg-amber-400/12 p-3 text-sm text-amber-200">
           {t("home.mockMode")}
         </div>
       ) : null}

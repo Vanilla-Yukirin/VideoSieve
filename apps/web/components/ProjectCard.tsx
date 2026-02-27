@@ -54,7 +54,7 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
   }
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card className="transition-colors hover:border-primary/35 hover:bg-card">
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start gap-2">
             <CardTitle className="text-lg line-clamp-2" title={project.title}>
@@ -67,7 +67,7 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
       </CardHeader>
       <CardContent>
         <div className="text-xs text-muted-foreground mb-4 space-y-1">
-            <p>{t("project.idLabel")}: {project.project_id}</p>
+            <p className="font-mono">{t("project.idLabel")}: {project.project_id}</p>
             <p>{t("projectCard.created")}: {new Date(project.created_at).toLocaleDateString()}</p>
         </div>
         <Link href={`/projects/${project.project_id}`} passHref>

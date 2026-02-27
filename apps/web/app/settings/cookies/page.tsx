@@ -23,10 +23,10 @@ type EditState = {
 };
 
 function statusClass(status: CookieListItem["status"]): string {
-  if (status === "valid") return "text-green-700";
-  if (status === "expired") return "text-amber-700";
-  if (status === "invalid") return "text-red-700";
-  return "text-slate-600";
+  if (status === "valid") return "text-emerald-300";
+  if (status === "expired") return "text-amber-300";
+  if (status === "invalid") return "text-rose-300";
+  return "text-slate-300";
 }
 
 export default function CookieVaultSettingsPage() {
@@ -274,9 +274,9 @@ export default function CookieVaultSettingsPage() {
                         <div className="font-medium">{cookie.name}</div>
                         <div className="text-xs text-muted-foreground">{t("project.idLabel")}: {cookie.id}</div>
                       </div>
-                      <div className="text-xs">
+                      <div className="text-ui-sm font-medium">
                         <span className={statusClass(cookie.status)}>{cookie.status}</span>
-                        {cookie.is_default ? <span className="ml-2 rounded bg-muted px-2 py-0.5">{t("cookie.default")}</span> : null}
+                        {cookie.is_default ? <span className="ml-2 rounded bg-muted px-2 py-0.5 text-ui-xs">{t("cookie.default")}</span> : null}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">

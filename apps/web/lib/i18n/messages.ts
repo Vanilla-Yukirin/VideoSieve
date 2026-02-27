@@ -4,6 +4,7 @@ export type MessageKey =
   | "lang.zh"
   | "lang.en"
   | "home.title"
+  | "shell.controlPlane"
   | "home.subtitle.user"
   | "home.subtitle.guest"
   | "home.newProject"
@@ -157,6 +158,7 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.zh": "中文",
     "lang.en": "English",
     "home.title": "项目",
+    "shell.controlPlane": "控制台",
     "home.subtitle.user": "你的 VideoSieve 项目本地索引。",
     "home.subtitle.guest": "游客会话（全服共享冷却生效）。",
     "home.newProject": "新建项目",
@@ -307,6 +309,7 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.zh": "中文",
     "lang.en": "English",
     "home.title": "Projects",
+    "shell.controlPlane": "Control Plane",
     "home.subtitle.user": "Local index of your VideoSieve projects.",
     "home.subtitle.guest": "Guest session (shared global cooldown applies).",
     "home.newProject": "New Project",

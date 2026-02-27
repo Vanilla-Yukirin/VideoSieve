@@ -1,9 +1,15 @@
 const SESSION_TOKEN_KEY = "videosieve_session_token";
 const GUEST_SESSION_KEY = "videosieve_guest_session";
 const GUEST_ALLOW_COOKIE_INPUT_KEY = "videosieve_guest_allow_cookie_input";
+export const SESSION_CHANGED_EVENT = "videosieve:session-changed";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
+}
+
+function emitSessionChanged(): void {
+  if (!hasWindow()) return;
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function getSessionToken(): string | null {
@@ -18,20 +24,24 @@ export function setSessionToken(token: string): void {
   const trimmed = token.trim();
   if (!trimmed) return;
   window.localStorage.setItem(SESSION_TOKEN_KEY, trimmed);
+  emitSessionChanged();
 }
 
 export function clearSessionToken(): void {
   if (!hasWindow()) return;
   window.localStorage.removeItem(SESSION_TOKEN_KEY);
+  emitSessionChanged();
 }
 
 export function setGuestSessionActive(active: boolean): void {
   if (!hasWindow()) return;
   if (active) {
     window.localStorage.setItem(GUEST_SESSION_KEY, "1");
+    emitSessionChanged();
     return;
   }
   window.localStorage.removeItem(GUEST_SESSION_KEY);
+  emitSessionChanged();
 }
 
 export function isGuestSessionActive(): boolean {

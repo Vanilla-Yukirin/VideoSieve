@@ -64,6 +64,19 @@ class _SocketQueueAdapter:
         self.queue.put_nowait(payload)
 
 
+ALLOWED_ARTIFACT_PREFIXES: tuple[str, ...] = (
+    "meta/",
+    "media/",
+    "hotwords/",
+    "asr/",
+    "frames/",
+    "frame_summary/",
+    "fusion/",
+    "outputs/",
+    "logs/",
+)
+
+
 def _read_bool_env(name: str, *, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -306,6 +319,38 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
     @app.get("/jobs/{job_id}/artifacts")
     async def get_jobs_artifacts(request: Request, job_id: str) -> list[dict[str, object]]:
         return list_job_artifacts(_control_plane(request), job_id)
+
+    @app.get("/jobs/{job_id}/artifacts/download/{artifact_path:path}")
+    async def get_jobs_artifact_download(
+        request: Request,
+        job_id: str,
+        artifact_path: str,
+    ) -> FileResponse:
+        runtime: _Runtime = request.app.state.runtime
+        control_plane = _control_plane(request)
+        job = get_job(control_plane, job_id)
+        project_id = job.get("project_id")
+        if not isinstance(project_id, str):
+            raise ValueError(f"job has invalid project_id: {job_id}")
+
+        safe_parts = [part for part in artifact_path.split("/") if part]
+        candidate = runtime.workspace.path(project_id, *safe_parts)
+        project_root = runtime.workspace.project_root(project_id).resolve()
+        relative_path = candidate.relative_to(project_root).as_posix()
+        if not any(relative_path.startswith(prefix) for prefix in ALLOWED_ARTIFACT_PREFIXES):
+            raise KeyError(f"artifact path is not downloadable: {artifact_path}")
+        allowed_paths = {
+            str(item.get("path", ""))
+            for item in list_job_artifacts(control_plane, job_id)
+            if isinstance(item, dict)
+        }
+        if relative_path not in allowed_paths:
+            raise KeyError(f"artifact not available for job: {job_id} path={artifact_path}")
+
+        if not candidate.exists() or not candidate.is_file():
+            raise KeyError(f"artifact not found for job: {job_id} path={artifact_path}")
+
+        return FileResponse(path=candidate, filename=candidate.name)
 
     @app.get("/jobs/{job_id}/source-video")
     async def get_jobs_source_video(request: Request, job_id: str) -> FileResponse:

@@ -36,6 +36,7 @@ REST_ROUTES: tuple[str, ...] = (
     "GET /projects/{project_id}/jobs",
     "GET /jobs/{job_id}/snapshot",
     "GET /jobs/{job_id}/artifacts",
+    "GET /jobs/{job_id}/artifacts/download/{artifact_path}",
     "GET /jobs/{job_id}/source-video",
     "POST /jobs/{job_id}/control/{command}",
     "POST /ingest/probe",

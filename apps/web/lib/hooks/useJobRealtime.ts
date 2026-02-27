@@ -15,37 +15,69 @@ function toWebSocketOrigin(origin: string): string {
 }
 
 const WS_ORIGIN = toWebSocketOrigin(API_ORIGIN);
+const SNAPSHOT_INTERVAL_MS = 2000;
+const WS_HEARTBEAT_SNAPSHOT_MS = 5000;
+const RESYNC_DEBOUNCE_MS = 350;
+
+function isTerminalStatus(status: string): boolean {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}
 
 export function useJobRealtime(jobId: string) {
   const [state, dispatch] = useReducer(jobReducer, initialState);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const resyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const latestStatusRef = useRef<string>(initialState.status);
 
-  // Initial Snapshot
   useEffect(() => {
-    if (!jobId) return;
-    api.getJobSnapshot(jobId).then((snap) => {
-      dispatch({ type: "SNAPSHOT", payload: snap });
-    }).catch(console.error);
-  }, [jobId]);
+    latestStatusRef.current = state.status;
+  }, [state.status]);
 
   // WebSocket & Polling Logic
   useEffect(() => {
     if (!jobId) return;
 
+    let isMounted = true;
+
+    const requestSnapshot = () => {
+      api.getJobSnapshot(jobId)
+        .then((snap) => {
+          if (!isMounted) return;
+          dispatch({ type: "SNAPSHOT", payload: snap });
+        })
+        .catch((e) => {
+          if (isMounted) {
+            console.error("Snapshot error", e);
+          }
+        });
+    };
+
+    const scheduleResync = () => {
+      if (resyncTimerRef.current) return;
+      resyncTimerRef.current = setTimeout(() => {
+        resyncTimerRef.current = null;
+        requestSnapshot();
+      }, RESYNC_DEBOUNCE_MS);
+    };
+
+    requestSnapshot();
+
     if (api.getRuntimeMode() === "mock") {
       const timer = setInterval(() => {
-        api
-          .getJobSnapshot(jobId)
-          .then((snap) => dispatch({ type: "SNAPSHOT", payload: snap }))
-          .catch(console.error);
-      }, 2000);
-      return () => clearInterval(timer);
+        if (isTerminalStatus(latestStatusRef.current)) {
+          return;
+        }
+        requestSnapshot();
+      }, SNAPSHOT_INTERVAL_MS);
+      return () => {
+        isMounted = false;
+        clearInterval(timer);
+      };
     }
-
-    let isMounted = true;
     const wsUrl = `${WS_ORIGIN}/ws/jobs/${jobId}`;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
 
     function connect() {
       if (wsRef.current) return;
@@ -65,6 +97,13 @@ export function useJobRealtime(jobId: string) {
         try {
           const data = JSON.parse(event.data);
           dispatch({ type: "EVENT", eventType: data.event_type, payload: data.payload });
+          if (
+            data.event_type === "snapshot" ||
+            data.event_type === "stage_changed" ||
+            data.event_type === "progress"
+          ) {
+            scheduleResync();
+          }
         } catch (e) {
           console.error("WS parse error", e);
         }
@@ -93,12 +132,11 @@ export function useJobRealtime(jobId: string) {
       console.log("Starting polling fallback");
       dispatch({ type: "POLL_START" });
       pollTimerRef.current = setInterval(() => {
-        api.getJobSnapshot(jobId)
-          .then((snap) => {
-              if(isMounted) dispatch({ type: "SNAPSHOT", payload: snap });
-          })
-          .catch((e) => console.error("Poll error", e));
-      }, 2000);
+        if (isTerminalStatus(latestStatusRef.current)) {
+          return;
+        }
+        requestSnapshot();
+      }, SNAPSHOT_INTERVAL_MS);
     }
 
     function stopPolling() {
@@ -110,12 +148,29 @@ export function useJobRealtime(jobId: string) {
     }
 
     connect();
+    heartbeatTimer = setInterval(() => {
+      if (isTerminalStatus(latestStatusRef.current)) {
+        return;
+      }
+      const socket = wsRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        requestSnapshot();
+      }
+    }, WS_HEARTBEAT_SNAPSHOT_MS);
 
     return () => {
       isMounted = false;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
+      }
+      if (resyncTimerRef.current) {
+        clearTimeout(resyncTimerRef.current);
+        resyncTimerRef.current = null;
       }
       stopPolling();
     };

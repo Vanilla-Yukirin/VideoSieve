@@ -107,6 +107,13 @@ export type MessageKey =
   | "job.logs"
   | "job.artifacts"
   | "job.noArtifacts"
+  | "job.projectLabel"
+  | "job.workspaceLabel"
+  | "job.copyWorkspace"
+  | "job.copyWorkspaceOk"
+  | "job.copyWorkspaceFail"
+  | "job.keyframesTitle"
+  | "job.keyframeAlt"
   | "logs.empty"
   | "control.pause"
   | "control.resume"
@@ -261,6 +268,13 @@ export const messages: Record<Locale, MessageMap> = {
     "job.logs": "实时日志",
     "job.artifacts": "产物",
     "job.noArtifacts": "暂无产物。",
+    "job.projectLabel": "项目",
+    "job.workspaceLabel": "工作区",
+    "job.copyWorkspace": "复制工作区路径",
+    "job.copyWorkspaceOk": "已复制",
+    "job.copyWorkspaceFail": "复制失败",
+    "job.keyframesTitle": "关键帧 ({count})",
+    "job.keyframeAlt": "关键帧",
     "logs.empty": "暂无日志...",
     "control.pause": "暂停",
     "control.resume": "恢复",
@@ -412,6 +426,13 @@ export const messages: Record<Locale, MessageMap> = {
     "job.logs": "Realtime Logs",
     "job.artifacts": "Artifacts",
     "job.noArtifacts": "No artifacts yet.",
+    "job.projectLabel": "Project",
+    "job.workspaceLabel": "Workspace",
+    "job.copyWorkspace": "Copy workspace path",
+    "job.copyWorkspaceOk": "Copied",
+    "job.copyWorkspaceFail": "Copy failed",
+    "job.keyframesTitle": "Keyframes ({count})",
+    "job.keyframeAlt": "keyframe",
     "logs.empty": "No logs available...",
     "control.pause": "Pause",
     "control.resume": "Resume",

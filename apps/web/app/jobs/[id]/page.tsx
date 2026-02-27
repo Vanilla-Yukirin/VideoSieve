@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useJobRealtime } from "@/lib/hooks/useJobRealtime";
@@ -9,9 +9,16 @@ import { ControlPanel } from "@/components/ControlPanel";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
-import { ArrowLeft, Wifi, WifiOff, FileText, Download } from "lucide-react";
+import { ArrowLeft, Wifi, WifiOff, FileText, Download, Image as ImageIcon, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+
+function encodeArtifactPath(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
 
 export default function JobDetail() {
   const { t } = useI18n();
@@ -25,9 +32,26 @@ export default function JobDetail() {
      state.status === "succeeded" ? "bg-green-500" :
      "bg-primary";
   const sourceVideoUrl = `/api/jobs/${jobId}/source-video`;
+  const workspaceHint = state.project_id ? `runtime/api/workspaces/${state.project_id}` : "-";
   const hasSourceVideo = state.artifacts.some(
     (artifact) => artifact.path === "media/source.mp4" || artifact.path.endsWith("/source.mp4"),
   );
+  const keyframeImages = state.artifacts.filter((artifact) => {
+    const lower = artifact.path.toLowerCase();
+    return lower.startsWith("frames/images/") && (lower.endsWith(".jpg") || lower.endsWith(".jpeg"));
+  });
+  const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
+
+  const copyWorkspaceHint = async () => {
+    if (!state.project_id) return;
+    try {
+      await navigator.clipboard.writeText(workspaceHint);
+      setCopyStatus("ok");
+    } catch {
+      setCopyStatus("fail");
+    }
+    setTimeout(() => setCopyStatus("idle"), 1500);
+  };
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 max-w-6xl">
@@ -39,7 +63,7 @@ export default function JobDetail() {
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
             </Link>
-            <div>
+             <div>
                 <h1 className="text-2xl font-bold tracking-tight font-mono">{jobId}</h1>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                     <span>{t("job.status")}:</span>
@@ -56,8 +80,23 @@ export default function JobDetail() {
                     ) : (
                         <span className="flex items-center text-yellow-600 ml-2" title={t("job.offline")}>
                             <WifiOff className="h-3 w-3 mr-1" /> {t("job.offline")}
-                        </span>
+                         </span>
                     )}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  <span className="mr-3">{t("job.projectLabel")}: <span className="font-mono">{state.project_id || "-"}</span></span>
+                  <span>{t("job.workspaceLabel")}: <span className="font-mono">{workspaceHint}</span></span>
+                  <button
+                    className="ml-2 inline-flex items-center text-muted-foreground hover:text-foreground"
+                    onClick={copyWorkspaceHint}
+                    type="button"
+                    title={t("job.copyWorkspace")}
+                    aria-label={t("job.copyWorkspace")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  {copyStatus === "ok" ? <span className="ml-2 text-green-600">{t("job.copyWorkspaceOk")}</span> : null}
+                  {copyStatus === "fail" ? <span className="ml-2 text-amber-600">{t("job.copyWorkspaceFail")}</span> : null}
                 </div>
             </div>
          </div>
@@ -89,6 +128,26 @@ export default function JobDetail() {
              <video className="w-full rounded-md border bg-black" controls preload="metadata" src={sourceVideoUrl} />
            </CardContent>
          </Card>
+        ) : null}
+
+       {keyframeImages.length > 0 ? (
+         <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">{t("job.keyframesTitle", { count: keyframeImages.length })}</CardTitle>
+            </CardHeader>
+           <CardContent>
+             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+               {keyframeImages.slice(0, 24).map((artifact) => {
+                 const imageUrl = `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(artifact.path)}`;
+                 return (
+                    <a key={artifact.path} href={imageUrl} target="_blank" rel="noopener noreferrer" className="group block overflow-hidden rounded border border-border/70 bg-muted/20">
+                      <img src={imageUrl} alt={artifact.path.split("/").pop() || t("job.keyframeAlt")} className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]" loading="lazy" />
+                    </a>
+                  );
+                })}
+             </div>
+           </CardContent>
+         </Card>
        ) : null}
 
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -111,23 +170,21 @@ export default function JobDetail() {
                            <ul className="space-y-2">
                                {state.artifacts.map((art) => (
                                    <li key={art.path} className="flex items-center justify-between text-sm p-2 rounded hover:bg-accent group">
-                                       <div className="flex items-center truncate">
-                                           <FileText className="h-4 w-4 mr-2 text-muted-foreground" />
-                                           <span className="truncate max-w-[150px]" title={art.path}>{art.path.split('/').pop()}</span>
-                                       </div>
-                                        {art.path.endsWith("source.mp4") ? (
-                                          <a
-                                            href={sourceVideoUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                          >
-                                            <Download className="h-4 w-4" />
-                                          </a>
-                                        ) : null}
+                                        <div className="flex items-center truncate">
+                                            {art.path.toLowerCase().endsWith(".jpg") || art.path.toLowerCase().endsWith(".jpeg") ? <ImageIcon className="h-4 w-4 mr-2 text-muted-foreground" /> : <FileText className="h-4 w-4 mr-2 text-muted-foreground" />}
+                                            <span className="truncate max-w-[150px]" title={art.path}>{art.path.split('/').pop()}</span>
+                                        </div>
+                                         <a
+                                             href={art.path.endsWith("source.mp4") ? sourceVideoUrl : `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(art.path)}`}
+                                             target="_blank"
+                                             rel="noopener noreferrer"
+                                             className="opacity-0 group-hover:opacity-100 transition-opacity"
+                                           >
+                                             <Download className="h-4 w-4" />
+                                           </a>
                                     </li>
                                 ))}
-                           </ul>
+                            </ul>
                        )}
                    </CardContent>
                </Card>

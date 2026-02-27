@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
+from importlib.util import find_spec
+from pathlib import Path
 from typing import Any
 
 from asr import ASRProvider, BaselineASRProvider, write_transcript_jsonl
@@ -16,7 +19,12 @@ from hotwords import run_hotwords_from_meta
 from infra.interfaces import EventBus, JobRepository, WorkspaceStore
 from infra.models import JobRecord
 from ingest import IngestRequest, run_ingest
-from keyframes import KeyframeBaselineService
+from keyframes import (
+    KeyframeAlgorithmService,
+    KeyframeBaselineService,
+    KeyframeRecord,
+    write_images_for_records,
+)
 
 from .checkpoint import CheckpointStore
 from .control import ControlAckPayload, evaluate_control_command
@@ -294,12 +302,78 @@ class PipelineOrchestrator:
             return
 
         if stage is StageName.KEYFRAMES:
-            KeyframeBaselineService(self._workspace).run(
-                project_id,
-                duration_seconds=duration_seconds,
-                interval_seconds=5.0,
-                reason="sample",
-            )
+            analysis_video = self._workspace.path(project_id, "media", "source.analysis.mp4")
+            quality_video = self._workspace.source_video_file(project_id)
+            if not quality_video.exists():
+                KeyframeBaselineService(self._workspace).run(
+                    project_id,
+                    duration_seconds=duration_seconds,
+                    interval_seconds=5.0,
+                    reason="sample",
+                )
+                return
+
+            analysis_path = analysis_video if analysis_video.exists() else quality_video
+            records: list[KeyframeRecord]
+            cv2_available = _is_cv2_available()
+            try:
+                KeyframeAlgorithmService(self._workspace).run_from_dual_sources(
+                    project_id,
+                    analysis_video_path=analysis_path,
+                    quality_video_path=quality_video,
+                    same_source=analysis_path.resolve() == quality_video.resolve(),
+                )
+                records = _load_keyframe_records(self._workspace.keyframes_file(project_id))
+            except Exception as exc:
+                self._publish_log(
+                    project_id,
+                    job_id,
+                    level="warning",
+                    message=(
+                        "keyframe image extraction fallback to baseline "
+                        f"because algorithmic extraction failed: {exc}"
+                    ),
+                )
+                records = KeyframeBaselineService(self._workspace).run(
+                    project_id,
+                    duration_seconds=duration_seconds,
+                    interval_seconds=5.0,
+                    reason="sample",
+                )
+
+            if not cv2_available:
+                self._publish_log(
+                    project_id,
+                    job_id,
+                    level="warning",
+                    message="opencv-python not available; keyframe image extraction is skipped",
+                )
+                return
+
+            if records:
+                existing_images = sum(1 for record in records if Path(record.path).exists())
+                if existing_images == 0:
+                    try:
+                        write_images_for_records(
+                            quality_video,
+                            timestamps_to_paths=[
+                                (record.ts, Path(record.path)) for record in records
+                            ],
+                        )
+                    except Exception as exc:
+                        self._publish_log(
+                            project_id,
+                            job_id,
+                            level="warning",
+                            message=f"keyframe image extraction retry failed: {exc}",
+                        )
+                    existing_images = sum(1 for record in records if Path(record.path).exists())
+                if existing_images == 0:
+                    message = (
+                        "keyframe image extraction produced zero files; "
+                        "verify video decode and ffmpeg/cv2 runtime"
+                    )
+                    raise RuntimeError(message)
             return
 
         if stage is StageName.FRAME_SUMMARY:
@@ -381,3 +455,28 @@ class PipelineOrchestrator:
 
 def _to_job_status(value: str) -> JobStatus:
     return JobStatus(value)
+
+
+def _is_cv2_available() -> bool:
+    return find_spec("cv2") is not None
+
+
+def _load_keyframe_records(path: Path) -> list[KeyframeRecord]:
+    if not path.exists():
+        return []
+    records: list[KeyframeRecord] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        records.append(
+            KeyframeRecord(
+                frame_id=str(payload["frame_id"]),
+                ts=float(payload["ts"]),
+                path=str(payload["path"]),
+                hash=str(payload["hash"]),
+                score=float(payload["score"]),
+                reason=str(payload["reason"]),
+            )
+        )
+    return records

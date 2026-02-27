@@ -73,6 +73,65 @@ def test_runtime_source_video_route_returns_not_found_when_missing(tmp_path: Pat
         assert response.json()["code"] == "not_found"
 
 
+def test_runtime_artifact_download_route_returns_file_when_present(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        artifact_dir = tmp_path / "runtime" / "workspaces" / project_id / "outputs"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_file = artifact_dir / "clean_transcript.md"
+        artifact_file.write_text("ok", encoding="utf-8")
+
+        response = client.get(f"/jobs/{job_id}/artifacts/download/outputs/clean_transcript.md")
+        assert response.status_code == 200
+        assert response.text == "ok"
+
+
+def test_runtime_artifact_download_route_rejects_unlisted_file(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        hidden_dir = tmp_path / "runtime" / "workspaces" / project_id / "private"
+        hidden_dir.mkdir(parents=True, exist_ok=True)
+        hidden_file = hidden_dir / "token.txt"
+        hidden_file.write_text("secret", encoding="utf-8")
+
+        response = client.get(f"/jobs/{job_id}/artifacts/download/private/token.txt")
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
+
+
+def test_runtime_artifact_download_route_supports_relative_data_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("fastapi")
+    from apps.api.main import create_app
+    from fastapi.testclient import TestClient
+
+    monkeypatch.chdir(tmp_path)
+    with TestClient(create_app(data_dir=Path("runtime"), event_bus_stub_mode=True)) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        job_id = created_job.json()["job_id"]
+
+        artifact_dir = tmp_path / "runtime" / "workspaces" / project_id / "outputs"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_file = artifact_dir / "clean_transcript.md"
+        artifact_file.write_text("ok", encoding="utf-8")
+
+        response = client.get(f"/jobs/{job_id}/artifacts/download/outputs/clean_transcript.md")
+        assert response.status_code == 200
+        assert response.text == "ok"
+
+
 def test_runtime_error_mapping_for_not_found_and_validation(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         missing = client.get("/jobs/j_missing")

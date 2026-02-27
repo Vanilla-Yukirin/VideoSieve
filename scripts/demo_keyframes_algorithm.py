@@ -77,6 +77,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Demo algorithmic keyframe selection")
     parser.add_argument("--workspace-root", default="workspaces", help="Workspace root directory")
     parser.add_argument("--project-id", default=None, help="Optional fixed project id")
+    parser.add_argument("--job-id", default=None, help="Optional fixed job id")
     parser.add_argument("--duration", type=float, default=180.0, help="Synthetic duration seconds")
     parser.add_argument("--fps", type=float, default=3.0, help="Synthetic sampling fps")
     parser.add_argument("--seed", type=int, default=7, help="Synthetic random seed")
@@ -91,7 +92,9 @@ def main() -> int:
     args = parser.parse_args()
 
     project_id = args.project_id or _gen_id("p_demo")
+    job_id = args.job_id or _gen_id("j_demo")
     workspace = FileSystemWorkspaceStore(Path(args.workspace_root))
+    workspace.ensure_job_layout(project_id, job_id)
     service = KeyframeAlgorithmService(workspace)
 
     if args.features_csv:
@@ -103,25 +106,26 @@ def main() -> int:
 
     records = service.run_from_features(
         project_id,
+        job_id,
         frames=frames,
         min_gap_seconds=args.min_gap,
         fallback_gap_seconds=args.fallback_gap,
         k_max=args.k_max,
     )
     frame_summary_service = FrameSummaryService(workspace, QwenFrameSummaryProvider())
-    frame_summary_rows = frame_summary_service.run(project_id, language_hint="zh")
+    frame_summary_rows = frame_summary_service.run(project_id, job_id, language_hint="zh")
 
     print("[demo] keyframe algorithm run complete")
     print(f"[demo] source: {source_label}")
     print(f"[demo] project_id: {project_id}")
+    print(f"[demo] job_id: {job_id}")
     print(f"[demo] frames_in: {len(frames)}")
     print(f"[demo] keyframes_out: {len(records)}")
     print(f"[demo] frame_summary_rows_out: {len(frame_summary_rows)}")
-    print(f"[demo] keyframes_jsonl: {workspace.keyframes_file(project_id)}")
-    print(
-        f"[demo] metrics_csv: {workspace.path(project_id, 'frames', 'metrics', 'diff_curve.csv')}"
-    )
-    print(f"[demo] frame_summary_jsonl: {workspace.frame_summary_file(project_id)}")
+    print(f"[demo] keyframes_jsonl: {workspace.keyframes_file(project_id, job_id)}")
+    metrics_path = workspace.job_path(project_id, job_id, "frames", "metrics", "diff_curve.csv")
+    print(f"[demo] metrics_csv: {metrics_path}")
+    print(f"[demo] frame_summary_jsonl: {workspace.frame_summary_file(project_id, job_id)}")
     return 0
 
 

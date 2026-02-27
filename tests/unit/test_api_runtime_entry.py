@@ -51,7 +51,7 @@ def test_runtime_source_video_route_returns_file_when_present(tmp_path: Path) ->
         created_job = client.post("/jobs", json={"project_id": project_id})
         job_id = created_job.json()["job_id"]
 
-        runtime_root = tmp_path / "runtime" / "workspaces" / project_id / "media"
+        runtime_root = tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "media"
         runtime_root.mkdir(parents=True, exist_ok=True)
         source_file = runtime_root / "source.mp4"
         source_file.write_bytes(b"\x00\x00\x00\x18ftypmp42")
@@ -80,7 +80,9 @@ def test_runtime_artifact_download_route_returns_file_when_present(tmp_path: Pat
         created_job = client.post("/jobs", json={"project_id": project_id})
         job_id = created_job.json()["job_id"]
 
-        artifact_dir = tmp_path / "runtime" / "workspaces" / project_id / "outputs"
+        artifact_dir = (
+            tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "outputs"
+        )
         artifact_dir.mkdir(parents=True, exist_ok=True)
         artifact_file = artifact_dir / "clean_transcript.md"
         artifact_file.write_text("ok", encoding="utf-8")
@@ -97,7 +99,7 @@ def test_runtime_artifact_download_route_rejects_unlisted_file(tmp_path: Path) -
         created_job = client.post("/jobs", json={"project_id": project_id})
         job_id = created_job.json()["job_id"]
 
-        hidden_dir = tmp_path / "runtime" / "workspaces" / project_id / "private"
+        hidden_dir = tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "private"
         hidden_dir.mkdir(parents=True, exist_ok=True)
         hidden_file = hidden_dir / "token.txt"
         hidden_file.write_text("secret", encoding="utf-8")
@@ -122,7 +124,9 @@ def test_runtime_artifact_download_route_supports_relative_data_dir(
         created_job = client.post("/jobs", json={"project_id": project_id})
         job_id = created_job.json()["job_id"]
 
-        artifact_dir = tmp_path / "runtime" / "workspaces" / project_id / "outputs"
+        artifact_dir = (
+            tmp_path / "runtime" / "workspaces" / project_id / "jobs" / job_id / "outputs"
+        )
         artifact_dir.mkdir(parents=True, exist_ok=True)
         artifact_file = artifact_dir / "clean_transcript.md"
         artifact_file.write_text("ok", encoding="utf-8")

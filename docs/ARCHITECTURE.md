@@ -128,42 +128,43 @@
 
 # 3. 项目目录/文件夹规划
 
-## 3.1 运行时 workspace 目录（每个项目一个工作目录）
+## 3.1 运行时 workspace 目录（每个项目下按 job 隔离）
 
 > 说明：本节仅作总览，`docs/10_system/workspace-layout.md` 是唯一权威（canonical）定义；目录变更以该文档为准。
 
 ```
 workspaces/{project_id}/
-  meta/
-    meta.json                 # 标题、简介、tag、来源、语言提示、时长等
-    config.snapshot.json      # 本次运行使用的配置快照（可复现）
-  media/
-    source.mp4                # 原始或下载后文件
-    audio.wav                 # 统一规格音频（16k/mono 等）
-  hotwords/
-    hotwords.json             # 自动+人工编辑后的热词
-    vocabulary_ref.json       # 在线ASR词表ID等引用信息（如有）
-  asr/
-    transcript.jsonl          # 分段（必须有start/end）
-    transcript.words.jsonl    # 可选：词级时间戳
-  frames/
-    keyframes.jsonl           # 关键帧索引（ts/path/hash/score/reason）
-    images/
-      slide_000001.jpg
-      ...
-    metrics/
-      diff_curve.csv          # 可观测曲线（用于阈值调参）
-  frame_summary/
-    frame_summary.jsonl       # 每张关键帧的自由文本画面总结
-  fusion/
-    timeline.json             # 对齐后的“交错序列”（下游唯一输入）
-  outputs/
-    clean_transcript.md
-    illustrated_notes.md
-    summary.json              # 100-500字摘要 + 标题
-    export.html               # 可选导出
-  logs/
-    worker.log                # 可选：完整日志
+  jobs/{job_id}/
+    meta/
+      meta.json                 # 标题、简介、tag、来源、语言提示、时长等
+      config.snapshot.json      # 本次运行使用的配置快照（可复现）
+    media/
+      source.mp4                # 原始或下载后文件
+      audio.wav                 # 统一规格音频（16k/mono 等）
+    hotwords/
+      hotwords.json             # 自动+人工编辑后的热词
+      vocabulary_ref.json       # 在线ASR词表ID等引用信息（如有）
+    asr/
+      transcript.jsonl          # 分段（必须有start/end）
+      transcript.words.jsonl    # 可选：词级时间戳
+    frames/
+      keyframes.jsonl           # 关键帧索引（ts/path/hash/score/reason）
+      images/
+        slide_000001.jpg
+        ...
+      metrics/
+        diff_curve.csv          # 可观测曲线（用于阈值调参）
+    frame_summary/
+      frame_summary.jsonl       # 每张关键帧的自由文本画面总结
+    fusion/
+      timeline.json             # 对齐后的“交错序列”（下游唯一输入）
+    outputs/
+      clean_transcript.md
+      illustrated_notes.md
+      summary.json              # 100-500字摘要 + 标题
+      export.html               # 可选导出
+    logs/
+      worker.log                # 可选：完整日志
 ```
 
 ## 3.2 代码仓库目录（单仓库，apps/packages/workers 分层）

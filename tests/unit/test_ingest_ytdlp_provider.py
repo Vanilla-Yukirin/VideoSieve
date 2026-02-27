@@ -102,8 +102,8 @@ def test_run_url_ingest_uses_ytdlp_and_writes_workspace_artifacts(
     )
     result = run_url_ingest(workspace, request)
 
-    video_path = workspace.source_video_file("p_url_1")
-    meta_path = workspace.meta_file("p_url_1")
+    video_path = workspace.source_video_file("p_url_1", "j_url_1")
+    meta_path = workspace.job_meta_file("p_url_1", "j_url_1")
     payload = json.loads(meta_path.read_text(encoding="utf-8"))
 
     assert video_path.exists()
@@ -216,8 +216,8 @@ def test_run_url_ingest_dual_asset_plan_without_dedupe_downloads_twice(
     assert len(downloads) == 2
     assert ("30116+30280", "source.mp4") in downloads
     assert ("30032+30280", "source.analysis.mp4") in downloads
-    assert workspace.source_video_file("p_dual_1").exists()
-    assert workspace.path("p_dual_1", "media", "source.analysis.mp4").exists()
+    assert workspace.source_video_file("p_dual_1", "j_dual_1").exists()
+    assert workspace.job_path("p_dual_1", "j_dual_1", "media", "source.analysis.mp4").exists()
     assert result.meta.dedupe_applied is False
     assert result.meta.analysis_selected_video_format_id == "30032"
     assert result.meta.quality_selected_video_format_id == "30116"
@@ -262,8 +262,8 @@ def test_run_url_ingest_dual_asset_plan_with_dedupe_downloads_once(
     result = run_url_ingest(workspace, request)
 
     assert download_count["n"] == 1
-    assert workspace.source_video_file("p_dual_2").exists()
-    assert not workspace.path("p_dual_2", "media", "source.analysis.mp4").exists()
+    assert workspace.source_video_file("p_dual_2", "j_dual_2").exists()
+    assert not workspace.job_path("p_dual_2", "j_dual_2", "media", "source.analysis.mp4").exists()
     assert result.meta.dedupe_applied is True
     assert result.meta.analysis_selected_video_format_id == "30064"
     assert result.meta.quality_selected_video_format_id == "30064"

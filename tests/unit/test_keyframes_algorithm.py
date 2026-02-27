@@ -35,9 +35,11 @@ def test_detect_stable_segments_returns_non_empty() -> None:
 def test_algorithm_service_respects_paths_and_reason_set(tmp_path: Path) -> None:
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
     service = KeyframeAlgorithmService(store)
+    job_id = "job-algo"
 
     records = service.run_from_features(
         "project-algo",
+        job_id,
         frames=_build_frames(),
         min_gap_seconds=2.0,
         fallback_gap_seconds=8.0,
@@ -45,14 +47,16 @@ def test_algorithm_service_respects_paths_and_reason_set(tmp_path: Path) -> None
     )
 
     assert records
-    assert store.keyframes_file("project-algo").exists()
-    assert store.path("project-algo", "frames", "metrics", "diff_curve.csv").exists()
-    assert store.path("project-algo", "frames", "metrics", "selection_trace.jsonl").exists()
-    timing_path = store.path("project-algo", "frames", "metrics", "timing_report.json")
+    assert store.keyframes_file("project-algo", job_id).exists()
+    assert store.job_path("project-algo", job_id, "frames", "metrics", "diff_curve.csv").exists()
+    assert store.job_path(
+        "project-algo", job_id, "frames", "metrics", "selection_trace.jsonl"
+    ).exists()
+    timing_path = store.job_path("project-algo", job_id, "frames", "metrics", "timing_report.json")
     assert timing_path.exists()
     assert all(record.reason in {"stable", "scene", "cluster", "sample"} for record in records)
     assert all(
-        record.path.startswith(str(store.path("project-algo", "frames", "images")))
+        record.path.startswith(str(store.job_path("project-algo", job_id, "frames", "images")))
         for record in records
     )
     diagnostics = service.last_run_diagnostics
@@ -120,6 +124,7 @@ def test_algorithm_service_bucket_fallback_emits_sample_reason(tmp_path: Path) -
 
     records = service.run_from_features(
         "project-fallback",
+        "job-fallback",
         frames=frames,
         stable_mad_scale=0.0,
         min_stable_len=50,

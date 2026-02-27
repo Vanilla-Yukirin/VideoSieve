@@ -637,8 +637,8 @@ class ApiControlPlane:
         self._repository.create_job(
             job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
         )
-        self._workspace.ensure_project_layout(payload.project_id)
-        config_path = self._workspace.path(payload.project_id, "meta", "config.snapshot.json")
+        self._workspace.ensure_job_layout(payload.project_id, job_id)
+        config_path = self._workspace.config_snapshot_file(payload.project_id, job_id)
 
         config: dict[str, object] = {
             "schema_version": "1.0",
@@ -699,6 +699,7 @@ class ApiControlPlane:
                 config_snapshot = load_job_config_snapshot(
                     thread_workspace,
                     project_id=project_id,
+                    job_id=job_id,
                 )
                 ingest_config = extract_ingest_config(config_snapshot)
                 worker_runtime.run_job(
@@ -893,10 +894,10 @@ class ApiControlPlane:
         if subscription is not None:
             subscription.unsubscribe()
 
-    def list_artifacts(self, project_id: str) -> list[ArtifactItem]:
-        """List workspace artifacts for one project."""
+    def list_artifacts(self, project_id: str, job_id: str) -> list[ArtifactItem]:
+        """List workspace artifacts for one job."""
 
-        root = self._workspace.project_root(project_id)
+        root = self._workspace.job_root(project_id, job_id)
         if not root.exists():
             return []
 
@@ -927,7 +928,7 @@ class ApiControlPlane:
             current_stage=stage,
             progress=progress,
             latest_logs=list(logs or []),
-            artifacts=self.list_artifacts(job.project_id),
+            artifacts=self.list_artifacts(job.project_id, job_id),
         )
 
     def dispatch_control_command(

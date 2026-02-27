@@ -45,7 +45,7 @@ def test_create_job_with_ingest_params(tmp_path: Path) -> None:
     job_req = JobCreateRequest(project_id=pid, ingest=ingest, summary_enabled=True)
     jid = control_plane.create_job(job_req)
 
-    config_path = workspace.path(pid, "meta", "config.snapshot.json")
+    config_path = workspace.config_snapshot_file(pid, jid)
     assert config_path.exists()
 
     data = json.loads(config_path.read_text("utf-8"))
@@ -66,7 +66,7 @@ def test_create_job_backward_compatibility_without_ingest(tmp_path: Path) -> Non
     job_req = JobCreateRequest(project_id=pid)
     jid = control_plane.create_job(job_req)
 
-    config_path = workspace.path(pid, "meta", "config.snapshot.json")
+    config_path = workspace.config_snapshot_file(pid, jid)
     data = json.loads(config_path.read_text("utf-8"))
 
     assert "ingest" not in data
@@ -89,7 +89,7 @@ def test_create_job_normalizes_analysis_only_payload(tmp_path: Path) -> None:
         )
     )
 
-    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    data = json.loads(workspace.config_snapshot_file(pid, jid).read_text("utf-8"))
     assert data["job_id"] == jid
     assert data["ingest"]["analysis_asset"] == {
         "video_format_id": "30032",
@@ -106,7 +106,7 @@ def test_create_job_normalizes_quality_only_payload(tmp_path: Path) -> None:
     control_plane, workspace = _make_control_plane(tmp_path)
     pid = control_plane.create_project(ProjectCreateRequest(title="quality_only"))
 
-    control_plane.create_job(
+    jid = control_plane.create_job(
         JobCreateRequest(
             project_id=pid,
             ingest=IngestParams(
@@ -118,7 +118,7 @@ def test_create_job_normalizes_quality_only_payload(tmp_path: Path) -> None:
         )
     )
 
-    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    data = json.loads(workspace.config_snapshot_file(pid, jid).read_text("utf-8"))
     assert data["ingest"]["analysis_asset"] == {
         "video_format_id": "30116",
         "audio_format_id": "30280",
@@ -134,14 +134,14 @@ def test_create_job_allows_no_format_selection_with_default_strategy(tmp_path: P
     control_plane, workspace = _make_control_plane(tmp_path)
     pid = control_plane.create_project(ProjectCreateRequest(title="default_strategy"))
 
-    control_plane.create_job(
+    jid = control_plane.create_job(
         JobCreateRequest(
             project_id=pid,
             ingest=IngestParams(source_url="https://test.com/video"),
         )
     )
 
-    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    data = json.loads(workspace.config_snapshot_file(pid, jid).read_text("utf-8"))
     assert data["ingest"]["source_url"] == "https://test.com/video"
     assert "analysis_asset" not in data["ingest"]
     assert "quality_asset" not in data["ingest"]
@@ -170,7 +170,7 @@ def test_create_job_persists_cookie_id_when_present(tmp_path: Path) -> None:
     pid = control_plane.create_project(ProjectCreateRequest(title="cookie_id"))
     control_plane._repository.set_setting("guest_allow_cookie_input", "true")
 
-    control_plane.create_job(
+    jid = control_plane.create_job(
         JobCreateRequest(
             project_id=pid,
             ingest=IngestParams(
@@ -180,7 +180,7 @@ def test_create_job_persists_cookie_id_when_present(tmp_path: Path) -> None:
         )
     )
 
-    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    data = json.loads(workspace.config_snapshot_file(pid, jid).read_text("utf-8"))
     assert data["ingest"]["cookie_id"] == "c_demo123"
     assert "cookie_file_path" not in data["ingest"]
 
@@ -190,7 +190,7 @@ def test_create_job_cookie_id_takes_priority_over_cookie_file_path(tmp_path: Pat
     pid = control_plane.create_project(ProjectCreateRequest(title="cookie_priority"))
     control_plane._repository.set_setting("guest_allow_cookie_input", "true")
 
-    control_plane.create_job(
+    jid = control_plane.create_job(
         JobCreateRequest(
             project_id=pid,
             ingest=IngestParams(
@@ -201,7 +201,7 @@ def test_create_job_cookie_id_takes_priority_over_cookie_file_path(tmp_path: Pat
         )
     )
 
-    data = json.loads(workspace.path(pid, "meta", "config.snapshot.json").read_text("utf-8"))
+    data = json.loads(workspace.config_snapshot_file(pid, jid).read_text("utf-8"))
     assert data["ingest"]["cookie_id"] == "c_priority"
     assert "cookie_file_path" not in data["ingest"]
 

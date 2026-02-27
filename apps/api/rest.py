@@ -171,7 +171,8 @@ def list_job_artifacts(control_plane: ApiControlPlane, job_id: str) -> list[dict
     if not isinstance(project_id, str):
         raise ValueError(f"job has invalid project_id: {job_id}")
     return [
-        artifact.model_dump(mode="json") for artifact in control_plane.list_artifacts(project_id)
+        artifact.model_dump(mode="json")
+        for artifact in control_plane.list_artifacts(project_id, job_id)
     ]
 
 

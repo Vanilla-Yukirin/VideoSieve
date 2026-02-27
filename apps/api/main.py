@@ -334,9 +334,9 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
             raise ValueError(f"job has invalid project_id: {job_id}")
 
         safe_parts = [part for part in artifact_path.split("/") if part]
-        candidate = runtime.workspace.path(project_id, *safe_parts)
-        project_root = runtime.workspace.project_root(project_id).resolve()
-        relative_path = candidate.relative_to(project_root).as_posix()
+        candidate = runtime.workspace.job_path(project_id, job_id, *safe_parts)
+        job_root = runtime.workspace.job_root(project_id, job_id).resolve()
+        relative_path = candidate.relative_to(job_root).as_posix()
         if not any(relative_path.startswith(prefix) for prefix in ALLOWED_ARTIFACT_PREFIXES):
             raise KeyError(f"artifact path is not downloadable: {artifact_path}")
         allowed_paths = {
@@ -360,7 +360,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         if not isinstance(project_id, str):
             raise ValueError(f"job has invalid project_id: {job_id}")
 
-        source_path = runtime.workspace.source_video_file(project_id)
+        source_path = runtime.workspace.source_video_file(project_id, job_id)
         if not source_path.exists():
             raise KeyError(f"source video not found for job: {job_id}")
 

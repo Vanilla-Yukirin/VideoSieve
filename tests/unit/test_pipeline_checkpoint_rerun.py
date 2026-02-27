@@ -40,7 +40,7 @@ def test_rerun_from_stage_preserves_prior_stage_status_and_sets_reuse_metadata(
     assert rerun.status == JobStatus.SUCCEEDED.value
     assert rerun.reused_until_stage == StageName.HOTWORDS.value
 
-    checkpoint_path = workspace.path("p1", "meta", "pipeline.checkpoint.json")
+    checkpoint_path = workspace.job_path("p1", "j1", "meta", "pipeline.checkpoint.json")
     payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     assert payload["stage_statuses"][StageName.INGEST.value] == "succeeded"
     assert payload["stage_statuses"][StageName.HOTWORDS.value] == "succeeded"

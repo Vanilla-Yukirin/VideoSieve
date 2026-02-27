@@ -48,6 +48,7 @@ def main() -> int:
     parser.add_argument("--video", required=True, help="Path to source video")
     parser.add_argument("--workspace-root", default="workspaces", help="Workspace root directory")
     parser.add_argument("--project-id", default=None, help="Optional fixed project id")
+    parser.add_argument("--job-id", default=None, help="Optional fixed job id")
     parser.add_argument("--sample-fps", type=float, default=3.0, help="Feature extraction fps")
     parser.add_argument("--min-gap", type=float, default=2.0, help="Hard minimum time gap")
     parser.add_argument("--fallback-gap", type=float, default=12.0, help="Coverage fallback bucket")
@@ -76,11 +77,14 @@ def main() -> int:
         raise ValueError(f"video not found: {source}")
 
     project_id = args.project_id or _gen_id("p_real")
+    job_id = args.job_id or _gen_id("j_real")
     workspace = FileSystemWorkspaceStore(Path(args.workspace_root))
-    log_path = workspace.path(project_id, "logs", "demo_real_video.log")
+    workspace.ensure_job_layout(project_id, job_id)
+    log_path = workspace.job_path(project_id, job_id, "logs", "demo_real_video.log")
     logger = _configure_logger(log_path, args.log_level)
 
     logger.info("[demo] project_id=%s", project_id)
+    logger.info("[demo] job_id=%s", job_id)
     logger.info("[demo] video=%s", source)
     logger.info(
         "[demo] params sample_fps=%s min_gap=%s fallback_gap=%s "
@@ -114,6 +118,7 @@ def main() -> int:
     keyframe_service = KeyframeAlgorithmService(workspace)
     records = keyframe_service.run_from_features(
         project_id,
+        job_id,
         frames=frames,
         min_gap_seconds=args.min_gap,
         fallback_gap_seconds=args.fallback_gap,
@@ -140,7 +145,7 @@ def main() -> int:
     logger.info("[demo] running frame summary provider...")
     t_frame_summary = perf_counter()
     frame_summary_service = FrameSummaryService(workspace, QwenFrameSummaryProvider())
-    frame_summary_rows = frame_summary_service.run(project_id, language_hint="zh")
+    frame_summary_rows = frame_summary_service.run(project_id, job_id, language_hint="zh")
     frame_summary_elapsed = perf_counter() - t_frame_summary
     logger.info(
         "[demo] frame_summary_done rows=%s elapsed=%.2fs",
@@ -155,17 +160,22 @@ def main() -> int:
     logger.info("[demo] stable_candidates: %s", diagnostics.stable_candidate_count)
     logger.info("[demo] fallback_candidates: %s", diagnostics.fallback_candidate_count)
     logger.info("[demo] frame_summary_rows_out: %s", len(frame_summary_rows))
-    logger.info("[demo] keyframes_jsonl: %s", workspace.keyframes_file(project_id))
-    logger.info("[demo] keyframes_images_dir: %s", workspace.path(project_id, "frames", "images"))
+    logger.info("[demo] keyframes_jsonl: %s", workspace.keyframes_file(project_id, job_id))
+    logger.info(
+        "[demo] keyframes_images_dir: %s",
+        workspace.job_path(project_id, job_id, "frames", "images"),
+    )
     logger.info(
         "[demo] metrics_csv: %s",
-        workspace.path(project_id, "frames", "metrics", "diff_curve.csv"),
+        workspace.job_path(project_id, job_id, "frames", "metrics", "diff_curve.csv"),
     )
-    trace_path = workspace.path(project_id, "frames", "metrics", "selection_trace.jsonl")
-    timing_path = workspace.path(project_id, "frames", "metrics", "timing_report.json")
+    trace_path = workspace.job_path(
+        project_id, job_id, "frames", "metrics", "selection_trace.jsonl"
+    )
+    timing_path = workspace.job_path(project_id, job_id, "frames", "metrics", "timing_report.json")
     logger.info("[demo] selection_trace_jsonl: %s", trace_path)
     logger.info("[demo] timing_report_json: %s", timing_path)
-    logger.info("[demo] frame_summary_jsonl: %s", workspace.frame_summary_file(project_id))
+    logger.info("[demo] frame_summary_jsonl: %s", workspace.frame_summary_file(project_id, job_id))
     logger.info("[demo] log_file: %s", log_path)
 
     if diagnostics.selected_details:

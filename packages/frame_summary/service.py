@@ -167,12 +167,14 @@ class FrameSummaryService:
         self._workspace_store = workspace_store
         self._provider = provider
 
-    def run(self, project_id: str, *, language_hint: str | None = None) -> list[FrameSummaryResult]:
-        self._workspace_store.ensure_project_layout(project_id)
+    def run(
+        self, project_id: str, job_id: str, *, language_hint: str | None = None
+    ) -> list[FrameSummaryResult]:
+        self._workspace_store.ensure_job_layout(project_id, job_id)
 
-        keyframes_file = self._workspace_store.keyframes_file(project_id)
+        keyframes_file = self._workspace_store.keyframes_file(project_id, job_id)
         if not keyframes_file.exists():
-            self._write_jsonl(self._workspace_store.frame_summary_file(project_id), [])
+            self._write_jsonl(self._workspace_store.frame_summary_file(project_id, job_id), [])
             return []
 
         results: list[FrameSummaryResult] = []
@@ -189,7 +191,7 @@ class FrameSummaryService:
                     )
                 )
 
-        self._write_jsonl(self._workspace_store.frame_summary_file(project_id), results)
+        self._write_jsonl(self._workspace_store.frame_summary_file(project_id, job_id), results)
         return results
 
     @staticmethod

@@ -16,7 +16,7 @@ Status labels used in this document:
 - Purpose: mutable product switches managed after login.
 - Source of truth after initialization.
 
-3. Runtime snapshot layer (`meta/config.snapshot.json`)
+3. Runtime snapshot layer (`jobs/{job_id}/meta/config.snapshot.json`)
 - Purpose: freeze job-time configuration for reproducibility.
 - Immutable once a job is created.
 

@@ -51,6 +51,7 @@ class KeyframeBaselineService:
     def run(
         self,
         project_id: str,
+        job_id: str,
         *,
         duration_seconds: float,
         interval_seconds: float = 5.0,
@@ -60,15 +61,17 @@ class KeyframeBaselineService:
         if reason not in ALLOWED_KEYFRAME_REASONS:
             raise ValueError(f"invalid keyframe reason: {reason}")
 
-        self._workspace_store.ensure_project_layout(project_id)
+        self._workspace_store.ensure_job_layout(project_id, job_id)
         timestamps = stable_sampling_timestamps(duration_seconds, interval_seconds=interval_seconds)
 
         records: list[KeyframeRecord] = []
         for index, ts in enumerate(timestamps, start=1):
             frame_id = f"frame_{index:06d}"
             image_name = f"slide_{index:06d}.jpg"
-            image_path = self._workspace_store.path(project_id, "frames", "images", image_name)
-            key_hash = hashlib.sha1(f"{project_id}|{frame_id}|{ts}".encode()).hexdigest()
+            image_path = self._workspace_store.job_path(
+                project_id, job_id, "frames", "images", image_name
+            )
+            key_hash = hashlib.sha1(f"{project_id}|{job_id}|{frame_id}|{ts}".encode()).hexdigest()
             records.append(
                 KeyframeRecord(
                     frame_id=frame_id,
@@ -80,7 +83,7 @@ class KeyframeBaselineService:
                 )
             )
 
-        self._write_jsonl(self._workspace_store.keyframes_file(project_id), records)
+        self._write_jsonl(self._workspace_store.keyframes_file(project_id, job_id), records)
         return records
 
     @staticmethod
@@ -101,6 +104,7 @@ class KeyframeAlgorithmService:
     def run_from_dual_sources(
         self,
         project_id: str,
+        job_id: str,
         *,
         analysis_video_path: str | Path,
         quality_video_path: str | Path,
@@ -148,6 +152,7 @@ class KeyframeAlgorithmService:
 
         records = self.run_from_features(
             project_id,
+            job_id,
             frames=analysis_frames,
             min_gap_seconds=min_gap_seconds,
             fallback_gap_seconds=fallback_gap_seconds,
@@ -183,11 +188,15 @@ class KeyframeAlgorithmService:
         # Persist updated diagnostics after image-writing stage so metrics
         # include dual-source timings.
         self._write_selection_trace(
-            self._workspace_store.path(project_id, "frames", "metrics", "selection_trace.jsonl"),
+            self._workspace_store.job_path(
+                project_id, job_id, "frames", "metrics", "selection_trace.jsonl"
+            ),
             diagnostics,
         )
         self._write_timing_report(
-            self._workspace_store.path(project_id, "frames", "metrics", "timing_report.json"),
+            self._workspace_store.job_path(
+                project_id, job_id, "frames", "metrics", "timing_report.json"
+            ),
             diagnostics,
         )
 
@@ -207,6 +216,7 @@ class KeyframeAlgorithmService:
     def run_from_features(
         self,
         project_id: str,
+        job_id: str,
         *,
         frames: list[FrameFeature],
         min_gap_seconds: float = 2.0,
@@ -219,7 +229,7 @@ class KeyframeAlgorithmService:
         logger: logging.Logger | None = None,
     ) -> list[KeyframeRecord]:
         """Run stable detection + scoring + constrained selection."""
-        self._workspace_store.ensure_project_layout(project_id)
+        self._workspace_store.ensure_job_layout(project_id, job_id)
         diagnostics = KeyframeRunDiagnostics(
             frame_count=len(frames),
             parameters={
@@ -236,19 +246,21 @@ class KeyframeAlgorithmService:
         run_start = perf_counter()
         if not frames:
             t0 = perf_counter()
-            self._write_jsonl(self._workspace_store.keyframes_file(project_id), [])
+            self._write_jsonl(self._workspace_store.keyframes_file(project_id, job_id), [])
             diagnostics.timings_ms["write_keyframes_jsonl"] = (perf_counter() - t0) * 1000.0
             t1 = perf_counter()
             self._write_selection_trace(
-                self._workspace_store.path(
-                    project_id, "frames", "metrics", "selection_trace.jsonl"
+                self._workspace_store.job_path(
+                    project_id, job_id, "frames", "metrics", "selection_trace.jsonl"
                 ),
                 diagnostics,
             )
             diagnostics.timings_ms["write_selection_trace_jsonl"] = (perf_counter() - t1) * 1000.0
             diagnostics.timings_ms["total"] = (perf_counter() - run_start) * 1000.0
             self._write_timing_report(
-                self._workspace_store.path(project_id, "frames", "metrics", "timing_report.json"),
+                self._workspace_store.job_path(
+                    project_id, job_id, "frames", "metrics", "timing_report.json"
+                ),
                 diagnostics,
             )
             return []
@@ -373,7 +385,9 @@ class KeyframeAlgorithmService:
         for index, candidate in enumerate(selected, start=1):
             frame_id = f"frame_{index:06d}"
             image_name = f"slide_{index:06d}.jpg"
-            image_path = self._workspace_store.path(project_id, "frames", "images", image_name)
+            image_path = self._workspace_store.job_path(
+                project_id, job_id, "frames", "images", image_name
+            )
             records.append(
                 KeyframeRecord(
                     frame_id=frame_id,
@@ -398,20 +412,25 @@ class KeyframeAlgorithmService:
         ]
 
         t_write_keyframes = perf_counter()
-        self._write_jsonl(self._workspace_store.keyframes_file(project_id), records)
+        self._write_jsonl(self._workspace_store.keyframes_file(project_id, job_id), records)
         diagnostics.timings_ms["write_keyframes_jsonl"] = (
             perf_counter() - t_write_keyframes
         ) * 1000.0
 
         t_write_metrics = perf_counter()
         self._write_metrics_csv(
-            self._workspace_store.path(project_id, "frames", "metrics", "diff_curve.csv"), frames
+            self._workspace_store.job_path(
+                project_id, job_id, "frames", "metrics", "diff_curve.csv"
+            ),
+            frames,
         )
         diagnostics.timings_ms["write_diff_curve_csv"] = (perf_counter() - t_write_metrics) * 1000.0
 
         t_write_trace = perf_counter()
         self._write_selection_trace(
-            self._workspace_store.path(project_id, "frames", "metrics", "selection_trace.jsonl"),
+            self._workspace_store.job_path(
+                project_id, job_id, "frames", "metrics", "selection_trace.jsonl"
+            ),
             diagnostics,
         )
         diagnostics.timings_ms["write_selection_trace_jsonl"] = (
@@ -420,7 +439,9 @@ class KeyframeAlgorithmService:
         diagnostics.timings_ms["total"] = (perf_counter() - run_start) * 1000.0
 
         self._write_timing_report(
-            self._workspace_store.path(project_id, "frames", "metrics", "timing_report.json"),
+            self._workspace_store.job_path(
+                project_id, job_id, "frames", "metrics", "timing_report.json"
+            ),
             diagnostics,
         )
 

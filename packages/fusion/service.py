@@ -28,12 +28,12 @@ class FusionService:
         self._workspace_store = workspace_store
 
     def run(self, project_id: str, *, job_id: str) -> FusionResult:
-        self._workspace_store.ensure_project_layout(project_id)
+        self._workspace_store.ensure_job_layout(project_id, job_id)
 
-        transcript_path = self._workspace_store.path(project_id, "asr", "transcript.jsonl")
-        keyframes_path = self._workspace_store.path(project_id, "frames", "keyframes.jsonl")
-        frame_summary_path = self._workspace_store.frame_summary_file(project_id)
-        timeline_path = self._workspace_store.path(project_id, "fusion", "timeline.json")
+        transcript_path = self._workspace_store.transcript_file(project_id, job_id)
+        keyframes_path = self._workspace_store.keyframes_file(project_id, job_id)
+        frame_summary_path = self._workspace_store.frame_summary_file(project_id, job_id)
+        timeline_path = self._workspace_store.timeline_file(project_id, job_id)
 
         transcript_rows = self._read_jsonl(transcript_path, required=True)
         keyframe_rows = self._read_jsonl(keyframes_path, required=False)

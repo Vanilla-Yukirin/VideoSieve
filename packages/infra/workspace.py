@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .interfaces import WorkspaceStore
 
-WORKSPACE_DIRS: tuple[str, ...] = (
+JOB_WORKSPACE_DIRS: tuple[str, ...] = (
     "meta",
     "media",
     "hotwords",
@@ -33,7 +33,15 @@ class FileSystemWorkspaceStore(WorkspaceStore):
     def ensure_project_layout(self, project_id: str) -> Path:
         root = self.project_root(project_id)
         root.mkdir(parents=True, exist_ok=True)
-        for rel_dir in WORKSPACE_DIRS:
+        return root
+
+    def job_root(self, project_id: str, job_id: str) -> Path:
+        return self.project_root(project_id) / "jobs" / job_id
+
+    def ensure_job_layout(self, project_id: str, job_id: str) -> Path:
+        root = self.job_root(project_id, job_id)
+        root.mkdir(parents=True, exist_ok=True)
+        for rel_dir in JOB_WORKSPACE_DIRS:
             (root / rel_dir).mkdir(parents=True, exist_ok=True)
         return root
 
@@ -44,41 +52,51 @@ class FileSystemWorkspaceStore(WorkspaceStore):
             raise ValueError("workspace path escapes project root")
         return candidate
 
+    def job_path(self, project_id: str, job_id: str, *parts: str) -> Path:
+        root = self.job_root(project_id, job_id).resolve()
+        candidate = (root / Path(*parts)).resolve()
+        if not candidate.is_relative_to(root):
+            raise ValueError("workspace path escapes job root")
+        return candidate
+
     def meta_file(self, project_id: str) -> Path:
         return self.path(project_id, "meta", "meta.json")
 
-    def config_snapshot_file(self, project_id: str) -> Path:
-        return self.path(project_id, "meta", "config.snapshot.json")
+    def job_meta_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "meta", "meta.json")
 
-    def source_video_file(self, project_id: str) -> Path:
-        return self.path(project_id, "media", "source.mp4")
+    def config_snapshot_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "meta", "config.snapshot.json")
 
-    def audio_file(self, project_id: str) -> Path:
-        return self.path(project_id, "media", "audio.wav")
+    def source_video_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "media", "source.mp4")
 
-    def hotwords_file(self, project_id: str) -> Path:
-        return self.path(project_id, "hotwords", "hotwords.json")
+    def audio_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "media", "audio.wav")
 
-    def transcript_file(self, project_id: str) -> Path:
-        return self.path(project_id, "asr", "transcript.jsonl")
+    def hotwords_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "hotwords", "hotwords.json")
 
-    def keyframes_file(self, project_id: str) -> Path:
-        return self.path(project_id, "frames", "keyframes.jsonl")
+    def transcript_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "asr", "transcript.jsonl")
 
-    def frame_summary_file(self, project_id: str) -> Path:
-        return self.path(project_id, "frame_summary", "frame_summary.jsonl")
+    def keyframes_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "frames", "keyframes.jsonl")
 
-    def timeline_file(self, project_id: str) -> Path:
-        return self.path(project_id, "fusion", "timeline.json")
+    def frame_summary_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "frame_summary", "frame_summary.jsonl")
 
-    def clean_transcript_file(self, project_id: str) -> Path:
-        return self.path(project_id, "outputs", "clean_transcript.md")
+    def timeline_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "fusion", "timeline.json")
 
-    def illustrated_notes_file(self, project_id: str) -> Path:
-        return self.path(project_id, "outputs", "illustrated_notes.md")
+    def clean_transcript_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "outputs", "clean_transcript.md")
 
-    def summary_file(self, project_id: str) -> Path:
-        return self.path(project_id, "outputs", "summary.json")
+    def illustrated_notes_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "outputs", "illustrated_notes.md")
 
-    def worker_log_file(self, project_id: str) -> Path:
-        return self.path(project_id, "logs", "worker.log")
+    def summary_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "outputs", "summary.json")
+
+    def worker_log_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "logs", "worker.log")

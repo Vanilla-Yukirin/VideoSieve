@@ -13,10 +13,11 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
     service = FusionService(store)
     project_id = "project-fusion-1"
+    job_id = "job-1"
 
-    transcript_path = store.path(project_id, "asr", "transcript.jsonl")
-    keyframes_path = store.path(project_id, "frames", "keyframes.jsonl")
-    frame_summary_path = store.path(project_id, "frame_summary", "frame_summary.jsonl")
+    transcript_path = store.transcript_file(project_id, job_id)
+    keyframes_path = store.keyframes_file(project_id, job_id)
+    frame_summary_path = store.frame_summary_file(project_id, job_id)
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
     keyframes_path.parent.mkdir(parents=True, exist_ok=True)
     frame_summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,7 +52,7 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
             "schema_version": "1.0",
             "frame_id": "frame_000001",
             "ts": 1.0,
-            "path": str(store.path(project_id, "frames", "images", "slide_000001.jpg")),
+            "path": str(store.job_path(project_id, job_id, "frames", "images", "slide_000001.jpg")),
             "hash": "abc",
             "score": 1.0,
             "reason": "sample",
@@ -60,7 +61,7 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
             "schema_version": "1.0",
             "frame_id": "frame_000002",
             "ts": 7.0,
-            "path": str(store.path(project_id, "frames", "images", "slide_000002.jpg")),
+            "path": str(store.job_path(project_id, job_id, "frames", "images", "slide_000002.jpg")),
             "hash": "def",
             "score": 1.0,
             "reason": "sample",
@@ -92,16 +93,16 @@ def test_fusion_writes_timeline_with_required_chunk_fields(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    result = service.run(project_id, job_id="job-1")
+    result = service.run(project_id, job_id=job_id)
 
-    timeline_file = store.path(project_id, "fusion", "timeline.json")
+    timeline_file = store.timeline_file(project_id, job_id)
     assert timeline_file.exists()
     assert result.timeline_path == str(timeline_file)
 
     payload = json.loads(timeline_file.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "1.0"
     assert payload["project_id"] == project_id
-    assert payload["job_id"] == "job-1"
+    assert payload["job_id"] == job_id
     assert payload["chunks"]
 
     required_fields = {
@@ -125,7 +126,8 @@ def test_fusion_missing_or_sparse_inputs_have_predictable_behavior(tmp_path: Pat
         service.run("project-fusion-missing", job_id="job-missing")
 
     project_id = "project-fusion-sparse"
-    transcript_path = store.path(project_id, "asr", "transcript.jsonl")
+    job_id = "job-sparse"
+    transcript_path = store.transcript_file(project_id, job_id)
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
     transcript_path.write_text(
         json.dumps(
@@ -144,7 +146,7 @@ def test_fusion_missing_or_sparse_inputs_have_predictable_behavior(tmp_path: Pat
         encoding="utf-8",
     )
 
-    result = service.run(project_id, job_id="job-sparse")
+    result = service.run(project_id, job_id=job_id)
     payload = json.loads(Path(result.timeline_path).read_text(encoding="utf-8"))
 
     assert len(payload["chunks"]) == 1

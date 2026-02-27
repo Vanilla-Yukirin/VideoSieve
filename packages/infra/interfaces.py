@@ -202,21 +202,69 @@ class WorkspaceStore(ABC):
         """Build one safe path under the project workspace root."""
 
     @abstractmethod
+    def job_root(self, project_id: str, job_id: str) -> Path:
+        """Return canonical root path for one job workspace."""
+
+    @abstractmethod
+    def ensure_job_layout(self, project_id: str, job_id: str) -> Path:
+        """Create canonical job workspace directory layout if missing."""
+
+    @abstractmethod
+    def job_path(self, project_id: str, job_id: str, *parts: str) -> Path:
+        """Build one safe path under the job workspace root."""
+
+    @abstractmethod
     def meta_file(self, project_id: str) -> Path:
         """Return `meta/meta.json` path for one project."""
 
     @abstractmethod
-    def source_video_file(self, project_id: str) -> Path:
-        """Return `media/source.mp4` path for one project."""
+    def job_meta_file(self, project_id: str, job_id: str) -> Path:
+        """Return `meta/meta.json` path for one job."""
 
     @abstractmethod
-    def hotwords_file(self, project_id: str) -> Path:
-        """Return `hotwords/hotwords.json` path for one project."""
+    def config_snapshot_file(self, project_id: str, job_id: str) -> Path:
+        """Return `meta/config.snapshot.json` path for one job."""
 
     @abstractmethod
-    def keyframes_file(self, project_id: str) -> Path:
-        """Return `frames/keyframes.jsonl` path for one project."""
+    def source_video_file(self, project_id: str, job_id: str) -> Path:
+        """Return `media/source.mp4` path for one job."""
 
     @abstractmethod
-    def frame_summary_file(self, project_id: str) -> Path:
-        """Return `frame_summary/frame_summary.jsonl` path for one project."""
+    def audio_file(self, project_id: str, job_id: str) -> Path:
+        """Return `media/audio.wav` path for one job."""
+
+    @abstractmethod
+    def hotwords_file(self, project_id: str, job_id: str) -> Path:
+        """Return `hotwords/hotwords.json` path for one job."""
+
+    @abstractmethod
+    def transcript_file(self, project_id: str, job_id: str) -> Path:
+        """Return `asr/transcript.jsonl` path for one job."""
+
+    @abstractmethod
+    def keyframes_file(self, project_id: str, job_id: str) -> Path:
+        """Return `frames/keyframes.jsonl` path for one job."""
+
+    @abstractmethod
+    def frame_summary_file(self, project_id: str, job_id: str) -> Path:
+        """Return `frame_summary/frame_summary.jsonl` path for one job."""
+
+    @abstractmethod
+    def timeline_file(self, project_id: str, job_id: str) -> Path:
+        """Return `fusion/timeline.json` path for one job."""
+
+    @abstractmethod
+    def clean_transcript_file(self, project_id: str, job_id: str) -> Path:
+        """Return `outputs/clean_transcript.md` path for one job."""
+
+    @abstractmethod
+    def illustrated_notes_file(self, project_id: str, job_id: str) -> Path:
+        """Return `outputs/illustrated_notes.md` path for one job."""
+
+    @abstractmethod
+    def summary_file(self, project_id: str, job_id: str) -> Path:
+        """Return `outputs/summary.json` path for one job."""
+
+    @abstractmethod
+    def worker_log_file(self, project_id: str, job_id: str) -> Path:
+        """Return `logs/worker.log` path for one job."""

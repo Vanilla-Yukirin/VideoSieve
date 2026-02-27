@@ -79,8 +79,8 @@ class LocalFileIngestProvider:
             )
 
         source = _normalize_local_source(request.source_path)
-        workspace.ensure_project_layout(request.project_id)
-        target_video = workspace.source_video_file(request.project_id)
+        workspace.ensure_job_layout(request.project_id, request.job_id)
+        target_video = workspace.source_video_file(request.project_id, request.job_id)
         shutil.copy2(source, target_video)
 
         metadata = {
@@ -483,9 +483,11 @@ class YtDlpIngestProvider:
                 context={"stage": "ingest"},
             )
 
-        workspace.ensure_project_layout(request.project_id)
-        target_video = workspace.source_video_file(request.project_id)
-        analysis_video = workspace.path(request.project_id, "media", "source.analysis.mp4")
+        workspace.ensure_job_layout(request.project_id, request.job_id)
+        target_video = workspace.source_video_file(request.project_id, request.job_id)
+        analysis_video = workspace.job_path(
+            request.project_id, request.job_id, "media", "source.analysis.mp4"
+        )
         analysis_pair, quality_pair = self._resolve_asset_pairs(request)
         dedupe_applied = analysis_pair == quality_pair
 

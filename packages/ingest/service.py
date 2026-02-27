@@ -34,7 +34,7 @@ def _write_meta(
     quality_selected_audio_format_id: str | None = None,
     dedupe_applied: bool = False,
 ) -> IngestMeta:
-    target_meta = workspace.meta_file(request.project_id)
+    target_meta = workspace.job_meta_file(request.project_id, request.job_id)
     meta = IngestMeta(
         project_id=request.project_id,
         job_id=request.job_id,
@@ -88,7 +88,7 @@ def run_local_ingest(workspace: WorkspaceStore, request: IngestRequest) -> Inges
         project_id=request.project_id,
         job_id=request.job_id,
         source_video_path=str(target_video),
-        meta_path=str(workspace.meta_file(request.project_id)),
+        meta_path=str(workspace.job_meta_file(request.project_id, request.job_id)),
         meta=meta,
         retry_count=retry_count,
     )
@@ -138,7 +138,7 @@ def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResul
         project_id=request.project_id,
         job_id=request.job_id,
         source_video_path=str(target_video),
-        meta_path=str(workspace.meta_file(request.project_id)),
+        meta_path=str(workspace.job_meta_file(request.project_id, request.job_id)),
         meta=meta,
         retry_count=retry_count,
     )

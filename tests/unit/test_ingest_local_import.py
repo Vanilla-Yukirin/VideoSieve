@@ -33,8 +33,8 @@ def test_run_local_ingest_writes_source_and_meta(tmp_path: Path) -> None:
 
     result = run_ingest(workspace, request)
 
-    target_video = workspace.source_video_file("p_ingest_1")
-    target_meta = workspace.meta_file("p_ingest_1")
+    target_video = workspace.source_video_file("p_ingest_1", "j_ingest_1")
+    target_meta = workspace.job_meta_file("p_ingest_1", "j_ingest_1")
 
     assert target_video.exists()
     assert target_video.read_bytes() == b"fake-video-bytes"

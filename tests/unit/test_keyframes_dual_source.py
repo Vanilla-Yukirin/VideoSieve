@@ -44,6 +44,7 @@ def test_dual_source_same_source_autodetect_reuses_single_write_source(
     source = tmp_path / "asset.mp4"
     records = service.run_from_dual_sources(
         "project-dual-1",
+        "job-1",
         analysis_video_path=source,
         quality_video_path=source,
     )
@@ -78,6 +79,7 @@ def test_dual_source_explicit_same_source_overrides_path_inference(
 
     service.run_from_dual_sources(
         "project-dual-2",
+        "job-2",
         analysis_video_path=analysis,
         quality_video_path=quality,
         same_source=True,
@@ -86,6 +88,7 @@ def test_dual_source_explicit_same_source_overrides_path_inference(
 
     service.run_from_dual_sources(
         "project-dual-3",
+        "job-3",
         analysis_video_path=analysis,
         quality_video_path=quality,
         same_source=False,
@@ -109,11 +112,13 @@ def test_dual_source_keeps_keyframe_count_stable_and_writes_additive_timing_fiel
 
     single = service.run_from_dual_sources(
         "project-single",
+        "job-single",
         analysis_video_path=tmp_path / "single.mp4",
         quality_video_path=tmp_path / "single.mp4",
     )
     dual = service.run_from_dual_sources(
         "project-dual",
+        "job-dual",
         analysis_video_path=tmp_path / "analysis.mp4",
         quality_video_path=tmp_path / "quality.mp4",
         same_source=False,
@@ -123,7 +128,9 @@ def test_dual_source_keeps_keyframe_count_stable_and_writes_additive_timing_fiel
     # are chosen on analysis asset.
     assert abs(len(single) - len(dual)) <= 1
 
-    timing_path = store.path("project-dual", "frames", "metrics", "timing_report.json")
+    timing_path = store.job_path(
+        "project-dual", "job-dual", "frames", "metrics", "timing_report.json"
+    )
     payload = json.loads(timing_path.read_text(encoding="utf-8"))
 
     # Original timing/report fields must remain and new dual-source fields are additive only.
@@ -134,4 +141,4 @@ def test_dual_source_keeps_keyframe_count_stable_and_writes_additive_timing_fiel
     assert "total_pipeline" in payload["timings_ms"]
     assert payload["source_mode"] == "dual_source"
     assert payload["same_source_resolved"] is False
-    assert store.keyframes_file("project-dual").exists()
+    assert store.keyframes_file("project-dual", "job-dual").exists()

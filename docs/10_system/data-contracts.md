@@ -61,7 +61,7 @@ Example:
   "schema_version": "1.0",
   "job_id": "j_20260208_001",
   "project_id": "p_20260208_001",
-  "config_snapshot_path": "workspaces/p_20260208_001/meta/config.snapshot.json",
+  "config_snapshot_path": "workspaces/p_20260208_001/jobs/j_20260208_001/meta/config.snapshot.json",
   "status": "running",
   "started_at": "2026-02-08T10:00:05Z",
   "finished_at": null

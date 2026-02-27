@@ -79,7 +79,9 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     repository.update_project_status(project_id, JobStatus.RUNNING.value)
     repository.update_job_status(job_id, status=JobStatus.RUNNING.value, stage="asr")
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
-    workspace.path(project_id, "outputs", "clean_transcript.md").write_text("ok", encoding="utf-8")
+    workspace.job_path(project_id, job_id, "outputs", "clean_transcript.md").write_text(
+        "ok", encoding="utf-8"
+    )
 
     # Prime one snapshot so the control plane starts event tracking for this job.
     get_job_snapshot(control_plane, job_id)
@@ -331,7 +333,7 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
     )["job_id"]
 
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
-    snapshot_path = workspace.path(project_id, "meta", "config.snapshot.json")
+    snapshot_path = workspace.config_snapshot_file(project_id, job_id)
     payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
     ingest = payload["ingest"]
 
@@ -348,7 +350,7 @@ def test_create_job_backward_compatible_without_format_selection(tmp_path: Path)
     control_plane, _, _ = _make_control_plane(tmp_path)
 
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
-    create_job(
+    job_id = create_job(
         control_plane,
         {
             "project_id": project_id,
@@ -356,10 +358,10 @@ def test_create_job_backward_compatible_without_format_selection(tmp_path: Path)
                 "source_url": "https://www.bilibili.com/video/BV1compat",
             },
         },
-    )
+    )["job_id"]
 
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
-    snapshot_path = workspace.path(project_id, "meta", "config.snapshot.json")
+    snapshot_path = workspace.config_snapshot_file(project_id, job_id)
     payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
     ingest = payload["ingest"]
 
@@ -381,8 +383,8 @@ def test_create_job_dispatch_advances_status_and_snapshot(
     def _fake_run_ingest(
         workspace: FileSystemWorkspaceStore, request: IngestRequest
     ) -> IngestResult:
-        workspace.ensure_project_layout(request.project_id)
-        source_path = workspace.source_video_file(request.project_id)
+        workspace.ensure_job_layout(request.project_id, request.job_id)
+        source_path = workspace.source_video_file(request.project_id, request.job_id)
         source_path.write_bytes(b"video")
         meta = IngestMeta(
             project_id=request.project_id,
@@ -395,14 +397,14 @@ def test_create_job_dispatch_advances_status_and_snapshot(
             language_hint=request.language_hint,
             ingested_at=datetime.now(UTC),
         )
-        workspace.meta_file(request.project_id).write_text(
+        workspace.job_meta_file(request.project_id, request.job_id).write_text(
             meta.model_dump_json(indent=2), encoding="utf-8"
         )
         return IngestResult(
             project_id=request.project_id,
             job_id=request.job_id,
             source_video_path=str(source_path),
-            meta_path=str(workspace.meta_file(request.project_id)),
+            meta_path=str(workspace.job_meta_file(request.project_id, request.job_id)),
             meta=meta,
         )
 

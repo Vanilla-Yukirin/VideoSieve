@@ -138,8 +138,8 @@ def run_hotwords(
         raise ValueError("max_terms must be > 0")
 
     tag_values = tags or []
-    workspace.ensure_project_layout(project_id)
-    hotwords_path = workspace.hotwords_file(project_id)
+    workspace.ensure_job_layout(project_id, job_id)
+    hotwords_path = workspace.hotwords_file(project_id, job_id)
 
     scores = _collect_scored_tokens(title=title, description=description, tags=tag_values)
     doc = HotwordsDocument(
@@ -167,7 +167,7 @@ def run_hotwords_from_meta(
 ) -> HotwordsResult:
     """Load title/description/tags from `meta/meta.json` and generate hotwords."""
 
-    meta_path = workspace.meta_file(project_id)
+    meta_path = workspace.job_meta_file(project_id, job_id)
     if not meta_path.exists():
         raise FileNotFoundError(f"meta file not found: {meta_path}")
 

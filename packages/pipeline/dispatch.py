@@ -14,10 +14,11 @@ def load_job_config_snapshot(
     workspace: WorkspaceStore,
     *,
     project_id: str,
+    job_id: str,
 ) -> dict[str, Any]:
-    """Load ``meta/config.snapshot.json`` for one project."""
+    """Load ``meta/config.snapshot.json`` for one job."""
 
-    snapshot_path = workspace.path(project_id, "meta", "config.snapshot.json")
+    snapshot_path = workspace.config_snapshot_file(project_id, job_id)
     if not snapshot_path.exists():
         raise FileNotFoundError(f"config snapshot not found: {snapshot_path}")
     payload = json.loads(snapshot_path.read_text(encoding="utf-8"))

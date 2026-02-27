@@ -38,11 +38,13 @@ class CheckpointStore:
     def __init__(self, workspace: WorkspaceStore) -> None:
         self._workspace = workspace
 
-    def path(self, project_id: str) -> str:
-        return str(self._workspace.path(project_id, "meta", "pipeline.checkpoint.json"))
+    def path(self, project_id: str, job_id: str) -> str:
+        return str(self._workspace.job_path(project_id, job_id, "meta", "pipeline.checkpoint.json"))
 
     def load(self, project_id: str, job_id: str) -> PipelineCheckpoint:
-        checkpoint_path = self._workspace.path(project_id, "meta", "pipeline.checkpoint.json")
+        checkpoint_path = self._workspace.job_path(
+            project_id, job_id, "meta", "pipeline.checkpoint.json"
+        )
         if not checkpoint_path.exists():
             return PipelineCheckpoint(project_id=project_id, job_id=job_id)
 
@@ -60,8 +62,9 @@ class CheckpointStore:
         )
 
     def save(self, checkpoint: PipelineCheckpoint) -> None:
-        checkpoint_path = self._workspace.path(
+        checkpoint_path = self._workspace.job_path(
             checkpoint.project_id,
+            checkpoint.job_id,
             "meta",
             "pipeline.checkpoint.json",
         )

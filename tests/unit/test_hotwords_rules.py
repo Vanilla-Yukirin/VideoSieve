@@ -20,7 +20,7 @@ def test_run_hotwords_extracts_rule_based_terms_and_writes_workspace_file(tmp_pa
         max_terms=10,
     )
 
-    hotwords_path = workspace.hotwords_file("p_hot_1")
+    hotwords_path = workspace.hotwords_file("p_hot_1", "j_hot_1")
     assert hotwords_path.exists()
     payload = json.loads(hotwords_path.read_text(encoding="utf-8"))
 
@@ -38,7 +38,7 @@ def test_run_hotwords_extracts_rule_based_terms_and_writes_workspace_file(tmp_pa
 
 def test_run_hotwords_from_meta_reads_title_description_and_tags(tmp_path: Path) -> None:
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
-    workspace.ensure_project_layout("p_hot_2")
+    workspace.ensure_job_layout("p_hot_2", "j_hot_2")
 
     meta_payload = {
         "schema_version": "1.0",
@@ -50,7 +50,7 @@ def test_run_hotwords_from_meta_reads_title_description_and_tags(tmp_path: Path)
         "description": "课程介绍：监督学习与神经网络。",
         "tags": ["MachineLearning", "神经网络"],
     }
-    workspace.meta_file("p_hot_2").write_text(
+    workspace.job_meta_file("p_hot_2", "j_hot_2").write_text(
         json.dumps(meta_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

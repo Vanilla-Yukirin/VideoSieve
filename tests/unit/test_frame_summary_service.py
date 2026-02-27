@@ -11,12 +11,14 @@ from keyframes import KeyframeBaselineService
 def test_frame_summary_reads_keyframes_and_writes_jsonl(tmp_path: Path) -> None:
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
     keyframes = KeyframeBaselineService(store)
-    keyframes.run("project-1", duration_seconds=11.0, interval_seconds=5.0, reason="sample")
+    keyframes.run(
+        "project-1", "job-1", duration_seconds=11.0, interval_seconds=5.0, reason="sample"
+    )
 
     service = FrameSummaryService(store, QwenFrameSummaryProvider(api_key=""))
-    rows = service.run("project-1", language_hint="zh")
+    rows = service.run("project-1", "job-1", language_hint="zh")
 
-    summary_file = store.frame_summary_file("project-1")
+    summary_file = store.frame_summary_file("project-1", "job-1")
     assert summary_file.exists()
     assert len(rows) == 3
 
@@ -42,8 +44,8 @@ def test_frame_summary_handles_missing_keyframes_file(tmp_path: Path) -> None:
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
     service = FrameSummaryService(store, QwenFrameSummaryProvider(api_key=""))
 
-    rows = service.run("project-2")
+    rows = service.run("project-2", "job-2")
 
     assert rows == []
-    assert store.frame_summary_file("project-2").exists()
-    assert store.frame_summary_file("project-2").read_text(encoding="utf-8") == ""
+    assert store.frame_summary_file("project-2", "job-2").exists()
+    assert store.frame_summary_file("project-2", "job-2").read_text(encoding="utf-8") == ""

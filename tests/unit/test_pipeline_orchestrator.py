@@ -39,15 +39,15 @@ def test_pipeline_orchestrates_all_stages_and_writes_checkpoint(tmp_path: Path) 
     assert result.status == JobStatus.SUCCEEDED.value
     assert result.completed_stages == [stage.value for stage in STAGE_SEQUENCE]
 
-    checkpoint_path = workspace.path("p1", "meta", "pipeline.checkpoint.json")
+    checkpoint_path = workspace.job_path("p1", "j1", "meta", "pipeline.checkpoint.json")
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     assert checkpoint["completed_stages"] == [stage.value for stage in STAGE_SEQUENCE]
     assert checkpoint["reused_until_stage"] is None
     assert all(value == "succeeded" for value in checkpoint["stage_statuses"].values())
 
-    assert workspace.path("p1", "asr", "transcript.jsonl").exists()
-    assert workspace.path("p1", "fusion", "timeline.json").exists()
-    assert workspace.path("p1", "outputs", "summary.json").exists()
+    assert workspace.transcript_file("p1", "j1").exists()
+    assert workspace.timeline_file("p1", "j1").exists()
+    assert workspace.summary_file("p1", "j1").exists()
 
     job = repository.get_job("j1")
     assert job is not None

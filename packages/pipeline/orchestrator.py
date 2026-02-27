@@ -290,23 +290,26 @@ class PipelineOrchestrator:
             return
 
         if stage is StageName.ASR:
-            audio_path = self._workspace.path(project_id, "media", "audio.wav")
+            audio_path = self._workspace.audio_file(project_id, job_id)
             if not audio_path.exists():
-                audio_path = self._workspace.source_video_file(project_id)
+                audio_path = self._workspace.source_video_file(project_id, job_id)
             write_transcript_jsonl(
                 self._asr_provider,
                 audio_path=audio_path,
-                output_path=self._workspace.path(project_id, "asr", "transcript.jsonl"),
+                output_path=self._workspace.transcript_file(project_id, job_id),
                 language_hint=language_hint,
             )
             return
 
         if stage is StageName.KEYFRAMES:
-            analysis_video = self._workspace.path(project_id, "media", "source.analysis.mp4")
-            quality_video = self._workspace.source_video_file(project_id)
+            analysis_video = self._workspace.job_path(
+                project_id, job_id, "media", "source.analysis.mp4"
+            )
+            quality_video = self._workspace.source_video_file(project_id, job_id)
             if not quality_video.exists():
                 KeyframeBaselineService(self._workspace).run(
                     project_id,
+                    job_id,
                     duration_seconds=duration_seconds,
                     interval_seconds=5.0,
                     reason="sample",
@@ -319,11 +322,12 @@ class PipelineOrchestrator:
             try:
                 KeyframeAlgorithmService(self._workspace).run_from_dual_sources(
                     project_id,
+                    job_id,
                     analysis_video_path=analysis_path,
                     quality_video_path=quality_video,
                     same_source=analysis_path.resolve() == quality_video.resolve(),
                 )
-                records = _load_keyframe_records(self._workspace.keyframes_file(project_id))
+                records = _load_keyframe_records(self._workspace.keyframes_file(project_id, job_id))
             except Exception as exc:
                 self._publish_log(
                     project_id,
@@ -336,6 +340,7 @@ class PipelineOrchestrator:
                 )
                 records = KeyframeBaselineService(self._workspace).run(
                     project_id,
+                    job_id,
                     duration_seconds=duration_seconds,
                     interval_seconds=5.0,
                     reason="sample",
@@ -379,6 +384,7 @@ class PipelineOrchestrator:
         if stage is StageName.FRAME_SUMMARY:
             FrameSummaryService(self._workspace, provider=QwenFrameSummaryProvider()).run(
                 project_id,
+                job_id,
                 language_hint=language_hint,
             )
             return

@@ -27,16 +27,12 @@ class DeliverablesService:
         self._workspace_store = workspace_store
 
     def run(self, project_id: str, *, job_id: str) -> DeliverablesResult:
-        self._workspace_store.ensure_project_layout(project_id)
+        self._workspace_store.ensure_job_layout(project_id, job_id)
 
-        timeline_path = self._workspace_store.path(project_id, "fusion", "timeline.json")
-        clean_transcript_path = self._workspace_store.path(
-            project_id, "outputs", "clean_transcript.md"
-        )
-        illustrated_notes_path = self._workspace_store.path(
-            project_id, "outputs", "illustrated_notes.md"
-        )
-        summary_path = self._workspace_store.path(project_id, "outputs", "summary.json")
+        timeline_path = self._workspace_store.timeline_file(project_id, job_id)
+        clean_transcript_path = self._workspace_store.clean_transcript_file(project_id, job_id)
+        illustrated_notes_path = self._workspace_store.illustrated_notes_file(project_id, job_id)
+        summary_path = self._workspace_store.summary_file(project_id, job_id)
 
         if not timeline_path.exists():
             raise FileNotFoundError(timeline_path)

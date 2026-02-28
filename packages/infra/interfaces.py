@@ -97,6 +97,14 @@ class JobRepository(ABC):
         """Delete one job row by id."""
 
     @abstractmethod
+    def set_job_delete_pending(self, job_id: str, pending: bool) -> None:
+        """Persist delete-intent flag for one job."""
+
+    @abstractmethod
+    def list_pending_delete_job_ids(self) -> list[str]:
+        """List job ids that still have delete intent pending."""
+
+    @abstractmethod
     def close(self) -> None:
         """Release underlying connection resources."""
 

@@ -53,16 +53,7 @@ export function ControlPanel({ jobId, status, onDeleted, onDeletePending }: Cont
         onDeletePending?.();
         return;
       }
-      if (cmd === "cancel") {
-        const message = t("control.cancelAccepted");
-        pushToast({ level: "info", message });
-        showInlineFeedback(message);
-        return;
-      }
       if (cmd === "delete" && ack.reason === "job deleted") {
-        const message = t("control.deleteDone");
-        pushToast({ level: "success", message });
-        showInlineFeedback(message);
         onDeleted?.();
         return;
       }

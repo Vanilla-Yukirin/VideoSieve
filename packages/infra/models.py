@@ -41,6 +41,7 @@ class JobRecord:
     error_message: str | None
     created_at: str
     updated_at: str
+    delete_pending: bool = False
 
 
 @dataclass(slots=True)

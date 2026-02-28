@@ -499,6 +499,36 @@ def test_pending_job_delete_is_finalized_during_snapshot(tmp_path: Path) -> None
     assert repository.get_job(job_id) is None
 
 
+def test_pending_job_delete_survives_control_plane_restart(tmp_path: Path) -> None:
+    control_plane, repository, bus = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.CANCELLED.value, stage=None)
+
+    control_plane._cleanup_job_workspace = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: False
+    )
+    ack = control_job(control_plane, job_id=job_id, command="delete")
+    assert ack["code"] == "DELETE_PENDING_CLEANUP"
+
+    restarted = ApiControlPlane(
+        repository=repository,
+        workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
+        event_bus=bus,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    restarted._cleanup_job_workspace = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: True
+    )
+
+    with pytest.raises(KeyError):
+        get_job_snapshot(restarted, job_id)
+    assert repository.get_job(job_id) is None
+
+
 def test_rest_ingest_probe_route_returns_format_options(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -49,6 +49,7 @@ class SQLiteJobRepository(JobRepository):
               stage TEXT,
               error_code TEXT,
               error_message TEXT,
+              delete_pending INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(project_id)
@@ -108,6 +109,18 @@ class SQLiteJobRepository(JobRepository):
             );
             """
         )
+        job_columns = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+            if len(row) > 1
+        }
+        if "delete_pending" not in job_columns:
+            self._conn.execute(
+                """
+                ALTER TABLE jobs
+                ADD COLUMN delete_pending INTEGER NOT NULL DEFAULT 0
+                """
+            )
         self._conn.commit()
 
     def upsert_project(self, project_id: str, *, title: str | None, status: str) -> None:
@@ -186,10 +199,11 @@ class SQLiteJobRepository(JobRepository):
               stage,
               error_code,
               error_message,
+              delete_pending,
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+            VALUES (?, ?, ?, ?, NULL, NULL, 0, ?, ?)
             """,
             (job_id, project_id, status, stage, now, now),
         )
@@ -205,6 +219,7 @@ class SQLiteJobRepository(JobRepository):
               stage,
               error_code,
               error_message,
+              delete_pending,
               created_at,
               updated_at
             FROM jobs
@@ -223,6 +238,7 @@ class SQLiteJobRepository(JobRepository):
             error_message=row["error_message"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            delete_pending=bool(row["delete_pending"]),
         )
 
     def list_jobs_for_project(self, project_id: str) -> list[JobRecord]:
@@ -235,6 +251,7 @@ class SQLiteJobRepository(JobRepository):
               stage,
               error_code,
               error_message,
+              delete_pending,
               created_at,
               updated_at
             FROM jobs
@@ -253,6 +270,7 @@ class SQLiteJobRepository(JobRepository):
                 error_message=row["error_message"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                delete_pending=bool(row["delete_pending"]),
             )
             for row in rows
         ]
@@ -301,6 +319,28 @@ class SQLiteJobRepository(JobRepository):
             (job_id,),
         )
         self._conn.commit()
+
+    def set_job_delete_pending(self, job_id: str, pending: bool) -> None:
+        self._conn.execute(
+            """
+            UPDATE jobs
+            SET delete_pending = ?, updated_at = ?
+            WHERE job_id = ?
+            """,
+            (1 if pending else 0, _utc_now_iso(), job_id),
+        )
+        self._conn.commit()
+
+    def list_pending_delete_job_ids(self) -> list[str]:
+        rows = self._conn.execute(
+            """
+            SELECT job_id
+            FROM jobs
+            WHERE delete_pending = 1
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        return [str(row["job_id"]) for row in rows]
 
     def close(self) -> None:
         self._conn.close()

@@ -82,6 +82,30 @@ def test_sqlite_repository_delete_single_job(tmp_path: Path) -> None:
     repo.close()
 
 
+def test_sqlite_repository_persists_job_delete_pending_flag(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-5", title="Demo", status="queued")
+    repo.create_job("j-30", "p-5", status="queued", stage="ingest")
+
+    before = repo.get_job("j-30")
+    assert before is not None
+    assert before.delete_pending is False
+
+    repo.set_job_delete_pending("j-30", True)
+    marked = repo.get_job("j-30")
+    assert marked is not None
+    assert marked.delete_pending is True
+    assert repo.list_pending_delete_job_ids() == ["j-30"]
+
+    repo.set_job_delete_pending("j-30", False)
+    cleared = repo.get_job("j-30")
+    assert cleared is not None
+    assert cleared.delete_pending is False
+    assert repo.list_pending_delete_job_ids() == []
+    repo.close()
+
+
 def test_sqlite_repository_user_cookie_crud_and_default_switch(tmp_path: Path) -> None:
     repo = SQLiteJobRepository(tmp_path / "infra.db")
     repo.ensure_schema()

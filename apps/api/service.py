@@ -153,8 +153,9 @@ class ApiControlPlane:
         self._project_locks: dict[str, threading.RLock] = {}
         self._project_delete_lock = threading.Lock()
         self._deleting_projects: set[str] = set()
-        self._pending_job_delete_lock = threading.Lock()
-        self._pending_job_deletes: set[str] = set()
+        self._pending_job_delete_cache_lock = threading.Lock()
+        self._pending_job_deletes_cache: set[str] = set()
+        self._hydrate_pending_job_delete_cache()
         self._sessions: dict[str, str] = {}
         self._session_lock = threading.Lock()
         self._validate_app_secret_or_raise()
@@ -1074,6 +1075,10 @@ class ApiControlPlane:
         if job is None:
             raise KeyError(f"job not found: {job_id}")
 
+        if job.delete_pending:
+            with self._pending_job_delete_cache_lock:
+                self._pending_job_deletes_cache.add(job_id)
+
         if self._is_job_delete_pending(job_id):
             self._try_finalize_pending_job_delete(job.project_id, job_id)
             job = self._repository.get_job(job_id)
@@ -1337,16 +1342,23 @@ class ApiControlPlane:
         return False
 
     def _mark_job_delete_pending(self, job_id: str) -> None:
-        with self._pending_job_delete_lock:
-            self._pending_job_deletes.add(job_id)
+        self._repository.set_job_delete_pending(job_id, True)
+        with self._pending_job_delete_cache_lock:
+            self._pending_job_deletes_cache.add(job_id)
 
     def _clear_job_delete_pending(self, job_id: str) -> None:
-        with self._pending_job_delete_lock:
-            self._pending_job_deletes.discard(job_id)
+        self._repository.set_job_delete_pending(job_id, False)
+        with self._pending_job_delete_cache_lock:
+            self._pending_job_deletes_cache.discard(job_id)
 
     def _is_job_delete_pending(self, job_id: str) -> bool:
-        with self._pending_job_delete_lock:
-            return job_id in self._pending_job_deletes
+        with self._pending_job_delete_cache_lock:
+            return job_id in self._pending_job_deletes_cache
+
+    def _hydrate_pending_job_delete_cache(self) -> None:
+        pending_ids = self._repository.list_pending_delete_job_ids()
+        with self._pending_job_delete_cache_lock:
+            self._pending_job_deletes_cache = set(pending_ids)
 
     def _try_finalize_pending_job_delete(self, project_id: str, job_id: str) -> bool:
         if not self._is_job_delete_pending(job_id):

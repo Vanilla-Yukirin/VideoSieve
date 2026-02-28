@@ -136,12 +136,13 @@ export default function JobDetail() {
   const handleDeleted = useCallback(() => {
     setDeleteIntent(false);
     setDeleteRetryCount(0);
+    pushToast({ level: "success", message: t("control.deleteDone") });
     if (state.project_id) {
       router.replace(`/projects/${state.project_id}`);
       return;
     }
     router.replace("/");
-  }, [router, state.project_id]);
+  }, [pushToast, router, state.project_id, t]);
 
   const handleDeletePending = useCallback(() => {
     setDeleteIntent(true);
@@ -158,7 +159,7 @@ export default function JobDetail() {
 
     if (deleteRetryCount >= 20) {
       setDeleteIntent(false);
-      pushToast({ level: "warning", message: t("control.deletePendingCleanup") });
+      pushToast({ level: "warning", message: t("control.deleteRetryTimeout") });
       return;
     }
 
@@ -167,13 +168,11 @@ export default function JobDetail() {
       try {
         const ack = await api.controlJob(jobId, "delete");
         if (ack.reason === "job deleted") {
-          pushToast({ level: "success", message: t("control.deleteDone") });
           handleDeleted();
           return;
         }
       } catch (error) {
         if (error instanceof ApiClientError && error.code === "not_found") {
-          pushToast({ level: "success", message: t("control.deleteDone") });
           handleDeleted();
           return;
         }

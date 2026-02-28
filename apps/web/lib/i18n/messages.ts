@@ -133,6 +133,8 @@ export type MessageKey =
   | "control.delete"
   | "control.reject"
   | "control.fail"
+  | "control.acceptedInfo"
+  | "control.deletePendingCleanup"
   | "control.confirmDelete"
   | "projectCard.unknown"
   | "projectCard.remove"
@@ -307,6 +309,8 @@ export const messages: Record<Locale, MessageMap> = {
     "control.delete": "删除任务",
     "control.reject": "命令被拒绝：{reason}",
     "control.fail": "命令发送失败",
+    "control.acceptedInfo": "命令已受理：{reason}",
+    "control.deletePendingCleanup": "删除处理中：文件仍被占用，请稍后重试删除。",
     "control.confirmDelete": "确认删除该任务及其产物吗？",
     "projectCard.unknown": "未知项目",
     "projectCard.remove": "从索引移除",
@@ -478,6 +482,8 @@ export const messages: Record<Locale, MessageMap> = {
     "control.delete": "Delete Job",
     "control.reject": "Command rejected: {reason}",
     "control.fail": "Command failed to send",
+    "control.acceptedInfo": "Command accepted: {reason}",
+    "control.deletePendingCleanup": "Delete in progress: files are still in use. Please retry shortly.",
     "control.confirmDelete": "Delete this job and its artifacts?",
     "projectCard.unknown": "Unknown Project",
     "projectCard.remove": "Remove from index",

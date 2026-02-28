@@ -292,6 +292,16 @@ class SQLiteJobRepository(JobRepository):
         )
         self._conn.commit()
 
+    def delete_job(self, job_id: str) -> None:
+        self._conn.execute(
+            """
+            DELETE FROM jobs
+            WHERE job_id = ?
+            """,
+            (job_id,),
+        )
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
 

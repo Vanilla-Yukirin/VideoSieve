@@ -20,6 +20,14 @@ export function ControlPanel({ jobId, status }: ControlPanelProps) {
       const ack = await api.controlJob(jobId, cmd);
       if (!ack.accepted) {
         alert(t("control.reject", { reason: ack.reason ?? "-" }));
+        return;
+      }
+      if (ack.code === "DELETE_PENDING_CLEANUP") {
+        alert(t("control.deletePendingCleanup"));
+        return;
+      }
+      if (ack.code && ack.reason) {
+        alert(t("control.acceptedInfo", { reason: ack.reason }));
       }
     } catch (e) {
       console.error(e);

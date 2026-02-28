@@ -1,5 +1,5 @@
-import { useEffect, useRef, useReducer } from "react";
-import { api } from "../api/client";
+import { useEffect, useRef, useReducer, useState } from "react";
+import { ApiClientError, api } from "../api/client";
 import { jobReducer, initialState } from "../state/jobReducer";
 
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8040").replace(/\/+$/, "");
@@ -25,6 +25,7 @@ function isTerminalStatus(status: string): boolean {
 
 export function useJobRealtime(jobId: string) {
   const [state, dispatch] = useReducer(jobReducer, initialState);
+  const [isMissing, setIsMissing] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -45,9 +46,16 @@ export function useJobRealtime(jobId: string) {
       api.getJobSnapshot(jobId)
         .then((snap) => {
           if (!isMounted) return;
+          setIsMissing(false);
           dispatch({ type: "SNAPSHOT", payload: snap });
         })
         .catch((e) => {
+          if (e instanceof ApiClientError && e.code === "not_found") {
+            if (isMounted) {
+              setIsMissing(true);
+            }
+            return;
+          }
           if (isMounted) {
             console.error("Snapshot error", e);
           }
@@ -176,5 +184,8 @@ export function useJobRealtime(jobId: string) {
     };
   }, [jobId]);
 
-  return state;
+  return {
+    ...state,
+    isMissing,
+  };
 }

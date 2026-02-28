@@ -432,14 +432,47 @@ def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
         assert "accepted" in ack
 
     job = repository.get_job(job_id)
-    assert job is not None
-    assert job.status in {
-        JobStatus.QUEUED.value,
-        JobStatus.PAUSED.value,
-        JobStatus.RUNNING.value,
-        JobStatus.CANCEL_REQUESTED.value,
-        JobStatus.CANCELLED.value,
-    }
+    if job is not None:
+        assert job.status in {
+            JobStatus.QUEUED.value,
+            JobStatus.PAUSED.value,
+            JobStatus.RUNNING.value,
+            JobStatus.CANCEL_REQUESTED.value,
+            JobStatus.CANCELLED.value,
+        }
+
+
+def test_job_delete_returns_pending_cleanup_when_workspace_busy(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.CANCELLED.value, stage=None)
+
+    control_plane._cleanup_job_workspace = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: False
+    )
+
+    ack = control_job(control_plane, job_id=job_id, command="delete")
+    assert ack["accepted"] is True
+    assert ack["code"] == "DELETE_PENDING_CLEANUP"
+    assert repository.get_job(job_id) is not None
+
+
+def test_job_delete_removes_job_row_after_cleanup(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.CANCELLED.value, stage=None)
+
+    ack = control_job(control_plane, job_id=job_id, command="delete")
+    assert ack["accepted"] is True
+    assert repository.get_job(job_id) is None
 
 
 def test_rest_ingest_probe_route_returns_format_options(
@@ -752,7 +785,7 @@ def test_create_job_dispatch_advances_status_and_snapshot(
     assert progress >= 0.0
 
 
-def test_create_job_dispatch_has_duplicate_guard(tmp_path: Path) -> None:
+def test_create_job_dispatch_allows_retrigger_for_custom_dispatcher(tmp_path: Path) -> None:
     calls: list[tuple[str, str]] = []
 
     def _dispatcher(project_id: str, job_id: str) -> None:
@@ -763,7 +796,7 @@ def test_create_job_dispatch_has_duplicate_guard(tmp_path: Path) -> None:
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
 
     control_plane._dispatch_job_if_needed(project_id, job_id)
-    assert calls == [(project_id, job_id)]
+    assert calls == [(project_id, job_id), (project_id, job_id)]
 
 
 def test_auth_bootstrap_login_and_settings_flow(

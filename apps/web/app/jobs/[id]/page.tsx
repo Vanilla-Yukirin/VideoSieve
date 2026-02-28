@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useJobRealtime } from "@/lib/hooks/useJobRealtime";
 import { LogViewer } from "@/components/LogViewer";
@@ -33,6 +33,7 @@ function encodeArtifactPath(path: string): string {
 
 export default function JobDetail() {
   const { t } = useI18n();
+  const router = useRouter();
   const params = useParams();
   const jobId = params.id as string;
   const state = useJobRealtime(jobId);
@@ -59,6 +60,15 @@ export default function JobDetail() {
   const keyframesZipUrl = `/api/jobs/${jobId}/artifacts/keyframes-zip`;
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!state.isMissing) return;
+    if (state.project_id) {
+      router.replace(`/projects/${state.project_id}`);
+      return;
+    }
+    router.replace("/");
+  }, [state.isMissing, state.project_id, router]);
 
   useEffect(() => {
     if (previewIndex === null) return;

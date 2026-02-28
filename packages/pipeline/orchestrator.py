@@ -115,6 +115,8 @@ class PipelineOrchestrator:
                         language_hint=language_hint,
                         duration_seconds=duration_seconds,
                     )
+                except _SafetySignal:
+                    raise
                 except Exception as exc:
                     checkpoint.stage_statuses[stage.value] = "failed"
                     self._checkpoint_store.save(checkpoint)

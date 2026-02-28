@@ -20,6 +20,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from workers import WorkerRuntime
 
 from contracts import ControlCommandType, JobStatus
+from core import DELETE_PENDING_CLEANUP
 from infra import (
     EventBus,
     EventSubscription,
@@ -1248,17 +1249,46 @@ class ApiControlPlane:
             if decision.target_status is not JobStatus.CANCEL_REQUESTED:
                 self._repository.update_project_status(project_id, decision.target_status.value)
 
-        if command is ControlCommandType.DELETE and decision.request_cleanup:
-            root = self._workspace.job_root(project_id, job_id)
-            if root.exists():
-                for child in sorted(
-                    root.glob("**/*"), key=lambda item: len(item.parts), reverse=True
-                ):
-                    if child.is_file():
-                        child.unlink()
-                    elif child.is_dir():
-                        child.rmdir()
-                root.rmdir()
+        if command is ControlCommandType.DELETE:
+            if self._job_worker_may_be_running(job_id):
+                return ControlAckPayload(
+                    command=command.value,
+                    accepted=True,
+                    code=DELETE_PENDING_CLEANUP,
+                    reason="delete accepted, waiting for worker to stop before cleanup",
+                ).to_dict()
+
+            latest = self._repository.get_job(job_id)
+            if latest is None:
+                return ControlAckPayload(
+                    command=command.value,
+                    accepted=True,
+                    reason="job already deleted",
+                ).to_dict()
+            latest_status = JobStatus(latest.status)
+            if latest_status is JobStatus.CANCEL_REQUESTED:
+                self._repository.update_job_status(
+                    job_id,
+                    status=JobStatus.CANCELLED.value,
+                    stage=None,
+                )
+                self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
+
+            if decision.request_cleanup or latest_status is JobStatus.CANCEL_REQUESTED:
+                if not self._cleanup_job_workspace(project_id, job_id):
+                    return ControlAckPayload(
+                        command=command.value,
+                        accepted=True,
+                        code=DELETE_PENDING_CLEANUP,
+                        reason="delete accepted, waiting for file handles to release",
+                    ).to_dict()
+                self._repository.delete_job(job_id)
+                self._clear_job_tracking(job_id)
+                return ControlAckPayload(
+                    command=command.value,
+                    accepted=True,
+                    reason="job deleted",
+                ).to_dict()
 
         ack_payload: dict[str, str | bool] = ControlAckPayload(
             command=command.value,
@@ -1267,3 +1297,25 @@ class ApiControlPlane:
             code=decision.code,
         ).to_dict()
         return ack_payload
+
+    def _job_worker_may_be_running(self, job_id: str) -> bool:
+        if not self._uses_default_job_dispatcher:
+            return False
+        with self._dispatch_lock:
+            return job_id in self._dispatched_jobs
+
+    def _cleanup_job_workspace(self, project_id: str, job_id: str) -> bool:
+        root = self._workspace.job_root(project_id, job_id)
+        if not root.exists():
+            return True
+
+        attempts = 4
+        for index in range(attempts):
+            try:
+                shutil.rmtree(root)
+                return True
+            except OSError:
+                if index + 1 >= attempts:
+                    return False
+                time.sleep(0.2 * (index + 1))
+        return False

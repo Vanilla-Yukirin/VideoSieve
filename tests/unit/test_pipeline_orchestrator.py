@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from workers.celery_app import WorkerRuntime
 
 from contracts import JobStatus
 from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from ingest import INGEST_CANCELLED, IngestError
 from pipeline import PipelineOrchestrator
 from pipeline.models import STAGE_SEQUENCE
 
@@ -66,6 +69,31 @@ def test_pipeline_exits_early_when_job_already_cancelled(tmp_path: Path) -> None
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     assert checkpoint["completed_stages"] == []
 
+    job = repository.get_job("j1")
+    assert job is not None
+    assert job.status == JobStatus.CANCELLED.value
+
+
+def test_pipeline_cancel_during_ingest_does_not_flip_failed_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime, repository, _ = _make_runtime(tmp_path)
+
+    import pipeline.orchestrator as orchestrator_module
+
+    def _cancelled_ingest(*_args: object, **_kwargs: object) -> object:
+        raise IngestError(
+            code=INGEST_CANCELLED,
+            message="ingest cancelled by control command",
+            retryable=False,
+        )
+
+    monkeypatch.setattr(orchestrator_module, "run_ingest", _cancelled_ingest)
+    repository.update_job_status("j1", status=JobStatus.CANCEL_REQUESTED.value, stage="ingest")
+
+    result = runtime.run_job(project_id="p1", job_id="j1")
+
+    assert result.status == JobStatus.CANCELLED.value
     job = repository.get_job("j1")
     assert job is not None
     assert job.status == JobStatus.CANCELLED.value

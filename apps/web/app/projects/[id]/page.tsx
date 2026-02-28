@@ -211,11 +211,10 @@ export default function ProjectDetail() {
     setDeleteError(null);
     try {
       await api.deleteProject(projectId, forceCancelActive);
-      router.replace("/");
       try {
         removeProject(projectId);
-      } catch {
-        // keep navigation successful even if local index cleanup fails
+      } finally {
+        router.replace("/");
       }
     } catch (unknownError) {
       if (

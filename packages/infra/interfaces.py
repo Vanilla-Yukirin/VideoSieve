@@ -93,6 +93,10 @@ class JobRepository(ABC):
         """Update job status and optional stage/error fields."""
 
     @abstractmethod
+    def delete_job(self, job_id: str) -> None:
+        """Delete one job row by id."""
+
+    @abstractmethod
     def close(self) -> None:
         """Release underlying connection resources."""
 

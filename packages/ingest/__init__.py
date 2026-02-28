@@ -2,6 +2,7 @@
 
 from .errors import (
     INGEST_AUTH_REQUIRED,
+    INGEST_CANCELLED,
     INGEST_DEPENDENCY_MISSING,
     INGEST_DOWNLOAD_FAILED,
     INGEST_INVALID_SOURCE,
@@ -20,6 +21,7 @@ from .service import probe_url_formats, run_ingest, run_local_ingest, run_url_in
 
 __all__ = [
     "INGEST_AUTH_REQUIRED",
+    "INGEST_CANCELLED",
     "INGEST_DEPENDENCY_MISSING",
     "INGEST_DOWNLOAD_FAILED",
     "INGEST_INVALID_SOURCE",

@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 from base64 import urlsafe_b64encode
 from collections.abc import Iterator
+from collections.abc import Callable
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -19,10 +20,12 @@ from infra import WorkspaceStore
 
 from .errors import (
     INGEST_AUTH_REQUIRED,
+    INGEST_CANCELLED,
     INGEST_DEPENDENCY_MISSING,
     INGEST_INVALID_SOURCE,
     INGEST_SOURCE_NOT_FOUND,
     IngestError,
+    cancel_marker,
     map_download_error,
 )
 from .models import IngestFormatOption, IngestFormatProbeResult, IngestRequest
@@ -38,6 +41,8 @@ class IngestProvider(Protocol):
         self,
         workspace: WorkspaceStore,
         request: IngestRequest,
+        *,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         """Write source video into workspace and return metadata + retry count."""
         ...
@@ -69,6 +74,8 @@ class LocalFileIngestProvider:
         self,
         workspace: WorkspaceStore,
         request: IngestRequest,
+        *,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         if not request.source_path:
             raise IngestError(
@@ -459,6 +466,7 @@ class YtDlpIngestProvider:
                 format_selector=selector,
                 sort_rule=request.ytdlp_sort,
                 target_video=None,
+                cancel_checker=None,
             )
 
         return IngestFormatProbeResult(
@@ -474,6 +482,8 @@ class YtDlpIngestProvider:
         self,
         workspace: WorkspaceStore,
         request: IngestRequest,
+        *,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         if not request.source_url:
             raise IngestError(
@@ -512,6 +522,7 @@ class YtDlpIngestProvider:
                             target_video=target_path,
                             cookie_file=cookie_file,
                             pair=pair,
+                            cancel_checker=cancel_checker,
                         )
 
                     quality_info = info_by_role["quality"]
@@ -570,6 +581,7 @@ class YtDlpIngestProvider:
         target_video: Path,
         cookie_file: str | None,
         pair: tuple[str | None, str | None],
+        cancel_checker: Callable[[], bool] | None,
     ) -> dict[str, Any]:
         if target_video.exists():
             target_video.unlink()
@@ -582,6 +594,7 @@ class YtDlpIngestProvider:
             download=True,
             format_selector=_build_format_selector(pair[0], pair[1]),
             sort_rule=request.ytdlp_sort,
+            cancel_checker=cancel_checker,
         )
 
     def _resolve_asset_pairs(
@@ -631,8 +644,19 @@ class YtDlpIngestProvider:
         format_selector: str,
         sort_rule: str | None,
         target_video: Path | None,
+        cancel_checker: Callable[[], bool] | None,
     ) -> dict[str, Any]:
         yt_dlp, download_error_type = _load_yt_dlp()
+        marker = cancel_marker()
+
+        if cancel_checker is not None and cancel_checker():
+            raise IngestError(
+                code=INGEST_CANCELLED,
+                message="ingest cancelled by control command",
+                retryable=False,
+                context={"project_id": project_id, "job_id": job_id, "stage": "ingest"},
+            )
+
         ydl_opts: dict[str, Any] = {
             "format": format_selector,
             "noplaylist": True,
@@ -648,6 +672,14 @@ class YtDlpIngestProvider:
         if cookie_file:
             ydl_opts["cookiefile"] = cookie_file
 
+        if download:
+
+            def _progress_hook(_event: dict[str, Any]) -> None:
+                if cancel_checker is not None and cancel_checker():
+                    raise RuntimeError(marker)
+
+            ydl_opts["progress_hooks"] = [_progress_hook]
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(source_url, download=download)
@@ -658,6 +690,15 @@ class YtDlpIngestProvider:
                 job_id=job_id,
                 retryable=True,
             ) from exc
+        except Exception as exc:
+            if marker in str(exc).lower():
+                raise map_download_error(
+                    str(exc),
+                    project_id=project_id,
+                    job_id=job_id,
+                    retryable=False,
+                ) from exc
+            raise
 
         if download and target_video is not None and not target_video.exists():
             raise IngestError(

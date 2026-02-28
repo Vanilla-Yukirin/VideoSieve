@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from collections.abc import Callable
 
 from contracts import SourceType
 from infra import WorkspaceStore
@@ -61,7 +62,12 @@ def _write_meta(
     return meta
 
 
-def run_local_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResult:
+def run_local_ingest(
+    workspace: WorkspaceStore,
+    request: IngestRequest,
+    *,
+    cancel_checker: Callable[[], bool] | None = None,
+) -> IngestResult:
     """Copy local media into workspace and emit `meta/meta.json`."""
 
     if not request.source_path:
@@ -72,7 +78,11 @@ def run_local_ingest(workspace: WorkspaceStore, request: IngestRequest) -> Inges
             context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
         )
     provider = LocalFileIngestProvider()
-    target_video, metadata, retry_count = provider.materialize_source(workspace, request)
+    target_video, metadata, retry_count = provider.materialize_source(
+        workspace,
+        request,
+        cancel_checker=cancel_checker,
+    )
     meta = _write_meta(
         workspace,
         request,
@@ -94,7 +104,12 @@ def run_local_ingest(workspace: WorkspaceStore, request: IngestRequest) -> Inges
     )
 
 
-def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResult:
+def run_ingest(
+    workspace: WorkspaceStore,
+    request: IngestRequest,
+    *,
+    cancel_checker: Callable[[], bool] | None = None,
+) -> IngestResult:
     """Run ingest by selecting local-file or URL provider."""
 
     provider: IngestProvider
@@ -112,7 +127,11 @@ def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResul
             context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
         )
 
-    target_video, metadata, retry_count = provider.materialize_source(workspace, request)
+    target_video, metadata, retry_count = provider.materialize_source(
+        workspace,
+        request,
+        cancel_checker=cancel_checker,
+    )
     meta = _write_meta(
         workspace,
         request,
@@ -144,7 +163,12 @@ def run_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResul
     )
 
 
-def run_url_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestResult:
+def run_url_ingest(
+    workspace: WorkspaceStore,
+    request: IngestRequest,
+    *,
+    cancel_checker: Callable[[], bool] | None = None,
+) -> IngestResult:
     """URL-specific helper entrypoint backed by yt-dlp provider."""
 
     if not request.source_url:
@@ -154,7 +178,7 @@ def run_url_ingest(workspace: WorkspaceStore, request: IngestRequest) -> IngestR
             retryable=False,
             context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
         )
-    return run_ingest(workspace, request)
+    return run_ingest(workspace, request, cancel_checker=cancel_checker)
 
 
 def probe_url_formats(request: IngestRequest) -> IngestFormatProbeResult:

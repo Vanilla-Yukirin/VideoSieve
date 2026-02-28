@@ -18,7 +18,7 @@ from fusion import FusionService
 from hotwords import run_hotwords_from_meta
 from infra.interfaces import EventBus, JobRepository, WorkspaceStore
 from infra.models import JobRecord
-from ingest import IngestRequest, run_ingest
+from ingest import INGEST_CANCELLED, IngestError, IngestRequest, run_ingest
 from keyframes import (
     KeyframeAlgorithmService,
     KeyframeBaselineService,
@@ -292,7 +292,16 @@ class PipelineOrchestrator:
             request_payload.update(ingest_config)
             if "source_path" not in request_payload and source_path:
                 request_payload["source_path"] = source_path
-            run_ingest(self._workspace, IngestRequest.model_validate(request_payload))
+            try:
+                run_ingest(
+                    self._workspace,
+                    IngestRequest.model_validate(request_payload),
+                    cancel_checker=lambda: self._is_cancel_requested(job_id),
+                )
+            except IngestError as exc:
+                if exc.code == INGEST_CANCELLED:
+                    raise _SafetySignal(JobStatus.CANCELLED.value) from exc
+                raise
             return
 
         if stage is StageName.HOTWORDS:
@@ -461,6 +470,10 @@ class PipelineOrchestrator:
         if job is None:
             raise ValueError(f"job not found: {job_id}")
         return str(job.status)
+
+    def _is_cancel_requested(self, job_id: str) -> bool:
+        status = _to_job_status(self._job_status(job_id))
+        return status in {JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED}
 
     def _set_job_status(
         self,

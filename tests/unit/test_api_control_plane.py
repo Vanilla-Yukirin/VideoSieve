@@ -674,8 +674,12 @@ def test_create_job_dispatch_advances_status_and_snapshot(
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
 
     def _fake_run_ingest(
-        workspace: FileSystemWorkspaceStore, request: IngestRequest
+        workspace: FileSystemWorkspaceStore,
+        request: IngestRequest,
+        *,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> IngestResult:
+        _ = cancel_checker
         workspace.ensure_job_layout(request.project_id, request.job_id)
         source_path = workspace.source_video_file(request.project_id, request.job_id)
         source_path.write_bytes(b"video")

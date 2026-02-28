@@ -9,6 +9,15 @@ INGEST_INVALID_SOURCE = "INGEST_INVALID_SOURCE"
 INGEST_DOWNLOAD_FAILED = "INGEST_DOWNLOAD_FAILED"
 INGEST_AUTH_REQUIRED = "INGEST_AUTH_REQUIRED"
 INGEST_DEPENDENCY_MISSING = "INGEST_DEPENDENCY_MISSING"
+INGEST_CANCELLED = "INGEST_CANCELLED"
+
+_CANCEL_MARKER = "__videosieve_cancel_requested__"
+
+
+def cancel_marker() -> str:
+    """Return stable marker used to surface ingest cancellation."""
+
+    return _CANCEL_MARKER
 
 
 class IngestError(VideoSieveError):
@@ -26,6 +35,13 @@ def map_download_error(
 
     lowered = message.lower()
     context = {"project_id": project_id, "job_id": job_id, "stage": "ingest"}
+    if _CANCEL_MARKER in lowered:
+        return IngestError(
+            code=INGEST_CANCELLED,
+            message="ingest cancelled by control command",
+            retryable=False,
+            context=context,
+        )
     if "sign in" in lowered or "login" in lowered or "cookie" in lowered:
         return IngestError(
             code=INGEST_AUTH_REQUIRED,

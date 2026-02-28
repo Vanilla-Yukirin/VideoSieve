@@ -10,6 +10,7 @@ import pytest
 from infra import FileSystemWorkspaceStore
 from ingest import (
     INGEST_AUTH_REQUIRED,
+    INGEST_CANCELLED,
     IngestAssetSelection,
     IngestError,
     IngestRequest,
@@ -267,6 +268,54 @@ def test_run_url_ingest_dual_asset_plan_with_dedupe_downloads_once(
     assert result.meta.dedupe_applied is True
     assert result.meta.analysis_selected_video_format_id == "30064"
     assert result.meta.quality_selected_video_format_id == "30064"
+
+
+def test_run_url_ingest_can_interrupt_download_via_cancel_checker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    checker_calls = {"n": 0}
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is True
+            hooks = self._opts.get("progress_hooks")
+            assert isinstance(hooks, list) and hooks
+            hook = hooks[0]
+            assert callable(hook)
+            try:
+                hook({"status": "downloading", "downloaded_bytes": 1, "total_bytes": 2})
+            except Exception as exc:
+                raise _FakeDownloadError(str(exc)) from exc
+            return {"title": "cancelled", "webpage_url": source_url}
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_cancel_1",
+        job_id="j_cancel_1",
+        source_url="https://www.bilibili.com/video/BV1cancelled",
+    )
+
+    def _cancel_checker() -> bool:
+        checker_calls["n"] += 1
+        return checker_calls["n"] >= 2
+
+    with pytest.raises(IngestError) as exc_info:
+        run_url_ingest(workspace, request, cancel_checker=_cancel_checker)
+    assert exc_info.value.code == INGEST_CANCELLED
+    assert checker_calls["n"] >= 2
 
 
 def test_probe_url_formats_returns_candidates(

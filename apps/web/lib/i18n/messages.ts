@@ -129,6 +129,7 @@ export type MessageKey =
   | "control.pause"
   | "control.resume"
   | "control.cancel"
+  | "control.cancelling"
   | "control.delete"
   | "control.reject"
   | "control.fail"
@@ -301,7 +302,8 @@ export const messages: Record<Locale, MessageMap> = {
     "logs.empty": "暂无日志...",
     "control.pause": "暂停",
     "control.resume": "恢复",
-    "control.cancel": "取消",
+    "control.cancel": "中断",
+    "control.cancelling": "中断请求中",
     "control.delete": "删除任务",
     "control.reject": "命令被拒绝：{reason}",
     "control.fail": "命令发送失败",
@@ -471,7 +473,8 @@ export const messages: Record<Locale, MessageMap> = {
     "logs.empty": "No logs available...",
     "control.pause": "Pause",
     "control.resume": "Resume",
-    "control.cancel": "Cancel",
+    "control.cancel": "Interrupt",
+    "control.cancelling": "Interrupting",
     "control.delete": "Delete Job",
     "control.reject": "Command rejected: {reason}",
     "control.fail": "Command failed to send",

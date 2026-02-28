@@ -123,7 +123,7 @@ class PipelineOrchestrator:
                         project_id,
                         job_id,
                         level="error",
-                        message=f"stage {stage.value} failed: {exc}",
+                        message=f"阶段 {stage.value} 失败: {exc}",
                     )
                     publish_event(
                         self._event_bus,
@@ -147,7 +147,7 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="info",
-                    message=f"stage {stage.value} succeeded",
+                    message=f"阶段 {stage.value} 完成",
                 )
                 self._publish_progress(project_id, job_id, stage)
 
@@ -334,10 +334,7 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="warning",
-                    message=(
-                        "keyframe image extraction fallback to baseline "
-                        f"because algorithmic extraction failed: {exc}"
-                    ),
+                    message=f"关键帧算法提取失败，已回退到基线策略: {exc}",
                 )
                 records = KeyframeBaselineService(self._workspace).run(
                     project_id,
@@ -352,7 +349,7 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="warning",
-                    message="opencv-python not available; keyframe image extraction is skipped",
+                    message="未检测到 opencv-python，已跳过关键帧图片提取",
                 )
                 return
 
@@ -371,14 +368,11 @@ class PipelineOrchestrator:
                             project_id,
                             job_id,
                             level="warning",
-                            message=f"keyframe image extraction retry failed: {exc}",
+                            message=f"关键帧图片提取重试失败: {exc}",
                         )
                     existing_images = sum(1 for record in records if Path(record.path).exists())
                 if existing_images == 0:
-                    message = (
-                        "keyframe image extraction produced zero files; "
-                        "verify video decode and ffmpeg/cv2 runtime"
-                    )
+                    message = "关键帧图片提取结果为空，请检查视频解码与 ffmpeg/cv2 运行环境"
                     raise RuntimeError(message)
                 build_images_zip(self._workspace, project_id, job_id)
             return
@@ -402,7 +396,7 @@ class PipelineOrchestrator:
         raise ValueError(f"unsupported stage: {stage.value}")
 
     def _publish_stage_changed(self, project_id: str, job_id: str, stage: StageName) -> None:
-        self._publish_log(project_id, job_id, level="info", message=f"stage {stage.value} started")
+        self._publish_log(project_id, job_id, level="info", message=f"阶段 {stage.value} 开始")
         publish_event(
             self._event_bus,
             project_id=project_id,
@@ -423,6 +417,8 @@ class PipelineOrchestrator:
         )
 
     def _publish_log(self, project_id: str, job_id: str, *, level: str, message: str) -> None:
+        line = f"[{level}] {message}"
+        self._append_worker_log_line(project_id, job_id, line)
         publish_event(
             self._event_bus,
             project_id=project_id,
@@ -430,6 +426,21 @@ class PipelineOrchestrator:
             event_type="log",
             payload={"level": level, "message": message},
         )
+
+    def _append_worker_log_line(self, project_id: str, job_id: str, line: str) -> None:
+        log_file = self._workspace.worker_log_file(project_id, job_id)
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with log_file.open("a", encoding="utf-8") as handle:
+                handle.write(f"{line}\n")
+        except OSError as exc:
+            publish_event(
+                self._event_bus,
+                project_id=project_id,
+                job_id=job_id,
+                event_type="log",
+                payload={"level": "warning", "message": f"日志写入失败: {exc}"},
+            )
 
     def _cleanup_job_workspace(self, project_id: str, job_id: str) -> None:
         root = self._workspace.job_root(project_id, job_id)

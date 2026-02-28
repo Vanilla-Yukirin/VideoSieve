@@ -755,14 +755,14 @@ class ApiControlPlane:
         )
         repository.update_project_status(project_id, JobStatus.FAILED.value)
         repository.close()
-        self._latest_logs[job_id].append(f"[error] dispatch failed: {message}")
+        self._append_worker_log_line(project_id, job_id, f"[error] 任务派发失败: {message}")
         self._event_bus.publish(
             f"jobs:{job_id}",
             InfraEvent(
                 event_type="log",
                 project_id=project_id,
                 job_id=job_id,
-                payload={"level": "error", "message": f"dispatch failed: {message}"},
+                payload={"level": "error", "message": f"任务派发失败: {message}"},
             ),
         )
         self._event_bus.publish(
@@ -940,7 +940,11 @@ class ApiControlPlane:
         self.ensure_job_tracking(job_id)
         progress = self._coalesce_progress(job_id, job.status)
         stage = self._latest_stage.get(job_id) or job.stage
-        logs = self._latest_logs.get(job_id)
+        # worker.log is primarily written by the pipeline orchestrator.
+        # Control plane only appends dispatch-failure fallback lines.
+        persisted_logs = self._read_worker_log_tail(job.project_id, job_id)
+        memory_logs = list(self._latest_logs.get(job_id) or [])
+        merged_logs = self._merge_logs_with_tail_overlap(persisted_logs, memory_logs)
 
         return JobSnapshot(
             project_id=job.project_id,
@@ -948,7 +952,7 @@ class ApiControlPlane:
             status=job.status,
             current_stage=stage,
             progress=progress,
-            latest_logs=list(logs or []),
+            latest_logs=list(merged_logs),
             artifacts=self.list_artifacts(job.project_id, job_id),
         )
 
@@ -986,6 +990,45 @@ class ApiControlPlane:
             if isinstance(message, str):
                 prefix = f"[{level}] " if isinstance(level, str) else ""
                 self._latest_logs[event.job_id].append(f"{prefix}{message}")
+
+    def _append_worker_log_line(self, project_id: str, job_id: str, line: str) -> None:
+        log_file = self._workspace.worker_log_file(project_id, job_id)
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            with log_file.open("a", encoding="utf-8") as handle:
+                handle.write(f"{line}\n")
+        except OSError:
+            return
+
+    def _read_worker_log_tail(self, project_id: str, job_id: str) -> list[str]:
+        log_file = self._workspace.worker_log_file(project_id, job_id)
+        if not log_file.exists() or not log_file.is_file():
+            return []
+        tail: deque[str] = deque(maxlen=MAX_LOG_BUFFER)
+        with log_file.open("r", encoding="utf-8") as handle:
+            for raw in handle:
+                line = raw.rstrip("\r\n")
+                if line:
+                    tail.append(line)
+        return list(tail)
+
+    def _merge_logs_with_tail_overlap(
+        self, persisted_logs: list[str], memory_logs: list[str]
+    ) -> list[str]:
+        if not persisted_logs:
+            return memory_logs[-MAX_LOG_BUFFER:]
+        if not memory_logs:
+            return persisted_logs[-MAX_LOG_BUFFER:]
+
+        max_overlap = min(len(persisted_logs), len(memory_logs))
+        overlap = 0
+        for size in range(max_overlap, 0, -1):
+            if persisted_logs[-size:] == memory_logs[:size]:
+                overlap = size
+                break
+
+        merged = [*persisted_logs, *memory_logs[overlap:]]
+        return merged[-MAX_LOG_BUFFER:]
 
     def _coalesce_progress(self, job_id: str, status: str) -> float:
         if job_id in self._latest_progress:

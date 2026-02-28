@@ -125,6 +125,80 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     assert any(item["path"] == "outputs/clean_transcript.md" for item in artifacts)
 
 
+def test_job_snapshot_loads_persisted_worker_logs_after_restart(tmp_path: Path) -> None:
+    def _failing_dispatcher(_project_id: str, _job_id: str) -> None:
+        raise RuntimeError("boom")
+
+    control_plane, repository, bus = _make_control_plane(
+        tmp_path,
+        job_dispatcher=_failing_dispatcher,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+
+    restarted = ApiControlPlane(
+        repository=repository,
+        workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
+        event_bus=bus,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    snapshot = get_job_snapshot(restarted, job_id)
+    assert any("任务派发失败" in line for line in snapshot["latest_logs"])
+
+
+def test_job_snapshot_merges_persisted_and_memory_logs_without_overlap_duplicates(
+    tmp_path: Path,
+) -> None:
+    control_plane, _, bus = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    log_file = workspace.worker_log_file(project_id, job_id)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text("[info] a\n[info] b\n[info] c\n", encoding="utf-8")
+
+    get_job_snapshot(control_plane, job_id)
+    for message in ("a", "b", "c"):
+        bus.publish(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="log",
+                project_id=project_id,
+                job_id=job_id,
+                payload={"level": "info", "message": message},
+            ),
+        )
+
+    snapshot = get_job_snapshot(control_plane, job_id)
+    assert snapshot["latest_logs"] == ["[info] a", "[info] b", "[info] c"]
+
+
+def test_mark_dispatch_failure_ignores_worker_log_write_errors(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+
+    blocked_parent = tmp_path / "blocked-api"
+    blocked_parent.write_text("not a directory", encoding="utf-8")
+    control_plane._workspace.worker_log_file = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: blocked_parent / "worker.log"
+    )
+
+    control_plane._mark_dispatch_failure(project_id, job_id, RuntimeError("boom"))
+
+    job = repository.get_job(job_id)
+    assert job is not None
+    assert job.status == JobStatus.FAILED.value
+    assert job.error_code == "PIPELINE_DISPATCH_FAILED"
+
+
 def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,

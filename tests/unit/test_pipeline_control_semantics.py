@@ -69,3 +69,24 @@ def test_pause_command_is_applied_at_next_safety_point(tmp_path: Path) -> None:
     job = repository.get_job("j1")
     assert job is not None
     assert job.status == JobStatus.PAUSED.value
+
+
+def test_publish_log_does_not_raise_when_worker_log_write_fails(tmp_path: Path) -> None:
+    orchestrator, _, bus = _make_orchestrator(tmp_path)
+    received: list[InfraEvent] = []
+    bus.subscribe("jobs:j1", received.append)
+
+    blocking_parent = tmp_path / "blocked"
+    blocking_parent.write_text("not a directory", encoding="utf-8")
+    orchestrator._workspace.worker_log_file = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: blocking_parent / "worker.log"
+    )
+
+    orchestrator._publish_log("p1", "j1", level="info", message="hello")
+
+    assert len(received) == 2
+    assert received[0].event_type == "log"
+    assert received[0].payload["level"] == "warning"
+    assert "日志写入失败" in str(received[0].payload["message"])
+    assert received[1].event_type == "log"
+    assert received[1].payload == {"level": "info", "message": "hello"}

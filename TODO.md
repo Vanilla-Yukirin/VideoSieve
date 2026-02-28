@@ -59,30 +59,26 @@
 
 ---
 
-### 实时日志 i18n（汉化）
-**状态**: ❌ 未完成
+### 实时日志中文化
+**状态**: ✅ 已完成
 
-**文件**: `apps/web/components/LogViewer.tsx`, `apps/web/lib/i18n/messages.ts`
+**文件**: `packages/pipeline/orchestrator.py`, `apps/api/service.py`
 
-**问题**: 实时日志存在英文/原始码直出，阅读成本高。
-
-**期望行为**:
-- 关键日志事件支持 i18n 映射（至少中英文）
-- 保留原始日志字段用于排障（例如展开查看）
+**已实现**:
+- 将 pipeline 关键日志文案改为中文（阶段开始/完成/失败、关键帧回退与异常提示等）
+- 派发失败日志改为中文文案（`任务派发失败`）
 
 ---
 
 ### 日志持久化（退出重进可见历史）
-**状态**: ❌ 未完成
+**状态**: ✅ 已完成
 
-**文件**: `apps/api/*`, `apps/web/lib/hooks/useJobRealtime.ts`, `apps/web/components/LogViewer.tsx`
+**文件**: `packages/pipeline/orchestrator.py`, `apps/api/service.py`
 
-**问题**: 当前实时日志为会话态，退出页面后重进看不到历史日志。
-
-**期望行为**:
-- 日志持久化（数据库或文件）
-- 进入 job 页面时先拉取历史日志，再增量叠加实时日志
-- 提供最近 N 条或分页加载策略
+**已实现**:
+- 日志按 job 落盘到工作区 `logs/worker.log`
+- `GET /jobs/{job_id}/snapshot` 会读取持久化日志并与内存日志合并
+- 退出页面后重进仍可在日志区看到最近历史（当前保留最近 100 条）
 
 ---
 

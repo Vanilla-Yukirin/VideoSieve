@@ -153,6 +153,8 @@ class ApiControlPlane:
         self._project_locks: dict[str, threading.RLock] = {}
         self._project_delete_lock = threading.Lock()
         self._deleting_projects: set[str] = set()
+        self._pending_job_delete_lock = threading.Lock()
+        self._pending_job_deletes: set[str] = set()
         self._sessions: dict[str, str] = {}
         self._session_lock = threading.Lock()
         self._validate_app_secret_or_raise()
@@ -252,6 +254,7 @@ class ApiControlPlane:
 
                 for job in jobs:
                     self._clear_job_tracking(job.job_id)
+                    self._clear_job_delete_pending(job.job_id)
 
                 project_root = self._workspace.project_root(project_id)
                 if project_root.exists():
@@ -1071,6 +1074,12 @@ class ApiControlPlane:
         if job is None:
             raise KeyError(f"job not found: {job_id}")
 
+        if self._is_job_delete_pending(job_id):
+            self._try_finalize_pending_job_delete(job.project_id, job_id)
+            job = self._repository.get_job(job_id)
+            if job is None:
+                raise KeyError(f"job not found: {job_id}")
+
         self.ensure_job_tracking(job_id)
         progress = self._coalesce_progress(job_id, job.status)
         stage = self._latest_stage.get(job_id) or job.stage
@@ -1124,6 +1133,9 @@ class ApiControlPlane:
             if isinstance(message, str):
                 prefix = f"[{level}] " if isinstance(level, str) else ""
                 self._latest_logs[event.job_id].append(f"{prefix}{message}")
+
+        if self._is_job_delete_pending(event.job_id):
+            self._try_finalize_pending_job_delete(event.project_id, event.job_id)
 
     def _clear_job_tracking(self, job_id: str) -> None:
         subscription = self._subscriptions.pop(job_id, None)
@@ -1251,6 +1263,7 @@ class ApiControlPlane:
 
         if command is ControlCommandType.DELETE:
             if self._job_worker_may_be_running(job_id):
+                self._mark_job_delete_pending(job_id)
                 return ControlAckPayload(
                     command=command.value,
                     accepted=True,
@@ -1260,6 +1273,7 @@ class ApiControlPlane:
 
             latest = self._repository.get_job(job_id)
             if latest is None:
+                self._clear_job_delete_pending(job_id)
                 return ControlAckPayload(
                     command=command.value,
                     accepted=True,
@@ -1276,6 +1290,7 @@ class ApiControlPlane:
 
             if decision.request_cleanup or latest_status is JobStatus.CANCEL_REQUESTED:
                 if not self._cleanup_job_workspace(project_id, job_id):
+                    self._mark_job_delete_pending(job_id)
                     return ControlAckPayload(
                         command=command.value,
                         accepted=True,
@@ -1284,6 +1299,7 @@ class ApiControlPlane:
                     ).to_dict()
                 self._repository.delete_job(job_id)
                 self._clear_job_tracking(job_id)
+                self._clear_job_delete_pending(job_id)
                 return ControlAckPayload(
                     command=command.value,
                     accepted=True,
@@ -1319,3 +1335,41 @@ class ApiControlPlane:
                     return False
                 time.sleep(0.2 * (index + 1))
         return False
+
+    def _mark_job_delete_pending(self, job_id: str) -> None:
+        with self._pending_job_delete_lock:
+            self._pending_job_deletes.add(job_id)
+
+    def _clear_job_delete_pending(self, job_id: str) -> None:
+        with self._pending_job_delete_lock:
+            self._pending_job_deletes.discard(job_id)
+
+    def _is_job_delete_pending(self, job_id: str) -> bool:
+        with self._pending_job_delete_lock:
+            return job_id in self._pending_job_deletes
+
+    def _try_finalize_pending_job_delete(self, project_id: str, job_id: str) -> bool:
+        if not self._is_job_delete_pending(job_id):
+            return False
+        if self._job_worker_may_be_running(job_id):
+            return False
+
+        job = self._repository.get_job(job_id)
+        if job is None:
+            self._clear_job_delete_pending(job_id)
+            return True
+
+        if job.status not in {
+            JobStatus.SUCCEEDED.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        }:
+            return False
+
+        if not self._cleanup_job_workspace(project_id, job_id):
+            return False
+
+        self._repository.delete_job(job_id)
+        self._clear_job_tracking(job_id)
+        self._clear_job_delete_pending(job_id)
+        return True

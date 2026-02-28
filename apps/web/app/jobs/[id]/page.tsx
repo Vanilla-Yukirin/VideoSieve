@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useJobRealtime } from "@/lib/hooks/useJobRealtime";
@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { ApiClientError, api } from "@/lib/api/client";
+import { useToast } from "@/lib/toast/ToastProvider";
 
 function encodeArtifactPath(path: string): string {
   return path
@@ -33,6 +35,7 @@ function encodeArtifactPath(path: string): string {
 
 export default function JobDetail() {
   const { t } = useI18n();
+  const { pushToast } = useToast();
   const router = useRouter();
   const params = useParams();
   const jobId = params.id as string;
@@ -60,6 +63,8 @@ export default function JobDetail() {
   const keyframesZipUrl = `/api/jobs/${jobId}/artifacts/keyframes-zip`;
   const [copyStatus, setCopyStatus] = useState<"idle" | "ok" | "fail">("idle");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [deleteIntent, setDeleteIntent] = useState(false);
+  const [deleteRetryCount, setDeleteRetryCount] = useState(0);
 
   useEffect(() => {
     if (!state.isMissing) return;
@@ -128,6 +133,64 @@ export default function JobDetail() {
 
   const openPreview = (index: number) => setPreviewIndex(index);
   const closePreview = () => setPreviewIndex(null);
+  const handleDeleted = useCallback(() => {
+    setDeleteIntent(false);
+    setDeleteRetryCount(0);
+    if (state.project_id) {
+      router.replace(`/projects/${state.project_id}`);
+      return;
+    }
+    router.replace("/");
+  }, [router, state.project_id]);
+
+  const handleDeletePending = useCallback(() => {
+    setDeleteIntent(true);
+    setDeleteRetryCount(0);
+  }, []);
+
+  useEffect(() => {
+    if (!deleteIntent) return;
+
+    if (state.isMissing) {
+      setDeleteIntent(false);
+      return;
+    }
+
+    if (deleteRetryCount >= 20) {
+      setDeleteIntent(false);
+      pushToast({ level: "warning", message: t("control.deletePendingCleanup") });
+      return;
+    }
+
+    const delayMs = deleteRetryCount < 3 ? 500 : deleteRetryCount < 8 ? 1000 : 2000;
+    const timer = window.setTimeout(async () => {
+      try {
+        const ack = await api.controlJob(jobId, "delete");
+        if (ack.reason === "job deleted") {
+          pushToast({ level: "success", message: t("control.deleteDone") });
+          handleDeleted();
+          return;
+        }
+      } catch (error) {
+        if (error instanceof ApiClientError && error.code === "not_found") {
+          pushToast({ level: "success", message: t("control.deleteDone") });
+          handleDeleted();
+          return;
+        }
+      }
+      setDeleteRetryCount((count) => count + 1);
+    }, delayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    deleteIntent,
+    deleteRetryCount,
+    state.isMissing,
+    jobId,
+    pushToast,
+    t,
+    handleDeleted,
+  ]);
   const showPrev = () => {
     setPreviewIndex((current) => {
       if (current === null || keyframeImages.length === 0) return current;
@@ -193,8 +256,13 @@ export default function JobDetail() {
                 </div>
             </div>
          </div>
-         <ControlPanel jobId={jobId} status={state.status} />
-       </div>
+         <ControlPanel
+           jobId={jobId}
+           status={state.status}
+           onDeleted={handleDeleted}
+           onDeletePending={handleDeletePending}
+         />
+        </div>
 
        {/* Progress Section */}
        <Card>

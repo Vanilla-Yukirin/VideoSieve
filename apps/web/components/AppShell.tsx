@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Home, KeyRound, Settings } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
+import { ToastProvider } from "@/lib/toast/ToastProvider";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { getSessionToken, SESSION_CHANGED_EVENT } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
@@ -129,7 +130,9 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <I18nProvider>
-      <ShellChrome>{children}</ShellChrome>
+      <ToastProvider>
+        <ShellChrome>{children}</ShellChrome>
+      </ToastProvider>
     </I18nProvider>
   );
 }

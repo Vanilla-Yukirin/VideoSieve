@@ -131,6 +131,9 @@ export type MessageKey =
   | "control.cancel"
   | "control.cancelling"
   | "control.delete"
+  | "control.deleteRequested"
+  | "control.cancelAccepted"
+  | "control.deleteDone"
   | "control.reject"
   | "control.fail"
   | "control.acceptedInfo"
@@ -307,6 +310,9 @@ export const messages: Record<Locale, MessageMap> = {
     "control.cancel": "中断",
     "control.cancelling": "中断请求中",
     "control.delete": "删除任务",
+    "control.deleteRequested": "删除请求已发送，正在尝试删除任务...",
+    "control.cancelAccepted": "中断请求已发送，正在停止任务...",
+    "control.deleteDone": "任务已删除。",
     "control.reject": "命令被拒绝：{reason}",
     "control.fail": "命令发送失败",
     "control.acceptedInfo": "命令已受理：{reason}",
@@ -480,6 +486,9 @@ export const messages: Record<Locale, MessageMap> = {
     "control.cancel": "Interrupt",
     "control.cancelling": "Interrupting",
     "control.delete": "Delete Job",
+    "control.deleteRequested": "Delete requested. Trying to remove the job...",
+    "control.cancelAccepted": "Interrupt requested. Stopping task...",
+    "control.deleteDone": "Job deleted.",
     "control.reject": "Command rejected: {reason}",
     "control.fail": "Command failed to send",
     "control.acceptedInfo": "Command accepted: {reason}",

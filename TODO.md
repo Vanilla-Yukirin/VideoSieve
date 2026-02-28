@@ -193,6 +193,22 @@
 
 ---
 
+### 状态文案 i18n + Cookie Vault 顶部文案本地化
+**状态**: ❌ 未完成
+
+**文件**: `apps/web/lib/i18n/messages.ts`, `apps/web/app/settings/cookies/page.tsx`, `apps/web/app/jobs/[id]/page.tsx`, `apps/web/app/projects/[id]/page.tsx`, `apps/web/components/ProjectCard.tsx`
+
+**问题**:
+- 中文界面中部分文案仍为英文（如 Cookie Vault）
+- job/project/cookie 状态直接显示原始状态码（queued/cancelled/...），可读性不足
+
+**期望行为**:
+- Cookie Vault 顶部文案支持完整中英文本地化
+- 为状态增加统一 i18n 映射（project/job/cookie/stage）
+- 所有状态展示位改用 i18n 文案，不直接渲染原始状态码
+
+---
+
 ## Completed
 
 - ~~Cookie 解密失败状态显示问题~~ ✅

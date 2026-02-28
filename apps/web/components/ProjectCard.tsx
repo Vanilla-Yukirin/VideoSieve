@@ -5,7 +5,7 @@ import { Button } from "@/components/Button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/Card";
 import { Trash } from "lucide-react";
 import useSWR from "swr";
-import { api } from "@/lib/api/client";
+import { ApiClientError, api } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 interface ProjectCardProps {
@@ -15,10 +15,19 @@ interface ProjectCardProps {
 
 export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
   const { t } = useI18n();
+  const [autoRemoved, setAutoRemoved] = React.useState(false);
   const { data: project, error, isLoading } = useSWR(
     projectId ? `/projects/${projectId}` : null,
-    () => api.getProject(projectId).catch(() => null) // Return null on error (404)
+    () => api.getProject(projectId)
   );
+  const isNotFound = error instanceof ApiClientError && error.code === "not_found";
+
+  React.useEffect(() => {
+    if (isNotFound && !autoRemoved) {
+      onRemove(projectId);
+      setAutoRemoved(true);
+    }
+  }, [isNotFound, autoRemoved, onRemove, projectId]);
 
   if (isLoading) {
     return (
@@ -35,7 +44,7 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
   }
 
   // Handle 404 or Removed Project
-  if (!project) {
+  if (isNotFound || !project) {
     return (
       <Card className="border-dashed border-muted-foreground/50 bg-muted/50">
         <CardHeader>
@@ -49,6 +58,19 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
             <Trash className="mr-2 h-4 w-4" /> {t("projectCard.remove")}
           </Button>
         </CardFooter>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="border-destructive/40 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-muted-foreground text-lg">{t("projectCard.loadFailed")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground break-all">{projectId}</p>
+        </CardContent>
       </Card>
     );
   }

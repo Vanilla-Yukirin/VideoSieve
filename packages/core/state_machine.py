@@ -7,14 +7,19 @@ from contracts import JobStatus, StageStatus
 from .errors import InvalidStateTransitionError
 
 _ALLOWED_JOB_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
-    JobStatus.QUEUED: {JobStatus.RUNNING, JobStatus.CANCELLED},
+    JobStatus.QUEUED: {JobStatus.RUNNING, JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED},
     JobStatus.RUNNING: {
         JobStatus.PAUSED,
+        JobStatus.CANCEL_REQUESTED,
         JobStatus.SUCCEEDED,
         JobStatus.FAILED,
         JobStatus.CANCELLED,
     },
-    JobStatus.PAUSED: {JobStatus.RUNNING, JobStatus.CANCELLED},
+    JobStatus.PAUSED: {JobStatus.RUNNING, JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED},
+    JobStatus.CANCEL_REQUESTED: {
+        JobStatus.CANCELLED,
+        JobStatus.FAILED,
+    },
     JobStatus.SUCCEEDED: set(),
     JobStatus.FAILED: set(),
     JobStatus.CANCELLED: set(),

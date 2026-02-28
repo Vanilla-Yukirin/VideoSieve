@@ -53,6 +53,22 @@ def test_sqlite_repository_list_jobs_ordered(tmp_path: Path) -> None:
     repo.close()
 
 
+def test_sqlite_repository_delete_project_removes_jobs(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-3", title="Demo", status="queued")
+    repo.create_job("j-10", "p-3", status="queued", stage="ingest")
+    repo.create_job("j-11", "p-3", status="running", stage="asr")
+
+    repo.delete_project("p-3")
+
+    assert repo.get_project("p-3") is None
+    assert repo.get_job("j-10") is None
+    assert repo.get_job("j-11") is None
+    assert repo.list_jobs_for_project("p-3") == []
+    repo.close()
+
+
 def test_sqlite_repository_user_cookie_crud_and_default_switch(tmp_path: Path) -> None:
     repo = SQLiteJobRepository(tmp_path / "infra.db")
     repo.ensure_schema()

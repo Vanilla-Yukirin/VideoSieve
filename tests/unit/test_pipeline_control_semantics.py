@@ -90,3 +90,26 @@ def test_publish_log_does_not_raise_when_worker_log_write_fails(tmp_path: Path) 
     assert "日志写入失败" in str(received[0].payload["message"])
     assert received[1].event_type == "log"
     assert received[1].payload == {"level": "info", "message": "hello"}
+
+
+def test_cancel_command_sets_cancel_requested_state(tmp_path: Path) -> None:
+    orchestrator, repository, _ = _make_orchestrator(tmp_path)
+    repository.update_project_status("p1", JobStatus.RUNNING.value)
+    repository.update_job_status("j1", status=JobStatus.RUNNING.value, stage="ingest")
+
+    ack = orchestrator.handle_control_command(
+        project_id="p1",
+        job_id="j1",
+        command=ControlCommandType.CANCEL,
+    )
+    assert ack["command"] == "cancel"
+    assert ack["accepted"] is True
+
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    run = orchestrator.run_job(project_id="p1", job_id="j1", source_path=str(source))
+    assert run.status == JobStatus.CANCELLED.value
+
+    job = repository.get_job("j1")
+    assert job is not None
+    assert job.status == JobStatus.CANCELLED.value

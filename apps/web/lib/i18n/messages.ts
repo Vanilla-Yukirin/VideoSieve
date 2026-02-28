@@ -63,6 +63,14 @@ export type MessageKey =
   | "project.noJobs"
   | "project.notFound"
   | "project.goBack"
+  | "project.delete"
+  | "project.deleting"
+  | "project.confirmDelete"
+  | "project.confirmDeleteWithActive"
+  | "project.deleteFailed"
+  | "project.deletePendingCancel"
+  | "project.deletePendingCleanup"
+  | "project.deleteInProgress"
   | "cookie.title"
   | "cookie.back"
   | "cookie.desc"
@@ -130,6 +138,7 @@ export type MessageKey =
   | "projectCard.untitled"
   | "projectCard.created"
   | "projectCard.view"
+  | "projectCard.loadFailed"
   | "common.loading"
   | "common.save"
   | "common.cancel"
@@ -227,6 +236,14 @@ export const messages: Record<Locale, MessageMap> = {
     "project.noJobs": "还没有任务，先在上方启动一个。",
     "project.notFound": "项目不存在",
     "project.goBack": "返回",
+    "project.delete": "删除项目",
+    "project.deleting": "正在取消任务并删除项目...",
+    "project.confirmDelete": "确认删除整个项目及其所有任务与产物吗？",
+    "project.confirmDeleteWithActive": "当前有 {count} 个任务仍在运行。继续删除将自动取消这些任务，是否继续？",
+    "project.deleteFailed": "删除项目失败，请稍后重试。",
+    "project.deletePendingCancel": "任务仍在取消中，项目暂未删除。请稍后重试。",
+    "project.deletePendingCleanup": "任务已取消请求，但资源仍在释放中。请稍后重试删除。",
+    "project.deleteInProgress": "项目删除进行中，请稍候。",
     "cookie.title": "Cookie Vault",
     "cookie.back": "返回项目",
     "cookie.desc": "按 ID 管理登录 Cookie。提交后不回显明文。",
@@ -294,6 +311,7 @@ export const messages: Record<Locale, MessageMap> = {
     "projectCard.untitled": "未命名",
     "projectCard.created": "创建于",
     "projectCard.view": "查看详情",
+    "projectCard.loadFailed": "项目加载失败",
     "common.loading": "加载中...",
     "common.save": "保存",
     "common.cancel": "取消",
@@ -388,6 +406,14 @@ export const messages: Record<Locale, MessageMap> = {
     "project.noJobs": "No jobs run yet. Start one above!",
     "project.notFound": "Project Not Found",
     "project.goBack": "Go Back",
+    "project.delete": "Delete Project",
+    "project.deleting": "Cancelling jobs and deleting project...",
+    "project.confirmDelete": "Delete this project with all jobs and artifacts?",
+    "project.confirmDeleteWithActive": "There are {count} active jobs. Continue and auto-cancel them before deleting the project?",
+    "project.deleteFailed": "Failed to delete project. Please try again.",
+    "project.deletePendingCancel": "Jobs are still cancelling. Project was not deleted yet. Please retry shortly.",
+    "project.deletePendingCleanup": "Cancel was requested, but resources are still being released. Please retry deletion shortly.",
+    "project.deleteInProgress": "Project deletion is in progress. Please wait.",
     "cookie.title": "Cookie Vault",
     "cookie.back": "Back to Projects",
     "cookie.desc": "Manage login cookies by id. Cookie plaintext is never shown after submit.",
@@ -455,6 +481,7 @@ export const messages: Record<Locale, MessageMap> = {
     "projectCard.untitled": "Untitled",
     "projectCard.created": "Created",
     "projectCard.view": "View Details",
+    "projectCard.loadFailed": "Failed to load project",
     "common.loading": "Loading...",
     "common.save": "Save",
     "common.cancel": "Cancel",

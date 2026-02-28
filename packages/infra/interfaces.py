@@ -63,6 +63,10 @@ class JobRepository(ABC):
         """Update project status."""
 
     @abstractmethod
+    def delete_project(self, project_id: str) -> None:
+        """Delete one project and all its jobs."""
+
+    @abstractmethod
     def create_job(
         self, job_id: str, project_id: str, *, status: str, stage: str | None = None
     ) -> None:

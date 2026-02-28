@@ -52,3 +52,20 @@ def test_pipeline_orchestrates_all_stages_and_writes_checkpoint(tmp_path: Path) 
     job = repository.get_job("j1")
     assert job is not None
     assert job.status == JobStatus.SUCCEEDED.value
+
+
+def test_pipeline_exits_early_when_job_already_cancelled(tmp_path: Path) -> None:
+    runtime, repository, workspace = _make_runtime(tmp_path)
+    repository.update_job_status("j1", status=JobStatus.CANCELLED.value, stage=None)
+
+    result = runtime.run_job(project_id="p1", job_id="j1")
+
+    assert result.status == JobStatus.CANCELLED.value
+    assert result.completed_stages == []
+    checkpoint_path = workspace.job_path("p1", "j1", "meta", "pipeline.checkpoint.json")
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert checkpoint["completed_stages"] == []
+
+    job = repository.get_job("j1")
+    assert job is not None
+    assert job.status == JobStatus.CANCELLED.value

@@ -23,6 +23,7 @@ from .rest import (
     create_job,
     create_me_cookie,
     create_project,
+    delete_project,
     delete_me_cookie,
     get_auth_bootstrap_status,
     get_auth_me,
@@ -294,6 +295,18 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
     @app.get("/projects/{project_id}")
     async def get_projects(project_id: str, request: Request) -> dict[str, str | None]:
         return get_project(_control_plane(request), project_id)
+
+    @app.delete("/projects/{project_id}")
+    async def delete_projects(
+        project_id: str,
+        request: Request,
+        force_cancel_active: bool = False,
+    ) -> dict[str, object]:
+        return delete_project(
+            _control_plane(request),
+            project_id,
+            force_cancel_active=force_cancel_active,
+        )
 
     @app.post("/jobs")
     async def post_jobs(payload: dict[str, Any], request: Request) -> dict[str, str]:

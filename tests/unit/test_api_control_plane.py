@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -14,21 +15,24 @@ from apps.api.rest import (
     create_job,
     create_me_cookie,
     create_project,
+    delete_project,
     get_auth_bootstrap_status,
+    get_project,
     get_guest_cooldown,
     get_job_snapshot,
     get_public_access_flags,
     get_system_settings,
+    list_project_jobs,
     list_job_artifacts,
     patch_system_settings,
     post_auth_bootstrap,
     post_auth_login,
     probe_ingest_formats,
 )
-from apps.api.service import ApiControlPlane
+from apps.api.service import ApiControlPlane, ApiError
 from pydantic import ValidationError
 
-from contracts import JobStatus
+from contracts import ControlCommandType, JobStatus
 from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
 from ingest import IngestFormatOption, IngestFormatProbeResult
 
@@ -125,6 +129,202 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     assert any(item["path"] == "outputs/clean_transcript.md" for item in artifacts)
 
 
+def test_delete_project_removes_workspace_and_metadata(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    first_job = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(first_job, status=JobStatus.SUCCEEDED.value, stage=None)
+
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    artifact = workspace.job_path(project_id, first_job, "outputs", "clean_transcript.md")
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("ok", encoding="utf-8")
+
+    payload = delete_project(control_plane, project_id, force_cancel_active=False)
+    assert payload["deleted"] is True
+    assert "DELETE /projects/{project_id}" in REST_ROUTES
+    assert repository.get_project(project_id) is None
+    assert repository.list_jobs_for_project(project_id) == []
+    assert workspace.project_root(project_id).exists() is False
+
+
+def test_delete_project_rejects_when_active_jobs_exist_without_force(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.RUNNING.value, stage="asr")
+
+    with pytest.raises(ApiError) as exc_info:
+        delete_project(control_plane, project_id, force_cancel_active=False)
+    assert exc_info.value.code == "project_has_active_jobs"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.details.get("active_job_ids") == [job_id]
+
+
+def test_delete_project_force_cancel_active_jobs_then_delete(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.RUNNING.value, stage="asr")
+
+    recorded: list[tuple[str, str]] = []
+    original = control_plane.dispatch_control_command
+
+    def _recording_dispatch(*, job_id: str, command: ControlCommandType) -> dict[str, str | bool]:
+        recorded.append((job_id, str(command)))
+        return original(job_id=job_id, command=command)
+
+    control_plane.dispatch_control_command = _recording_dispatch  # type: ignore[method-assign]
+
+    payload = delete_project(control_plane, project_id, force_cancel_active=True)
+    assert payload["deleted"] is True
+    assert payload["cancelled_job_ids"] == [job_id]
+    assert recorded and recorded[0][0] == job_id
+    assert "cancel" in recorded[0][1]
+    assert repository.get_project(project_id) is None
+    assert list_project_jobs(control_plane, project_id) == []
+
+
+def test_delete_project_force_cancel_times_out_when_jobs_stay_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = SQLiteJobRepository(tmp_path / "infra.db")
+    repository.ensure_schema()
+    bus = RedisEventBus(stub_mode=True)
+
+    def _noop_dispatch(
+        _project_id: str, _job_id: str, _command: ControlCommandType
+    ) -> dict[str, str | bool]:
+        return {"command": "cancel", "accepted": True}
+
+    control_plane = ApiControlPlane(
+        repository=repository,
+        workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
+        event_bus=bus,
+        control_dispatcher=_noop_dispatch,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    monkeypatch.setattr(api_service, "PROJECT_DELETE_WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(api_service, "PROJECT_DELETE_POLL_SECONDS", 0.01)
+
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.RUNNING.value, stage="asr")
+
+    with pytest.raises(ApiError) as exc_info:
+        delete_project(control_plane, project_id, force_cancel_active=True)
+    assert exc_info.value.code == "project_delete_pending_cancel"
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.details.get("pending_job_ids") == [job_id]
+
+
+def test_create_job_rejected_while_project_deletion_in_progress(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+
+    with control_plane._project_delete_lock:  # type: ignore[attr-defined]
+        control_plane._deleting_projects.add(project_id)  # type: ignore[attr-defined]
+
+    with pytest.raises(ApiError) as exc_info:
+        create_job(control_plane, {"project_id": project_id})
+    assert exc_info.value.code == "project_delete_in_progress"
+    assert exc_info.value.status_code == 409
+
+
+def test_create_job_blocks_on_project_lock_and_sees_delete_marker(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = "p_locktest"
+    create_called = {"value": False}
+    outcome: dict[str, str] = {}
+
+    project_exists = {"value": True}
+    control_plane._repository.get_project = (  # type: ignore[method-assign]
+        lambda _project_id: object() if project_exists["value"] else None
+    )
+
+    def _fake_create_job(
+        _job_id: str, _project_id: str, *, status: str, stage: str | None = None
+    ) -> None:
+        create_called["value"] = True
+
+    control_plane._repository.create_job = _fake_create_job  # type: ignore[method-assign]
+    control_plane._workspace.ensure_job_layout = lambda _project_id, _job_id: tmp_path  # type: ignore[method-assign]
+    control_plane._workspace.config_snapshot_file = (  # type: ignore[method-assign]
+        lambda _project_id, _job_id: tmp_path / "config.snapshot.json"
+    )
+    control_plane._dispatch_job_if_needed = lambda _project_id, _job_id: None  # type: ignore[method-assign]
+
+    from apps.api.models import JobCreateRequest
+
+    project_lock = control_plane._get_project_lock(project_id)  # type: ignore[attr-defined]
+    project_lock.acquire()
+    worker_started = threading.Event()
+
+    def _runner() -> None:
+        worker_started.set()
+        try:
+            control_plane.create_job(JobCreateRequest(project_id=project_id), actor="user")
+            outcome["value"] = "created"
+        except ApiError as exc:
+            outcome["value"] = exc.code
+        except Exception as exc:  # pragma: no cover - defensive
+            outcome["value"] = exc.__class__.__name__
+
+    thread = threading.Thread(target=_runner)
+    thread.start()
+    assert worker_started.wait(timeout=1.0)
+    time.sleep(0.05)
+    assert thread.is_alive()
+
+    with control_plane._project_delete_lock:  # type: ignore[attr-defined]
+        control_plane._deleting_projects.add(project_id)  # type: ignore[attr-defined]
+    project_exists["value"] = True
+    project_lock.release()
+
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    assert outcome["value"] == "project_delete_in_progress"
+    assert create_called["value"] is False
+
+
+def test_delete_project_returns_error_when_workspace_cleanup_fails(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=lambda _project_id, _job_id: None,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_status(job_id, status=JobStatus.SUCCEEDED.value, stage=None)
+
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    blocking_file = workspace.project_root(project_id) / "blocked"
+    blocking_file.write_text("x", encoding="utf-8")
+    control_plane._workspace.project_root = (  # type: ignore[method-assign]
+        lambda _project_id: blocking_file
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        delete_project(control_plane, project_id, force_cancel_active=False)
+    assert exc_info.value.code == "project_delete_pending_cleanup"
+    assert exc_info.value.status_code == 409
+    assert repository.get_project(project_id) is not None
+
+
 def test_job_snapshot_loads_persisted_worker_logs_after_restart(tmp_path: Path) -> None:
     def _failing_dispatcher(_project_id: str, _job_id: str) -> None:
         raise RuntimeError("boom")
@@ -199,6 +399,24 @@ def test_mark_dispatch_failure_ignores_worker_log_write_errors(tmp_path: Path) -
     assert job.error_code == "PIPELINE_DISPATCH_FAILED"
 
 
+def test_non_default_job_dispatcher_failure_marks_job_failed(tmp_path: Path) -> None:
+    def _failing_dispatcher(_project_id: str, _job_id: str) -> None:
+        raise RuntimeError("boom")
+
+    control_plane, repository, _ = _make_control_plane(
+        tmp_path,
+        job_dispatcher=_failing_dispatcher,
+    )
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+
+    job = repository.get_job(job_id)
+    assert job is not None
+    assert job.status == JobStatus.FAILED.value
+    assert job.error_code == "PIPELINE_DISPATCH_FAILED"
+    assert "boom" in (job.error_message or "")
+
+
 def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
@@ -219,6 +437,7 @@ def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
         JobStatus.QUEUED.value,
         JobStatus.PAUSED.value,
         JobStatus.RUNNING.value,
+        JobStatus.CANCEL_REQUESTED.value,
         JobStatus.CANCELLED.value,
     }
 

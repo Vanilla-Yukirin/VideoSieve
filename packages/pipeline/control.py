@@ -84,8 +84,15 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
             return ControlDecision(
                 command=command,
                 accepted=True,
-                target_status=JobStatus.CANCELLED,
+                target_status=JobStatus.CANCEL_REQUESTED,
                 request_cancel=True,
+            )
+        if current is JobStatus.CANCEL_REQUESTED:
+            return ControlDecision(
+                command=command,
+                accepted=True,
+                code=ALREADY_IN_TARGET_STATE,
+                reason="cancel is already requested",
             )
         return ControlDecision(
             command=command,
@@ -101,11 +108,19 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
                 accepted=True,
                 request_cleanup=True,
             )
+        if current is JobStatus.CANCEL_REQUESTED:
+            return ControlDecision(
+                command=command,
+                accepted=True,
+                code=DELETE_PENDING_CLEANUP,
+                reason="delete accepted, waiting for terminal state before cleanup",
+            )
         return ControlDecision(
             command=command,
             accepted=True,
             code=DELETE_PENDING_CLEANUP,
             reason="delete accepted, waiting for terminal state before cleanup",
+            target_status=JobStatus.CANCEL_REQUESTED,
             request_cancel=True,
         )
 

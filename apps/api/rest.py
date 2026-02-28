@@ -31,6 +31,7 @@ REST_ROUTES: tuple[str, ...] = (
     "GET /guest/cooldown",
     "POST /projects",
     "GET /projects/{project_id}",
+    "DELETE /projects/{project_id}",
     "POST /jobs",
     "GET /jobs/{job_id}",
     "GET /projects/{project_id}/jobs",
@@ -63,6 +64,20 @@ def get_project(control_plane: ApiControlPlane, project_id: str) -> dict[str, st
     if project is None:
         raise KeyError(f"project not found: {project_id}")
     return project
+
+
+def delete_project(
+    control_plane: ApiControlPlane,
+    project_id: str,
+    *,
+    force_cancel_active: bool,
+) -> dict[str, object]:
+    """DELETE /projects/{project_id}"""
+
+    return control_plane.delete_project(
+        project_id,
+        force_cancel_active=force_cancel_active,
+    )
 
 
 def create_job(

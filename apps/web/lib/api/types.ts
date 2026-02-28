@@ -52,6 +52,14 @@ export interface ApiErrorResponse {
   message: string;
   retryable?: boolean;
   remaining_seconds?: number;
+  retry_after_seconds?: number;
+  active_job_ids?: string[];
+  pending_job_ids?: string[];
+}
+
+export interface DeleteProjectResponse {
+  deleted: boolean;
+  cancelled_job_ids?: string[];
 }
 
 export interface AuthBootstrapStatusResponse {

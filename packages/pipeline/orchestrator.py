@@ -153,6 +153,7 @@ class PipelineOrchestrator:
 
                 self._safety_point(project_id, job_id)
 
+            self._safety_point(project_id, job_id)
             checkpoint.current_stage = None
             self._checkpoint_store.save(checkpoint)
             self._set_job_status(
@@ -243,6 +244,14 @@ class PipelineOrchestrator:
 
     def _safety_point(self, project_id: str, job_id: str) -> None:
         current = _to_job_status(self._job_status(job_id))
+
+        if current is JobStatus.CANCEL_REQUESTED:
+            self._set_job_status(project_id, job_id, JobStatus.CANCELLED, stage=None)
+            self._pending_cancel.discard(job_id)
+            raise _SafetySignal(JobStatus.CANCELLED.value)
+
+        if current is JobStatus.CANCELLED:
+            raise _SafetySignal(JobStatus.CANCELLED.value)
 
         if job_id in self._pending_cancel and current in {
             JobStatus.QUEUED,

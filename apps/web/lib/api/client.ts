@@ -5,6 +5,7 @@ import {
   ControlAck,
   ControlCommandType,
   CreateProjectRequest,
+  DeleteProjectResponse,
   ApiErrorResponse,
   AuthBootstrapStatusResponse,
   AuthBootstrapRequest,
@@ -115,6 +116,14 @@ export const api = {
     }),
 
   getProject: (projectId: string) => fetchJson<Project>(`/projects/${projectId}`),
+
+  deleteProject: (projectId: string, forceCancelActive = false) =>
+    fetchJson<DeleteProjectResponse>(
+      `/projects/${projectId}?force_cancel_active=${forceCancelActive ? "true" : "false"}`,
+      {
+        method: "DELETE",
+      }
+    ),
 
   getProjectJobs: (projectId: string) => fetchJson<Job[]>(`/projects/${projectId}/jobs`),
 

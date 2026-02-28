@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 import threading
+import time
 import uuid
 from base64 import urlsafe_b64encode
 from collections import defaultdict, deque
@@ -23,6 +25,7 @@ from infra import (
     EventSubscription,
     FileSystemWorkspaceStore,
     InfraEvent,
+    JobRecord,
     JobRepository,
     SQLiteJobRepository,
     UserCookieRecord,
@@ -66,6 +69,8 @@ from .models import (
 )
 
 MAX_LOG_BUFFER = 100
+PROJECT_DELETE_WAIT_SECONDS = 10.0
+PROJECT_DELETE_POLL_SECONDS = 0.2
 DEFAULT_COOKIE_USER_ID = "default_user"
 SETTING_GUEST_MODE_ENABLED = "guest_mode_enabled"
 SETTING_GUEST_ALLOW_COOKIE_INPUT = "guest_allow_cookie_input"
@@ -133,6 +138,9 @@ class ApiControlPlane:
                 event_bus=event_bus,
             )
         )
+        # Dispatcher mode is fixed at construction time.
+        # Runtime hot-swap is not supported.
+        self._uses_default_job_dispatcher = job_dispatcher is None
         self._job_dispatcher = job_dispatcher or self._default_job_dispatcher
         self._subscriptions: dict[str, EventSubscription] = {}
         self._latest_progress: dict[str, float] = {}
@@ -140,6 +148,10 @@ class ApiControlPlane:
         self._latest_logs: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=MAX_LOG_BUFFER))
         self._dispatch_lock = threading.Lock()
         self._dispatched_jobs: set[str] = set()
+        self._project_locks_guard = threading.Lock()
+        self._project_locks: dict[str, threading.RLock] = {}
+        self._project_delete_lock = threading.Lock()
+        self._deleting_projects: set[str] = set()
         self._sessions: dict[str, str] = {}
         self._session_lock = threading.Lock()
         self._validate_app_secret_or_raise()
@@ -174,6 +186,99 @@ class ApiControlPlane:
             "created_at": project.created_at,
             "updated_at": project.updated_at,
         }
+
+    def delete_project(
+        self, project_id: str, *, force_cancel_active: bool = False
+    ) -> dict[str, object]:
+        """Delete one project and its job workspaces."""
+
+        project_lock = self._get_project_lock(project_id)
+        with project_lock:
+            with self._project_delete_lock:
+                if project_id in self._deleting_projects:
+                    raise ApiError(
+                        code="project_delete_in_progress",
+                        message="project deletion already in progress",
+                        status_code=409,
+                    )
+                self._deleting_projects.add(project_id)
+
+            try:
+                project = self._repository.get_project(project_id)
+                if project is None:
+                    raise KeyError(f"project not found: {project_id}")
+
+                jobs = self._repository.list_jobs_for_project(project_id)
+                active_job_ids = self._pending_project_job_ids(project_id, jobs)
+
+                if active_job_ids and not force_cancel_active:
+                    raise ApiError(
+                        code="project_has_active_jobs",
+                        message="project has active jobs",
+                        status_code=409,
+                        details={"active_job_ids": active_job_ids},
+                    )
+
+                cancelled_job_ids: list[str] = []
+                if active_job_ids and force_cancel_active:
+                    cancellable_statuses = {
+                        JobStatus.QUEUED.value,
+                        JobStatus.RUNNING.value,
+                        JobStatus.PAUSED.value,
+                    }
+                    for job in jobs:
+                        if job.job_id not in active_job_ids:
+                            continue
+                        if job.status not in cancellable_statuses:
+                            continue
+                        self.dispatch_control_command(
+                            job_id=job.job_id,
+                            command=ControlCommandType.CANCEL,
+                        )
+                        cancelled_job_ids.append(job.job_id)
+
+                    pending = self._wait_for_project_jobs_to_finish(project_id)
+                    if pending:
+                        raise ApiError(
+                            code="project_delete_pending_cancel",
+                            message="project deletion is waiting for job cancellation",
+                            status_code=409,
+                            details={
+                                "pending_job_ids": pending,
+                                "retry_after_seconds": 2,
+                            },
+                        )
+
+                for job in jobs:
+                    self._clear_job_tracking(job.job_id)
+
+                project_root = self._workspace.project_root(project_id)
+                if project_root.exists():
+                    try:
+                        shutil.rmtree(project_root)
+                    except OSError as exc:
+                        raise ApiError(
+                            code="project_delete_pending_cleanup",
+                            message="project workspace is still busy",
+                            status_code=409,
+                            details={
+                                "project_id": project_id,
+                                "workspace_path": str(project_root),
+                                "error": str(exc),
+                                "pending_job_ids": self._pending_project_job_ids(project_id),
+                                "retry_after_seconds": 2,
+                            },
+                        ) from exc
+
+                self._repository.delete_project(project_id)
+
+                return {
+                    "deleted": True,
+                    "cancelled_job_ids": cancelled_job_ids,
+                }
+            finally:
+                with self._project_delete_lock:
+                    self._deleting_projects.discard(project_id)
 
     def get_bootstrap_status(self) -> AuthBootstrapStatusResponse:
         required = self._repository.get_auth_user() is None
@@ -631,77 +736,105 @@ class ApiControlPlane:
                         status_code=401,
                     )
 
-        project = self._repository.get_project(payload.project_id)
-        if project is None:
-            raise KeyError(f"project not found: {payload.project_id}")
+        project_lock = self._get_project_lock(payload.project_id)
+        with project_lock:
+            project = self._repository.get_project(payload.project_id)
+            if project is None:
+                raise KeyError(f"project not found: {payload.project_id}")
 
-        if actor == "guest":
-            now = datetime.now(UTC)
-            acquired = self._repository.try_acquire(now, self._guest_cooldown_seconds)
-            if not acquired:
-                remaining = self._guest_remaining_seconds(now)
+            with self._project_delete_lock:
+                if payload.project_id in self._deleting_projects:
+                    raise ApiError(
+                        code="project_delete_in_progress",
+                        message="project deletion already in progress",
+                        status_code=409,
+                    )
+
+            if actor == "guest":
+                now = datetime.now(UTC)
+                acquired = self._repository.try_acquire(now, self._guest_cooldown_seconds)
+                if not acquired:
+                    remaining = self._guest_remaining_seconds(now)
+                    self._append_operation_log(
+                        event="guest.job_submit",
+                        actor="guest",
+                        outcome="rejected",
+                        code="guest_cooldown_active",
+                        detail=f"remaining_seconds={remaining}",
+                    )
+                    raise ApiError(
+                        code="guest_cooldown_active",
+                        message="guest cooldown is active",
+                        status_code=429,
+                        details={"remaining_seconds": remaining},
+                    )
+
+            job_id = f"j_{uuid.uuid4().hex[:12]}"
+            self._repository.create_job(
+                job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
+            )
+            self._workspace.ensure_job_layout(payload.project_id, job_id)
+            config_path = self._workspace.config_snapshot_file(payload.project_id, job_id)
+
+            config: dict[str, object] = {
+                "schema_version": "1.0",
+                "project_id": payload.project_id,
+                "job_id": job_id,
+            }
+            if payload.summary_enabled is not None:
+                config["summary_enabled"] = payload.summary_enabled
+            if payload.ingest:
+                normalized_ingest, dedupe_estimate = self._normalize_ingest(payload.ingest)
+                config["ingest"] = normalized_ingest
+                config["dedupe_applied_estimate"] = dedupe_estimate
+
+            config_path.write_text(
+                json.dumps(
+                    config,
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            if actor == "guest":
                 self._append_operation_log(
                     event="guest.job_submit",
                     actor="guest",
-                    outcome="rejected",
-                    code="guest_cooldown_active",
-                    detail=f"remaining_seconds={remaining}",
-                )
-                raise ApiError(
-                    code="guest_cooldown_active",
-                    message="guest cooldown is active",
-                    status_code=429,
-                    details={"remaining_seconds": remaining},
+                    outcome="accepted",
+                    detail=f"job_id={job_id}",
                 )
 
-        job_id = f"j_{uuid.uuid4().hex[:12]}"
-        self._repository.create_job(
-            job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
-        )
-        self._workspace.ensure_job_layout(payload.project_id, job_id)
-        config_path = self._workspace.config_snapshot_file(payload.project_id, job_id)
-
-        config: dict[str, object] = {
-            "schema_version": "1.0",
-            "project_id": payload.project_id,
-            "job_id": job_id,
-        }
-        if payload.summary_enabled is not None:
-            config["summary_enabled"] = payload.summary_enabled
-        if payload.ingest:
-            normalized_ingest, dedupe_estimate = self._normalize_ingest(payload.ingest)
-            config["ingest"] = normalized_ingest
-            config["dedupe_applied_estimate"] = dedupe_estimate
-
-        config_path.write_text(
-            json.dumps(
-                config,
-                ensure_ascii=True,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        if actor == "guest":
-            self._append_operation_log(
-                event="guest.job_submit",
-                actor="guest",
-                outcome="accepted",
-                detail=f"job_id={job_id}",
-            )
         self._dispatch_job_if_needed(payload.project_id, job_id)
         return job_id
 
+    def _get_project_lock(self, project_id: str) -> threading.RLock:
+        # Keep locks cached per project in single-process mode.
+        # We intentionally avoid lock eviction to prevent split-lock races.
+        with self._project_locks_guard:
+            lock = self._project_locks.get(project_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._project_locks[project_id] = lock
+            return lock
+
     def _dispatch_job_if_needed(self, project_id: str, job_id: str) -> None:
-        with self._dispatch_lock:
-            if job_id in self._dispatched_jobs:
-                return
-            self._dispatched_jobs.add(job_id)
+        if self._uses_default_job_dispatcher:
+            with self._dispatch_lock:
+                if job_id in self._dispatched_jobs:
+                    return
+                self._dispatched_jobs.add(job_id)
+
+            try:
+                self._job_dispatcher(project_id, job_id)
+            except Exception as exc:  # pragma: no cover - thread start failures are rare
+                with self._dispatch_lock:
+                    self._dispatched_jobs.discard(job_id)
+                self._mark_dispatch_failure(project_id, job_id, exc)
+            return
 
         try:
             self._job_dispatcher(project_id, job_id)
-        except Exception as exc:  # pragma: no cover - thread start failures are rare
-            with self._dispatch_lock:
-                self._dispatched_jobs.discard(job_id)
+        except Exception as exc:
             self._mark_dispatch_failure(project_id, job_id, exc)
 
     def _default_job_dispatcher(self, project_id: str, job_id: str) -> None:
@@ -991,6 +1124,46 @@ class ApiControlPlane:
                 prefix = f"[{level}] " if isinstance(level, str) else ""
                 self._latest_logs[event.job_id].append(f"{prefix}{message}")
 
+    def _clear_job_tracking(self, job_id: str) -> None:
+        subscription = self._subscriptions.pop(job_id, None)
+        if subscription is not None:
+            subscription.unsubscribe()
+        self._latest_progress.pop(job_id, None)
+        self._latest_stage.pop(job_id, None)
+        self._latest_logs.pop(job_id, None)
+        with self._dispatch_lock:
+            self._dispatched_jobs.discard(job_id)
+
+    def _wait_for_project_jobs_to_finish(self, project_id: str) -> list[str]:
+        deadline = time.monotonic() + PROJECT_DELETE_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            pending = self._pending_project_job_ids(project_id)
+            if not pending:
+                return []
+            time.sleep(PROJECT_DELETE_POLL_SECONDS)
+
+        return self._pending_project_job_ids(project_id)
+
+    def _pending_project_job_ids(
+        self,
+        project_id: str,
+        jobs: list[JobRecord] | None = None,
+    ) -> list[str]:
+        rows = jobs if jobs is not None else self._repository.list_jobs_for_project(project_id)
+        pending_statuses = {
+            JobStatus.QUEUED.value,
+            JobStatus.RUNNING.value,
+            JobStatus.PAUSED.value,
+            JobStatus.CANCEL_REQUESTED.value,
+        }
+        with self._dispatch_lock:
+            running_jobs = set(self._dispatched_jobs)
+        return [
+            job.job_id
+            for job in rows
+            if job.status in pending_statuses or job.job_id in running_jobs
+        ]
+
     def _append_worker_log_line(self, project_id: str, job_id: str, line: str) -> None:
         log_file = self._workspace.worker_log_file(project_id, job_id)
         try:
@@ -1053,7 +1226,27 @@ class ApiControlPlane:
             self._repository.update_job_status(
                 job_id, status=decision.target_status.value, stage=None
             )
-            self._repository.update_project_status(project_id, decision.target_status.value)
+            if decision.target_status is JobStatus.CANCEL_REQUESTED:
+                is_running = False
+                if self._uses_default_job_dispatcher:
+                    with self._dispatch_lock:
+                        is_running = job_id in self._dispatched_jobs
+                if not is_running:
+                    self._repository.update_job_status(
+                        job_id,
+                        status=JobStatus.CANCELLED.value,
+                        stage=None,
+                    )
+                    self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
+                    decision = ControlAckPayload(
+                        command=command.value,
+                        accepted=decision.accepted,
+                        reason="cancel completed (no active worker)",
+                        code=decision.code,
+                    )
+                    return decision.to_dict()
+            if decision.target_status is not JobStatus.CANCEL_REQUESTED:
+                self._repository.update_project_status(project_id, decision.target_status.value)
 
         if command is ControlCommandType.DELETE and decision.request_cleanup:
             root = self._workspace.job_root(project_id, job_id)

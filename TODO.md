@@ -12,22 +12,20 @@
 ---
 
 ### 缺少删除 Project 功能
-**状态**: ❌ 未完成
+**状态**: ✅ 已完成
 
-**文件**: `apps/web/app/projects/[id]/page.tsx`（及后端 project 删除接口）
+**文件**: `apps/web/app/projects/[id]/page.tsx`, `apps/api/service.py`, `apps/api/main.py`, `apps/api/rest.py`, `packages/infra/sqlite_repository.py`
 
-**问题**: 当前 job 页面删除按钮是 job 级，不是 project 级；删空 job 后 project 仍保留。
-
-**期望行为**:
-- 提供明确的“删除 Project”功能（删除整个项目）
-- 与“删除 Job”语义彻底区分，避免误导
-- 保持 job 页按钮文案与行为一致（删除 Job）
-- 可选：project 下无 job 时支持自动删除（或可配置策略）
+**已实现**:
+- 新增 `DELETE /projects/{project_id}`（支持 `force_cancel_active`）
+- project 页新增“删除项目”按钮，并与 job 页“删除任务”语义分离
+- 存在活动任务时先弹窗确认；确认后自动发送 cancel，再阻塞等待并删除项目
+- 删除后会清理 project 元数据、关联 jobs 与 project 工作区目录
 
 ---
 
 ### 关键帧实时更新导致页面滚动跳动
-**状态**: 🟡 已缓解（待实测确认）
+**状态**: ✅ 已完成
 
 **文件**: `apps/web/app/jobs/[id]/page.tsx`, `apps/web/lib/hooks/useJobRealtime.ts`
 
@@ -37,9 +35,6 @@
 - 产物区默认折叠
 - 图片不逐条堆在右侧
 - 关键帧区使用固定滚动容器
-
-**待确认**:
-- 是否完全消除滚动跳动需实测体感判定
 
 ---
 
@@ -150,6 +145,51 @@
   - 开启关键帧但未开启图片摘要 -> 仅文本链路
   - 开启图片摘要 -> 图片摘要与文本共同参与总结
 - Project 与 Job 支持网页端重命名（显示名），ID 继续作为内部稳定标识
+
+---
+
+### 前端主题模式（White/Dark）+ 设置持久化
+**状态**: ❌ 未完成
+
+**文件**: `apps/web/app/settings/*`, `apps/web/app/layout.tsx`, `apps/web/app/globals.css`, `apps/web/lib/api/types.ts`, `apps/api/models.py`, `apps/api/service.py`
+
+**问题**: 当前缺少统一主题切换与用户设置持久化能力。
+
+**期望行为**:
+- 支持 white / dark 模式切换
+- 在设置页提供主题选项
+- 用户选择可持久化（刷新/重进后保持）
+- 明确默认主题与首次加载策略（避免闪烁）
+
+---
+
+### 背景图片设置（用户上传）
+**状态**: ❌ 未完成
+
+**文件**: `apps/web/app/settings/*`, `apps/web/app/globals.css`, `apps/api/*`（上传与资源访问接口）
+
+**问题**: 当前界面背景不可自定义。
+
+**期望行为**:
+- 设置页支持上传背景图片
+- 上传后可立即预览并应用
+- 背景配置可持久化
+- 需包含基础限制：类型、大小、尺寸、存储位置与回退默认背景
+
+---
+
+### 左上角品牌位资源固化（Logo/Avatar 区）
+**状态**: ❌ 未完成
+
+**文件**: `apps/web/components/AppShell.tsx`（或导航组件）, `apps/web/public/*`（静态资源）
+
+**问题**: 前端左上角“控制台”左侧区域当前未定义品牌资源规范。
+
+**期望行为**:
+- 该区域使用项目内固定资源（写死路径），如固定图片或 SVG
+- 不走用户上传，不做动态配置
+- 明确尺寸、对齐、深浅主题下可读性
+- 作为统一品牌入口位，后续仅替换资源文件即可
 
 ---
 

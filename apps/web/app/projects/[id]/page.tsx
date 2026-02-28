@@ -8,7 +8,7 @@ import { useProjectIndex } from "@/lib/hooks/useProjectIndex";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { Badge } from "@/components/Badge";
-import { ArrowLeft, PlayCircle, Clock } from "lucide-react";
+import { ArrowLeft, PlayCircle, Clock, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
 import { CookieListItem, DualAssetIngestParams, GuestCooldownResponse } from "@/lib/api/types";
@@ -30,12 +30,14 @@ export default function ProjectDetail() {
   const params = useParams();
   const projectId = params.id as string;
   const router = useRouter();
-  const { addProject } = useProjectIndex();
+  const { addProject, removeProject } = useProjectIndex();
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [ingestParams, setIngestParams] = useState<DualAssetIngestParams | undefined>(undefined);
   const [summaryEnabled, setSummaryEnabled] = useState(false);
   const [selectedCookieId, setSelectedCookieId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
   const [guestAllowCookieInput, setGuestAllowCookieInput] = useState<boolean>(
     getGuestAllowCookieInputCached(),
@@ -144,6 +146,19 @@ export default function ProjectDetail() {
     if (project) addProject(project.project_id);
   }, [project, addProject]);
 
+  useEffect(() => {
+    if (
+      projectError instanceof ApiClientError &&
+      projectError.code === "not_found" &&
+      !isDeletingProject
+    ) {
+      const timeoutId = window.setTimeout(() => {
+        router.replace("/");
+      }, 300);
+      return () => window.clearTimeout(timeoutId);
+    }
+  }, [projectError, router, isDeletingProject]);
+
   const handleCreateJob = async () => {
     setIsCreatingJob(true);
     setCreateError(null);
@@ -191,6 +206,74 @@ export default function ProjectDetail() {
     }
   };
 
+  const executeDeleteProject = async (forceCancelActive: boolean) => {
+    setIsDeletingProject(true);
+    setDeleteError(null);
+    try {
+      await api.deleteProject(projectId, forceCancelActive);
+      router.replace("/");
+      try {
+        removeProject(projectId);
+      } catch {
+        // keep navigation successful even if local index cleanup fails
+      }
+    } catch (unknownError) {
+      if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "project_has_active_jobs" &&
+        !forceCancelActive
+      ) {
+        const activeJobCount = unknownError.details?.active_job_ids?.length ?? 0;
+        const confirmed = window.confirm(
+          t("project.confirmDeleteWithActive", { count: activeJobCount })
+        );
+        if (confirmed) {
+          await executeDeleteProject(true);
+        }
+        return;
+      }
+      if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "project_delete_pending_cancel"
+      ) {
+        setDeleteError(t("project.deletePendingCancel"));
+        return;
+      }
+      if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "project_delete_pending_cleanup"
+      ) {
+        setDeleteError(t("project.deletePendingCleanup"));
+        return;
+      }
+      if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "project_delete_in_progress"
+      ) {
+        setDeleteError(t("project.deleteInProgress"));
+        return;
+      }
+      if (unknownError instanceof Error) {
+        setDeleteError(unknownError.message);
+        return;
+      }
+      setDeleteError(t("project.deleteFailed"));
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (isDeletingProject) {
+      return;
+    }
+    const confirmed = window.confirm(t("project.confirmDelete"));
+    if (!confirmed) {
+      return;
+    }
+    await executeDeleteProject(false);
+  };
+
   const isGuestCooldownActive = isGuestCooldownBlocking(isGuest, guestCooldown);
 
   if (projectError) {
@@ -221,11 +304,23 @@ export default function ProjectDetail() {
            <p className="text-muted-foreground text-sm">{project.project_id}</p>
         </div>
         <div className="ml-auto">
+             <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void handleDeleteProject()}
+                disabled={isDeletingProject}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t("project.delete")}
+              </Button>
+        </div>
+        <div>
              <Badge variant={project.status === "running" ? "default" : "secondary"}>
                 {project.status}
-            </Badge>
+             </Badge>
         </div>
       </div>
+      {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
 
       <div className="grid gap-6">
         <Card className="border-2 border-primary/10">
@@ -291,7 +386,7 @@ export default function ProjectDetail() {
                     <Button 
                         onClick={handleCreateJob} 
                         isLoading={isCreatingJob}
-                        disabled={!ingestParams?.source_url || isGuestCooldownActive}
+                        disabled={!ingestParams?.source_url || isGuestCooldownActive || isDeletingProject}
                     >
                         {isGuestCooldownActive
                           ? t("project.cooldown", { seconds: guestCooldown?.remaining_seconds ?? 0 })
@@ -341,6 +436,13 @@ export default function ProjectDetail() {
             </div>
         </div>
       </div>
+      {isDeletingProject ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
+          <div className="rounded-lg border bg-card px-6 py-4 text-sm font-medium shadow-lg">
+            {t("project.deleting")}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

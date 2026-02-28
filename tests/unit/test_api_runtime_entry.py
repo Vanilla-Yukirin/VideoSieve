@@ -62,6 +62,32 @@ def test_runtime_source_video_route_returns_file_when_present(tmp_path: Path) ->
         assert response.headers.get("content-type") == "video/mp4"
 
 
+def test_runtime_delete_project_route_removes_project(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+
+        response = client.delete(f"/projects/{project_id}")
+        assert response.status_code == 200
+        assert response.json()["deleted"] is True
+
+        fetched = client.get(f"/projects/{project_id}")
+        assert fetched.status_code == 404
+
+
+def test_runtime_delete_project_route_blocks_without_force_when_active_jobs(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        created_project = client.post("/projects", json={"title": "demo"})
+        project_id = created_project.json()["project_id"]
+        created_job = client.post("/jobs", json={"project_id": project_id})
+        assert created_job.status_code == 200
+
+        response = client.delete(f"/projects/{project_id}")
+        assert response.status_code == 409
+        assert response.json()["code"] == "project_has_active_jobs"
+        assert isinstance(response.json().get("active_job_ids"), list)
+
+
 def test_runtime_source_video_route_returns_not_found_when_missing(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         created_project = client.post("/projects", json={"title": "demo"})

@@ -90,6 +90,35 @@
 
 ---
 
+### Job 删除自动重试可观测性增强（显示第 N 次重试）
+**状态**: ❌ 未完成
+
+**文件**: `apps/web/app/jobs/[id]/page.tsx`, `apps/web/components/ControlPanel.tsx`, `apps/web/lib/i18n/messages.ts`
+
+**问题**: 删除任务进入自动重试时，用户只能看到“处理中”类提示，难以判断系统是否仍在推进。
+
+**期望行为**:
+- 在 job 页内联提示中显示“自动重试第 N 次”
+- 在达到重试上限时给出明确可操作文案（提示可手动重试）
+- 不增加复杂动画，优先保证可读性与稳定性
+
+---
+
+### 日志汉化与详细化（可读性 + 排障信息）
+**状态**: ❌ 未完成
+
+**文件**: `packages/pipeline/orchestrator.py`, `apps/api/service.py`, `apps/web/components/LogViewer.tsx`, `apps/web/lib/i18n/messages.ts`
+
+**问题**: 日志虽已部分中文化，但细节层级不足；部分异常上下文（阶段/原因/建议动作）不够清晰。
+
+**期望行为**:
+- 统一日志中文文案风格（阶段、动作、结果）
+- 增加关键上下文字段（阶段、命令、失败原因、建议重试动作）
+- 前端日志展示支持更清晰的级别标识（info/warn/error）与可读分组
+- 保持日志原始信息可追溯，不影响排障
+
+---
+
 ### 接入 ASR / Frame Summary / Overall Summary API 并做脚本测试
 **状态**: ❌ 未完成
 

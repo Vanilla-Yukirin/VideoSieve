@@ -65,6 +65,7 @@ export default function JobDetail() {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [deleteIntent, setDeleteIntent] = useState(false);
   const [deleteRetryCount, setDeleteRetryCount] = useState(0);
+  const [deleteRetryStopped, setDeleteRetryStopped] = useState(false);
 
   useEffect(() => {
     if (!state.isMissing) return;
@@ -136,6 +137,7 @@ export default function JobDetail() {
   const handleDeleted = useCallback(() => {
     setDeleteIntent(false);
     setDeleteRetryCount(0);
+    setDeleteRetryStopped(false);
     pushToast({ level: "success", message: t("control.deleteDone") });
     if (state.project_id) {
       router.replace(`/projects/${state.project_id}`);
@@ -147,6 +149,7 @@ export default function JobDetail() {
   const handleDeletePending = useCallback(() => {
     setDeleteIntent(true);
     setDeleteRetryCount(0);
+    setDeleteRetryStopped(false);
   }, []);
 
   useEffect(() => {
@@ -159,7 +162,8 @@ export default function JobDetail() {
 
     if (deleteRetryCount >= 20) {
       setDeleteIntent(false);
-      pushToast({ level: "warning", message: t("control.deleteRetryTimeout") });
+      setDeleteRetryStopped(true);
+      pushToast({ level: "warning", message: t("control.deleteRetryMaxed") });
       return;
     }
 
@@ -255,13 +259,23 @@ export default function JobDetail() {
                 </div>
             </div>
          </div>
-         <ControlPanel
-           jobId={jobId}
-           status={state.status}
-           onDeleted={handleDeleted}
-           onDeletePending={handleDeletePending}
-         />
-        </div>
+          <div className="space-y-1 text-right">
+            <ControlPanel
+              jobId={jobId}
+              status={state.status}
+              onDeleted={handleDeleted}
+              onDeletePending={handleDeletePending}
+            />
+            {deleteIntent ? (
+              <p className="text-xs text-muted-foreground">
+                {t("control.deleteRetrying", { count: deleteRetryCount + 1 })}
+              </p>
+            ) : null}
+            {deleteRetryStopped ? (
+              <p className="text-xs text-amber-600">{t("control.deleteRetryMaxed")}</p>
+            ) : null}
+          </div>
+         </div>
 
        {/* Progress Section */}
        <Card>

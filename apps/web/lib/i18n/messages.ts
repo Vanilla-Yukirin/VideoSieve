@@ -134,7 +134,9 @@ export type MessageKey =
   | "control.deleteRequested"
   | "control.cancelAccepted"
   | "control.deleteDone"
+  | "control.deleteRetrying"
   | "control.deleteRetryTimeout"
+  | "control.deleteRetryMaxed"
   | "control.reject"
   | "control.fail"
   | "control.acceptedInfo"
@@ -314,7 +316,9 @@ export const messages: Record<Locale, MessageMap> = {
     "control.deleteRequested": "删除请求已发送，正在尝试删除任务...",
     "control.cancelAccepted": "中断请求已发送，正在停止任务...",
     "control.deleteDone": "任务已删除。",
+    "control.deleteRetrying": "删除处理中，自动重试第 {count} 次...",
     "control.deleteRetryTimeout": "删除仍在处理中，请稍后重试“删除任务”。",
+    "control.deleteRetryMaxed": "自动重试已达上限，请稍后手动点击“删除任务”重试。",
     "control.reject": "命令被拒绝：{reason}",
     "control.fail": "命令发送失败",
     "control.acceptedInfo": "命令已受理：{reason}",
@@ -491,7 +495,9 @@ export const messages: Record<Locale, MessageMap> = {
     "control.deleteRequested": "Delete requested. Trying to remove the job...",
     "control.cancelAccepted": "Interrupt requested. Stopping task...",
     "control.deleteDone": "Job deleted.",
+    "control.deleteRetrying": "Delete in progress. Auto-retry attempt {count}...",
     "control.deleteRetryTimeout": "Delete is still in progress. Please retry delete shortly.",
+    "control.deleteRetryMaxed": "Auto-retry limit reached. Please manually click Delete Job again shortly.",
     "control.reject": "Command rejected: {reason}",
     "control.fail": "Command failed to send",
     "control.acceptedInfo": "Command accepted: {reason}",

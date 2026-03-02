@@ -291,6 +291,24 @@ class PipelineOrchestrator:
 
             def _on_ingest_download_progress(progress: dict[str, object]) -> None:
                 nonlocal last_download_log_at
+
+                def _as_int(value: object) -> int:
+                    if isinstance(value, bool):
+                        return int(value)
+                    if isinstance(value, int):
+                        return value
+                    if isinstance(value, float):
+                        return int(value)
+                    if isinstance(value, str):
+                        raw = value.strip()
+                        if not raw:
+                            return 0
+                        try:
+                            return int(raw)
+                        except ValueError:
+                            return 0
+                    return 0
+
                 now = time.monotonic()
                 if last_download_log_at > 0 and now - last_download_log_at < 5.0:
                     return
@@ -298,7 +316,14 @@ class PipelineOrchestrator:
                 percent = str(progress.get("percent") or "").strip()
                 speed = str(progress.get("speed") or "").strip()
                 eta = str(progress.get("eta") or "").strip()
+                role = str(progress.get("role") or "").strip()
+                attempt = _as_int(progress.get("attempt"))
+                attempts = _as_int(progress.get("attempts"))
                 parts: list[str] = []
+                if role in {"quality", "analysis"}:
+                    parts.append(f"资源: {role}")
+                if attempt > 0 and attempts > 1:
+                    parts.append(f"轮次: {attempt}/{attempts}")
                 if percent:
                     parts.append(f"下载进度: {percent}")
                 if speed:

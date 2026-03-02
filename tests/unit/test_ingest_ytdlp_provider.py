@@ -191,9 +191,9 @@ def test_run_url_ingest_emits_progress_callback_with_eta(
                 hook(
                     {
                         "status": "downloading",
-                        "_percent_str": "57.6%",
-                        "_speed_str": "10.55MiB/s",
-                        "_eta_str": "00:52",
+                        "_percent_str": "\x1b[0;94m 57.6%\x1b[0m",
+                        "_speed_str": "\x1b[0;32m 10.55MiB/s\x1b[0m",
+                        "_eta_str": "\x1b[0;33m00:52\x1b[0m",
                     }
                 )
             Path(str(self._opts["outtmpl"])).write_bytes(b"video-bytes")
@@ -214,9 +214,24 @@ def test_run_url_ingest_emits_progress_callback_with_eta(
     assert progress_events
     first = progress_events[0]
     assert first["status"] == "downloading"
+    assert first["role"] == "quality"
+    assert first["attempt"] == 1
+    assert first["attempts"] == 3
     assert first["percent"] == "57.6%"
     assert first["speed"] == "10.55MiB/s"
     assert first["eta"] == "00:52"
+
+
+def test_progress_helpers_drop_unknown_tokens() -> None:
+    payload = {
+        "_percent_str": "\x1b[0;94m Unknown%\x1b[0m",
+        "_speed_str": "\x1b[0;32m Unknown B/s\x1b[0m",
+        "_eta_str": "\x1b[0;33mUnknown\x1b[0m",
+    }
+
+    assert ingest_providers._progress_percent_str(payload) is None
+    assert ingest_providers._progress_speed_str(payload) is None
+    assert ingest_providers._progress_eta_str(payload) is None
 
 
 def test_run_url_ingest_dual_asset_plan_without_dedupe_downloads_twice(

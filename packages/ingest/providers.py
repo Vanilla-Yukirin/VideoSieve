@@ -32,6 +32,7 @@ from .models import IngestFormatOption, IngestFormatProbeResult, IngestRequest
 
 COOKIE_REF_ENV_PREFIX = "VIDEOSIEVE_COOKIE_REF_"
 COOKIE_DB_PATH_ENV = "VIDEOSIEVE_COOKIE_VAULT_DB_PATH"
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 
 class IngestProvider(Protocol):
@@ -461,6 +462,9 @@ class YtDlpIngestProvider:
             selector = _build_format_selector(request.video_format_id, request.audio_format_id)
             info = self._extract_info(
                 source_url=request.source_url,
+                role="probe",
+                attempt=1,
+                attempts=1,
                 cookie_file=cookie_file,
                 project_id=request.project_id,
                 job_id=request.job_id,
@@ -522,6 +526,9 @@ class YtDlpIngestProvider:
                     info_by_role: dict[str, dict[str, Any]] = {}
                     for role, target_path, pair in plan:
                         info_by_role[role] = self._download_once(
+                            role=role,
+                            attempt=attempt,
+                            attempts=attempts,
                             request=request,
                             target_video=target_path,
                             cookie_file=cookie_file,
@@ -582,6 +589,9 @@ class YtDlpIngestProvider:
     def _download_once(
         self,
         *,
+        role: str,
+        attempt: int,
+        attempts: int,
         request: IngestRequest,
         target_video: Path,
         cookie_file: str | None,
@@ -593,6 +603,9 @@ class YtDlpIngestProvider:
             target_video.unlink()
         return self._extract_info(
             source_url=request.source_url or "",
+            role=role,
+            attempt=attempt,
+            attempts=attempts,
             target_video=target_video,
             cookie_file=cookie_file,
             project_id=request.project_id,
@@ -644,6 +657,9 @@ class YtDlpIngestProvider:
         self,
         *,
         source_url: str,
+        role: str,
+        attempt: int,
+        attempts: int,
         cookie_file: str | None,
         project_id: str,
         job_id: str,
@@ -690,6 +706,9 @@ class YtDlpIngestProvider:
                     progress_callback(
                         {
                             "status": "downloading",
+                            "role": role,
+                            "attempt": attempt,
+                            "attempts": attempts,
                             "percent": _progress_percent_str(_event),
                             "speed": _progress_speed_str(_event),
                             "eta": _progress_eta_str(_event),
@@ -731,8 +750,8 @@ class YtDlpIngestProvider:
 def _progress_percent_str(event: dict[str, Any]) -> str | None:
     raw = event.get("_percent_str")
     if isinstance(raw, str):
-        value = raw.strip()
-        if value:
+        value = _normalize_progress_token(raw)
+        if value is not None:
             return value
 
     downloaded = event.get("downloaded_bytes")
@@ -745,8 +764,8 @@ def _progress_percent_str(event: dict[str, Any]) -> str | None:
 def _progress_speed_str(event: dict[str, Any]) -> str | None:
     raw = event.get("_speed_str")
     if isinstance(raw, str):
-        value = raw.strip()
-        if value:
+        value = _normalize_progress_token(raw)
+        if value is not None:
             return value
 
     speed = event.get("speed")
@@ -759,8 +778,8 @@ def _progress_speed_str(event: dict[str, Any]) -> str | None:
 def _progress_eta_str(event: dict[str, Any]) -> str | None:
     raw = event.get("_eta_str")
     if isinstance(raw, str):
-        value = raw.strip()
-        if value:
+        value = _normalize_progress_token(raw)
+        if value is not None:
             return value
 
     eta = event.get("eta")
@@ -772,3 +791,12 @@ def _progress_eta_str(event: dict[str, Any]) -> str | None:
             return f"{hours:02d}:{minutes:02d}:{secs:02d}"
         return f"{minutes:02d}:{secs:02d}"
     return None
+
+
+def _normalize_progress_token(raw: str) -> str | None:
+    value = ANSI_ESCAPE_RE.sub("", raw).strip()
+    if not value:
+        return None
+    if value.lower().startswith("unknown"):
+        return None
+    return value

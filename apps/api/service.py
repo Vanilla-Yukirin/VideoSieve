@@ -893,14 +893,17 @@ class ApiControlPlane:
         )
         repository.update_project_status(project_id, JobStatus.FAILED.value)
         repository.close()
-        self._append_worker_log_line(project_id, job_id, f"[error] 任务派发失败: {message}")
+        detailed = (
+            f"阶段 dispatch | 结果: 失败 | 原因: {message} | 建议: 检查任务配置与运行依赖后重试"
+        )
+        self._append_worker_log_line(project_id, job_id, f"[error] 任务派发失败: {detailed}")
         self._event_bus.publish(
             f"jobs:{job_id}",
             InfraEvent(
                 event_type="log",
                 project_id=project_id,
                 job_id=job_id,
-                payload={"level": "error", "message": f"任务派发失败: {message}"},
+                payload={"level": "error", "message": f"任务派发失败: {detailed}"},
             ),
         )
         self._event_bus.publish(

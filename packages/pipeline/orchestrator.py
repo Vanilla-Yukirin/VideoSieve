@@ -125,7 +125,10 @@ class PipelineOrchestrator:
                         project_id,
                         job_id,
                         level="error",
-                        message=f"阶段 {stage.value} 失败: {exc}",
+                        message=(
+                            f"阶段 {stage.value} | 结果: 失败 | 原因: {exc} | "
+                            "建议: 检查该阶段输入与依赖后重试"
+                        ),
                     )
                     publish_event(
                         self._event_bus,
@@ -149,7 +152,7 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="info",
-                    message=f"阶段 {stage.value} 完成",
+                    message=f"阶段 {stage.value} | 结果: 完成",
                 )
                 self._publish_progress(project_id, job_id, stage)
 
@@ -354,7 +357,10 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="warning",
-                    message=f"关键帧算法提取失败，已回退到基线策略: {exc}",
+                    message=(
+                        f"阶段 {stage.value} | 动作: 关键帧算法提取失败，已回退到基线策略 | "
+                        f"原因: {exc} | 建议: 检查视频解码链路后重试"
+                    ),
                 )
                 records = KeyframeBaselineService(self._workspace).run(
                     project_id,
@@ -369,7 +375,11 @@ class PipelineOrchestrator:
                     project_id,
                     job_id,
                     level="warning",
-                    message="未检测到 opencv-python，已跳过关键帧图片提取",
+                    message=(
+                        f"阶段 {stage.value} | 动作: 跳过关键帧图片提取 | "
+                        "原因: 未检测到 opencv-python | "
+                        "建议: 安装 opencv-python 后重试"
+                    ),
                 )
                 return
 
@@ -388,11 +398,18 @@ class PipelineOrchestrator:
                             project_id,
                             job_id,
                             level="warning",
-                            message=f"关键帧图片提取重试失败: {exc}",
+                            message=(
+                                f"阶段 {stage.value} | 动作: 关键帧图片提取重试失败 | "
+                                f"原因: {exc} | "
+                                "建议: 检查 ffmpeg/cv2 与视频编码兼容性"
+                            ),
                         )
                     existing_images = sum(1 for record in records if Path(record.path).exists())
                 if existing_images == 0:
-                    message = "关键帧图片提取结果为空，请检查视频解码与 ffmpeg/cv2 运行环境"
+                    message = (
+                        f"阶段 {stage.value} | 结果: 失败 | 原因: 关键帧图片提取结果为空 | "
+                        "建议: 检查视频解码与 ffmpeg/cv2 运行环境"
+                    )
                     raise RuntimeError(message)
                 build_images_zip(self._workspace, project_id, job_id)
             return
@@ -416,7 +433,12 @@ class PipelineOrchestrator:
         raise ValueError(f"unsupported stage: {stage.value}")
 
     def _publish_stage_changed(self, project_id: str, job_id: str, stage: StageName) -> None:
-        self._publish_log(project_id, job_id, level="info", message=f"阶段 {stage.value} 开始")
+        self._publish_log(
+            project_id,
+            job_id,
+            level="info",
+            message=f"阶段 {stage.value} | 动作: 开始执行",
+        )
         publish_event(
             self._event_bus,
             project_id=project_id,

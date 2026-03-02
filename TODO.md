@@ -130,6 +130,27 @@
 
 ---
 
+### 本地 ASR（FunASR 官方模型）接入准备
+**状态**: 🟡 准备中
+
+**文件**: `packages/asr/*`, `apps/api/service.py`, `apps/web/app/settings/*`, `scripts/*`
+
+**问题**:
+- 云 ASR 方案对公网可访问 URL / OSS 有前置依赖，不适合所有用户环境。
+- 当前尚未确认 FunASR 官方 demo 与 README 的具体实现细节，直接动手风险高。
+
+**前置要求（开始编码前）**:
+- 由用户提供 FunASR 官方 demo 代码（可运行最小示例）
+- 由用户提供官方 GitHub README 页面（或链接/截图）用于参数与调用方式对齐
+
+**期望行为**:
+- ASR 默认走本地 FunASR 官方模型
+- 首次尝试时自动下载模型（优先使用官方默认缓存目录）
+- 后端启动时执行模型加载（若未下载则先下载）
+- 推理设备策略为 GPU 优先、CPU 回退（兼容 Linux 服务器部署）
+
+---
+
 ### 接入 ASR / Frame Summary / Overall Summary API 并做脚本测试
 **状态**: ❌ 未完成
 

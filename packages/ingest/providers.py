@@ -43,6 +43,7 @@ class IngestProvider(Protocol):
         request: IngestRequest,
         *,
         cancel_checker: Callable[[], bool] | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         """Write source video into workspace and return metadata + retry count."""
         ...
@@ -76,6 +77,7 @@ class LocalFileIngestProvider:
         request: IngestRequest,
         *,
         cancel_checker: Callable[[], bool] | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         if not request.source_path:
             raise IngestError(
@@ -467,6 +469,7 @@ class YtDlpIngestProvider:
                 sort_rule=request.ytdlp_sort,
                 target_video=None,
                 cancel_checker=None,
+                progress_callback=None,
             )
 
         return IngestFormatProbeResult(
@@ -484,6 +487,7 @@ class YtDlpIngestProvider:
         request: IngestRequest,
         *,
         cancel_checker: Callable[[], bool] | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> tuple[Path, dict[str, Any], int]:
         if not request.source_url:
             raise IngestError(
@@ -523,6 +527,7 @@ class YtDlpIngestProvider:
                             cookie_file=cookie_file,
                             pair=pair,
                             cancel_checker=cancel_checker,
+                            progress_callback=progress_callback,
                         )
 
                     quality_info = info_by_role["quality"]
@@ -582,6 +587,7 @@ class YtDlpIngestProvider:
         cookie_file: str | None,
         pair: tuple[str | None, str | None],
         cancel_checker: Callable[[], bool] | None,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
     ) -> dict[str, Any]:
         if target_video.exists():
             target_video.unlink()
@@ -595,6 +601,7 @@ class YtDlpIngestProvider:
             format_selector=_build_format_selector(pair[0], pair[1]),
             sort_rule=request.ytdlp_sort,
             cancel_checker=cancel_checker,
+            progress_callback=progress_callback,
         )
 
     def _resolve_asset_pairs(
@@ -645,6 +652,7 @@ class YtDlpIngestProvider:
         sort_rule: str | None,
         target_video: Path | None,
         cancel_checker: Callable[[], bool] | None,
+        progress_callback: Callable[[dict[str, Any]], None] | None,
     ) -> dict[str, Any]:
         yt_dlp, download_error_type = _load_yt_dlp()
         marker = cancel_marker()
@@ -673,10 +681,20 @@ class YtDlpIngestProvider:
             ydl_opts["cookiefile"] = cookie_file
 
         if download:
+            ydl_opts["noprogress"] = True
 
             def _progress_hook(_event: dict[str, Any]) -> None:
                 if cancel_checker is not None and cancel_checker():
                     raise RuntimeError(marker)
+                if progress_callback is not None and _event.get("status") == "downloading":
+                    progress_callback(
+                        {
+                            "status": "downloading",
+                            "percent": _progress_percent_str(_event),
+                            "speed": _progress_speed_str(_event),
+                            "eta": _progress_eta_str(_event),
+                        }
+                    )
 
             ydl_opts["progress_hooks"] = [_progress_hook]
 
@@ -708,3 +726,49 @@ class YtDlpIngestProvider:
                 context={"stage": "ingest"},
             )
         return info if isinstance(info, dict) else {}
+
+
+def _progress_percent_str(event: dict[str, Any]) -> str | None:
+    raw = event.get("_percent_str")
+    if isinstance(raw, str):
+        value = raw.strip()
+        if value:
+            return value
+
+    downloaded = event.get("downloaded_bytes")
+    total = event.get("total_bytes") or event.get("total_bytes_estimate")
+    if isinstance(downloaded, (int, float)) and isinstance(total, (int, float)) and total > 0:
+        return f"{(float(downloaded) / float(total)) * 100:.1f}%"
+    return None
+
+
+def _progress_speed_str(event: dict[str, Any]) -> str | None:
+    raw = event.get("_speed_str")
+    if isinstance(raw, str):
+        value = raw.strip()
+        if value:
+            return value
+
+    speed = event.get("speed")
+    if isinstance(speed, (int, float)) and speed > 0:
+        mib = float(speed) / (1024.0 * 1024.0)
+        return f"{mib:.2f}MiB/s"
+    return None
+
+
+def _progress_eta_str(event: dict[str, Any]) -> str | None:
+    raw = event.get("_eta_str")
+    if isinstance(raw, str):
+        value = raw.strip()
+        if value:
+            return value
+
+    eta = event.get("eta")
+    if isinstance(eta, (int, float)) and eta >= 0:
+        seconds = int(eta)
+        hours, rem = divmod(seconds, 3600)
+        minutes, secs = divmod(rem, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+    return None

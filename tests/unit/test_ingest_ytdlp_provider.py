@@ -167,6 +167,58 @@ def test_run_url_ingest_uses_selected_format_ids(
     assert result.meta.dedupe_applied is True
 
 
+def test_run_url_ingest_emits_progress_callback_with_eta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    progress_events: list[dict[str, object]] = []
+
+    class _FakeYoutubeDL:
+        def __init__(self, opts: dict[str, object]) -> None:
+            self._opts = opts
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            hooks = self._opts.get("progress_hooks")
+            assert isinstance(hooks, list)
+            assert bool(self._opts.get("noprogress")) is True
+            for hook in hooks:
+                hook(
+                    {
+                        "status": "downloading",
+                        "_percent_str": "57.6%",
+                        "_speed_str": "10.55MiB/s",
+                        "_eta_str": "00:52",
+                    }
+                )
+            Path(str(self._opts["outtmpl"])).write_bytes(b"video-bytes")
+            return {"title": "progress test", "webpage_url": source_url}
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_progress_1",
+        job_id="j_progress_1",
+        source_url="https://www.bilibili.com/video/BV1progress",
+    )
+    run_url_ingest(
+        workspace, request, progress_callback=lambda payload: progress_events.append(payload)
+    )
+
+    assert progress_events
+    first = progress_events[0]
+    assert first["status"] == "downloading"
+    assert first["percent"] == "57.6%"
+    assert first["speed"] == "10.55MiB/s"
+    assert first["eta"] == "00:52"
+
+
 def test_run_url_ingest_dual_asset_plan_without_dedupe_downloads_twice(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

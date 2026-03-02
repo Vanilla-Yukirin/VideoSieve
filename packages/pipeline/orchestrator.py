@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
@@ -286,6 +287,35 @@ class PipelineOrchestrator:
         duration_seconds: float,
     ) -> None:
         if stage is StageName.INGEST:
+            last_download_log_at = 0.0
+
+            def _on_ingest_download_progress(progress: dict[str, object]) -> None:
+                nonlocal last_download_log_at
+                now = time.monotonic()
+                if last_download_log_at > 0 and now - last_download_log_at < 5.0:
+                    return
+
+                percent = str(progress.get("percent") or "").strip()
+                speed = str(progress.get("speed") or "").strip()
+                eta = str(progress.get("eta") or "").strip()
+                parts: list[str] = []
+                if percent:
+                    parts.append(f"下载进度: {percent}")
+                if speed:
+                    parts.append(f"速度: {speed}")
+                if eta:
+                    parts.append(f"剩余: {eta}")
+                if not parts:
+                    return
+
+                self._publish_log(
+                    project_id,
+                    job_id,
+                    level="info",
+                    message=f"阶段 {stage.value} | " + " | ".join(parts),
+                )
+                last_download_log_at = now
+
             request_payload: dict[str, Any] = {
                 "project_id": project_id,
                 "job_id": job_id,
@@ -302,6 +332,7 @@ class PipelineOrchestrator:
                     self._workspace,
                     IngestRequest.model_validate(request_payload),
                     cancel_checker=lambda: self._is_cancel_requested(job_id),
+                    progress_callback=_on_ingest_download_progress,
                 )
             except IngestError as exc:
                 if exc.code == INGEST_CANCELLED:

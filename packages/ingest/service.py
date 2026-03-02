@@ -67,6 +67,7 @@ def run_local_ingest(
     request: IngestRequest,
     *,
     cancel_checker: Callable[[], bool] | None = None,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> IngestResult:
     """Copy local media into workspace and emit `meta/meta.json`."""
 
@@ -82,6 +83,7 @@ def run_local_ingest(
         workspace,
         request,
         cancel_checker=cancel_checker,
+        progress_callback=progress_callback,
     )
     meta = _write_meta(
         workspace,
@@ -109,6 +111,7 @@ def run_ingest(
     request: IngestRequest,
     *,
     cancel_checker: Callable[[], bool] | None = None,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> IngestResult:
     """Run ingest by selecting local-file or URL provider."""
 
@@ -131,6 +134,7 @@ def run_ingest(
         workspace,
         request,
         cancel_checker=cancel_checker,
+        progress_callback=progress_callback,
     )
     meta = _write_meta(
         workspace,
@@ -168,6 +172,7 @@ def run_url_ingest(
     request: IngestRequest,
     *,
     cancel_checker: Callable[[], bool] | None = None,
+    progress_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> IngestResult:
     """URL-specific helper entrypoint backed by yt-dlp provider."""
 
@@ -178,7 +183,12 @@ def run_url_ingest(
             retryable=False,
             context={"project_id": request.project_id, "job_id": request.job_id, "stage": "ingest"},
         )
-    return run_ingest(workspace, request, cancel_checker=cancel_checker)
+    return run_ingest(
+        workspace,
+        request,
+        cancel_checker=cancel_checker,
+        progress_callback=progress_callback,
+    )
 
 
 def probe_url_formats(request: IngestRequest) -> IngestFormatProbeResult:

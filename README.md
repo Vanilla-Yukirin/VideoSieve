@@ -25,6 +25,12 @@ uv run ruff check .
 uv run mypy apps packages workers
 ```
 
+启用本地 FunASR（模型自动下载）时：
+
+```powershell
+uv sync --extra dev --extra asr_local
+```
+
 ## 历史版本
 
 - `v0.0.2`：Next.js + FastAPI 架构（已归档）

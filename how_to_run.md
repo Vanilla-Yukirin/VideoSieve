@@ -48,6 +48,21 @@ uv venv --python 3.11
 uv sync --extra dev
 ```
 
+如果要启用本地 FunASR（自动下载模型），请改为：
+
+```powershell
+uv sync --extra dev --extra asr_local
+```
+
+并在启动后端前设置（可写入 `.env.local`）：
+
+```env
+VIDEOSIEVE_ASR_PROVIDER=funasr_local
+VIDEOSIEVE_ASR_MODEL=FunAudioLLM/Fun-ASR-Nano-2512
+VIDEOSIEVE_ASR_HUB=ms
+VIDEOSIEVE_ASR_DEVICE=auto
+```
+
 ## 3. 启动后端（终端 1）
 
 ```powershell

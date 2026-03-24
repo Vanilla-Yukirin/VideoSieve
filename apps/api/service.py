@@ -17,6 +17,7 @@ from hashlib import sha256
 from math import ceil
 
 from cryptography.fernet import Fernet, InvalidToken
+from asr import create_asr_provider_from_env
 from workers import WorkerRuntime
 
 from contracts import ControlCommandType, JobStatus
@@ -137,6 +138,7 @@ class ApiControlPlane:
                 repository=repository,
                 workspace=workspace,
                 event_bus=event_bus,
+                asr_provider=create_asr_provider_from_env(),
             )
         )
         # Dispatcher mode is fixed at construction time.

@@ -40,21 +40,27 @@ VLM（画面描述 + 文字提取）建议至少配置：
 - `QWEN_BASE_URL`
 - `VLM_MODEL`
 
-## 2. 启动后端（终端 1）
+## 2. 初始化 Python 环境（UV）
 
 ```powershell
-conda activate VideoSieve
-$env:PYTHONPATH=".;packages;workers"
-python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+uv python install 3.11
+uv venv --python 3.11
+uv sync --extra dev
 ```
 
-## 3. 启动前端（终端 2）
+## 3. 启动后端（终端 1）
+
+```powershell
+uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+```
+
+## 4. 启动前端（终端 2）
 
 ```powershell
 npm --prefix apps/web run dev
 ```
 
-## 4. 浏览器访问
+## 5. 浏览器访问
 
 - Web：`http://localhost:3000`
 - API：`http://127.0.0.1:8000`
@@ -76,6 +82,11 @@ npm --prefix apps/web run dev
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
 
 ## 常见问题（Windows）
+
+### 0) 为什么不再使用 conda？
+
+- 当前项目统一使用 `uv + .venv`，便于跨机器迁移与依赖锁定。
+- 执行 Python 命令时统一用 `uv run ...`。
 
 ### 1) 端口绑定失败（例如 8000）
 

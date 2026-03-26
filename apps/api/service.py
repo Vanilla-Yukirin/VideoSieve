@@ -133,12 +133,13 @@ class ApiControlPlane:
         self._workspace = workspace
         self._event_bus = event_bus
         self._control_dispatcher = control_dispatcher or self._default_control_dispatcher
+        self._asr_provider = create_asr_provider_from_env()
         self._worker_runtime = worker_runtime or WorkerRuntime(
             PipelineOrchestrator(
                 repository=repository,
                 workspace=workspace,
                 event_bus=event_bus,
-                asr_provider=create_asr_provider_from_env(),
+                asr_provider=self._asr_provider,
             )
         )
         # Dispatcher mode is fixed at construction time.
@@ -859,6 +860,7 @@ class ApiControlPlane:
                         repository=thread_repo,
                         workspace=thread_workspace,
                         event_bus=self._event_bus,
+                        asr_provider=self._asr_provider,
                     )
                 )
                 config_snapshot = load_job_config_snapshot(

@@ -46,7 +46,17 @@ def _temporary_sys_path(path: Path):
 
 
 class FunASRLocalProvider(ASRProvider):
-    """ASR provider backed by local FunASR inference."""
+    """ASR provider backed by local FunASR inference.
+
+    Note: VAD (Voice Activity Detection) is currently disabled due to a bug in funasr 1.3.1
+    where inference_with_vad fails with KeyError when handling dict-format timestamps.
+
+    For long videos (>10min), consider implementing external audio chunking before transcription.
+    Current configuration works well for short-to-medium length videos.
+
+    TODO: Add configurable chunking strategy for long-form content (split by duration or
+    use external VAD like silero-vad, then transcribe chunks independently).
+    """
 
     def __init__(
         self,

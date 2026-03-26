@@ -42,6 +42,10 @@ Thumbs.db
 *.db
 *.sqlite3
 workspaces/
+data/
+
+# Development/testing
+Fun-ASR/
 
 # bench
 data/bench/Fun-ASR/

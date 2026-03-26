@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -168,6 +169,12 @@ def _parse_segments(payload: Any, *, language: str) -> list[ASRSegment]:
     text = str(row.get("text") or "")
     if not text.strip():
         raise RuntimeError("funasr returned empty transcript text")
+
+    # Fun-ASR-Nano outputs word-level timestamps as {"token", "start_time", "end_time"} (seconds).
+    word_timestamps = row.get("timestamps")
+    if isinstance(word_timestamps, list) and word_timestamps:
+        return _segments_from_word_timestamps(text, word_timestamps, language)
+
     duration = _estimate_duration_from_timestamp(row.get("timestamp"), text)
     return [
         ASRSegment(
@@ -209,3 +216,58 @@ def _estimate_duration_from_timestamp(timestamp: Any, text: str) -> float:
             if end > 0:
                 return end
     return max(0.1, len(text) * 0.08)
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?\n])")
+
+
+def _segments_from_word_timestamps(text: str, tokens: list[Any], language: str) -> list[ASRSegment]:
+    """Build segments from Fun-ASR-Nano word-level timestamps.
+
+    Each token dict has ``start_time`` and ``end_time`` in seconds.
+    Sentences are split by punctuation; tokens are assigned proportionally.
+    """
+    valid = [t for t in tokens if isinstance(t, dict)]
+    total_start = float(valid[0].get("start_time", 0.0)) if valid else 0.0
+    total_end = float(valid[-1].get("end_time", 0.0)) if valid else max(0.1, len(text) * 0.08)
+    total_end = max(total_end, total_start + 0.1)
+
+    sentences = [s for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    if len(sentences) <= 1:
+        return [
+            ASRSegment(
+                segment_id="seg_00001",
+                start=total_start,
+                end=total_end,
+                text=text.strip(),
+                lang=language,
+                conf=1.0,
+            )
+        ]
+
+    n_tokens = len(valid)
+    total_chars = sum(len(s) for s in sentences)
+    segments: list[ASRSegment] = []
+    char_pos = 0
+    for idx, sentence in enumerate(sentences, start=1):
+        char_start = char_pos
+        char_pos += len(sentence)
+        # Proportional token slice for this sentence.
+        t0 = round(char_start / total_chars * n_tokens)
+        t1 = max(t0 + 1, round(char_pos / total_chars * n_tokens))
+        t1 = min(t1, n_tokens)
+        slice_ = valid[t0:t1]
+        seg_start = float(slice_[0].get("start_time", total_start)) if slice_ else total_start
+        seg_end = float(slice_[-1].get("end_time", seg_start)) if slice_ else seg_start
+        seg_end = max(seg_end, seg_start + 0.1)
+        segments.append(
+            ASRSegment(
+                segment_id=f"seg_{idx:05d}",
+                start=seg_start,
+                end=seg_end,
+                text=sentence.strip(),
+                lang=language,
+                conf=1.0,
+            )
+        )
+    return segments

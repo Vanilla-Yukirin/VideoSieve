@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -315,6 +315,45 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         if token is not None:
             _ = _control_plane(request).get_me(token)
             actor = "user"
+        return create_job(_control_plane(request), payload, actor=actor)
+
+    @app.post("/projects/{project_id}/jobs/upload")
+    async def post_upload_local_video(
+        project_id: str,
+        request: Request,
+        video: UploadFile = File(...),
+        context: str = Form(""),
+        summary_enabled: str = Form("false"),
+    ) -> dict[str, str]:
+        token = _token(request)
+        actor = "guest"
+        if token is not None:
+            _ = _control_plane(request).get_me(token)
+            actor = "user"
+
+        # Save uploaded file to temp location
+        import shutil
+        import tempfile
+        import uuid
+
+        temp_id = uuid.uuid4().hex[:12]
+        temp_dir = Path(tempfile.gettempdir()) / "videosieve_uploads" / temp_id
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        video_filename = video.filename or f"upload_{temp_id}.mp4"
+        video_path = temp_dir / video_filename
+
+        with video_path.open("wb") as f:
+            shutil.copyfileobj(video.file, f)
+
+        # Create job with local file reference
+        payload = {
+            "project_id": project_id,
+            "summary_enabled": summary_enabled.lower() == "true",
+            "local_video_path": str(video_path),
+            "local_video_context": context.strip() if context.strip() else None,
+        }
+
         return create_job(_control_plane(request), payload, actor=actor)
 
     @app.get("/jobs/{job_id}")

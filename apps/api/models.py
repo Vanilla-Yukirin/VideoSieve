@@ -121,6 +121,8 @@ class JobCreateRequest(ApiModel):
     project_id: str
     ingest: IngestParams | None = None
     summary_enabled: bool | None = None
+    local_video_path: str | None = None
+    local_video_context: str | None = None
 
 
 class IngestProbeRequest(ApiModel):

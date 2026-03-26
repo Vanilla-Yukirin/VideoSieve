@@ -12,6 +12,7 @@ import { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
 import { Button } from "./Button";
 import { Card, CardContent } from "./Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { Upload, Link2 } from "lucide-react";
 
 function parsePixels(resolution?: string): number {
   if (!resolution) return 0;
@@ -90,17 +91,23 @@ export { buildDualAssetPayload, isDuplicateConfig } from "@/lib/ingest/helpers";
 
 type IngestProbeProps = {
   onParamsReady: (params: DualAssetIngestParams | undefined) => void;
+  onLocalUpload?: (file: File, context: string) => void;
   disabled?: boolean;
   cookieId?: string;
 };
 
-export function IngestProbe({ onParamsReady, disabled = false, cookieId }: IngestProbeProps) {
+export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, cookieId }: IngestProbeProps) {
   const { t } = useI18n();
+  const [mode, setMode] = useState<"url" | "upload">("url");
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [formats, setFormats] = useState<IngestFormatItem[]>([]);
+
+  // Local upload state
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadContext, setUploadContext] = useState("");
 
   // Analysis asset selections
   const [analysisVideo, setAnalysisVideo] = useState("");
@@ -237,38 +244,131 @@ export function IngestProbe({ onParamsReady, disabled = false, cookieId }: Inges
     </Card>
   );
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setTitle(file.name);
+      if (onLocalUpload) {
+        // Signal that we have a file ready
+        onParamsReady({ source_url: `local://${file.name}` } as DualAssetIngestParams);
+      }
+    }
+  };
+
   return (
     <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
-      {/* URL input + Probe button */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="source-url-input">
-          {t("ingest.sourceUrl")}
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="source-url-input"
-            type="text"
-            className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-            placeholder={t("ingest.urlPlaceholder")}
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={loading || disabled}
-          />
-          <Button
-            onClick={onProbe}
-            disabled={loading || disabled || !url.trim()}
-            variant="secondary"
-          >
-            {loading ? t("ingest.probing") : t("ingest.probe")}
-          </Button>
-        </div>
-        {!cookieId?.trim() ? (
-          <p className="text-xs text-amber-700">
-            {t("ingest.noCookieHint")}
-          </p>
-        ) : null}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+      {/* Mode toggle */}
+      <div className="flex gap-2">
+        <Button
+          variant={mode === "url" ? "primary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setMode("url");
+            setSelectedFile(null);
+            setUploadContext("");
+            onParamsReady(undefined);
+          }}
+          disabled={disabled}
+          className="flex-1"
+        >
+          <Link2 className="mr-2 h-4 w-4" />
+          网络视频
+        </Button>
+        <Button
+          variant={mode === "upload" ? "primary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setMode("upload");
+            setUrl("");
+            setFormats([]);
+            setTitle(null);
+            onParamsReady(undefined);
+          }}
+          disabled={disabled || !onLocalUpload}
+          className="flex-1"
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          本地上传
+        </Button>
       </div>
+
+      {/* Network URL mode */}
+      {mode === "url" && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium" htmlFor="source-url-input">
+            {t("ingest.sourceUrl")}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="source-url-input"
+              type="text"
+              className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+              placeholder={t("ingest.urlPlaceholder")}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={loading || disabled}
+            />
+            <Button
+              onClick={onProbe}
+              disabled={loading || disabled || !url.trim()}
+              variant="secondary"
+            >
+              {loading ? t("ingest.probing") : t("ingest.probe")}
+            </Button>
+          </div>
+          {!cookieId?.trim() ? (
+            <p className="text-xs text-amber-700">
+              {t("ingest.noCookieHint")}
+            </p>
+          ) : null}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+      )}
+
+      {/* Local upload mode */}
+      {mode === "upload" && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="file-input">
+              选择视频文件
+            </label>
+            <input
+              id="file-input"
+              type="file"
+              accept="video/*"
+              onChange={handleFileChange}
+              disabled={disabled}
+              className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+            />
+            {selectedFile && (
+              <p className="text-xs text-muted-foreground">
+                已选择: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="context-input">
+              背景信息
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                (可选)
+              </span>
+            </label>
+            <textarea
+              id="context-input"
+              className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              placeholder="粘贴视频简介、评论或其他背景资料..."
+              value={uploadContext}
+              onChange={(e) => setUploadContext(e.target.value)}
+              disabled={disabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              用于弥补本地视频无法自动获取的简介/评论等上下文信息
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Title */}
       {title && (

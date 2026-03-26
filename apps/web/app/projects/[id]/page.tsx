@@ -36,6 +36,8 @@ export default function ProjectDetail() {
   const [summaryEnabled, setSummaryEnabled] = useState(false);
   const [selectedCookieId, setSelectedCookieId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadContext, setUploadContext] = useState<string>("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
@@ -159,10 +161,31 @@ export default function ProjectDetail() {
     }
   }, [projectError, router, isDeletingProject]);
 
+  const handleLocalUpload = (file: File, context: string) => {
+    setUploadFile(file);
+    setUploadContext(context);
+  };
+
   const handleCreateJob = async () => {
     setIsCreatingJob(true);
     setCreateError(null);
     try {
+      // Local upload mode
+      if (uploadFile) {
+        const formData = new FormData();
+        formData.append("video", uploadFile);
+        if (uploadContext.trim()) {
+          formData.append("context", uploadContext.trim());
+        }
+        formData.append("summary_enabled", summaryEnabled.toString());
+
+        const { job_id } = await api.uploadLocalVideo(projectId, formData, sessionToken);
+        await refreshJobs();
+        router.push(`/jobs/${job_id}`);
+        return;
+      }
+
+      // Network URL mode
       const candidateIngest = ingestParams
         ? {
             ...ingestParams,
@@ -332,6 +355,7 @@ export default function ProjectDetail() {
             <CardContent className="space-y-4">
                 <IngestProbe
                   onParamsReady={setIngestParams}
+                  onLocalUpload={handleLocalUpload}
                   disabled={isCreatingJob}
                   cookieId={guestCookieDisabled ? undefined : selectedCookieId}
                 />
@@ -382,10 +406,10 @@ export default function ProjectDetail() {
                 </label>
                 
                 <div className="flex justify-end">
-                    <Button 
-                        onClick={handleCreateJob} 
+                    <Button
+                        onClick={handleCreateJob}
                         isLoading={isCreatingJob}
-                        disabled={!ingestParams?.source_url || isGuestCooldownActive || isDeletingProject}
+                        disabled={(!ingestParams?.source_url && !uploadFile) || isGuestCooldownActive || isDeletingProject}
                     >
                         {isGuestCooldownActive
                           ? t("project.cooldown", { seconds: guestCooldown?.remaining_seconds ?? 0 })

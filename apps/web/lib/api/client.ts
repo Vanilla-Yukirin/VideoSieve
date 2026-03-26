@@ -135,6 +135,13 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  uploadLocalVideo: (projectId: string, formData: FormData, token: string | null = null) =>
+    fetchJson<{ job_id: string }>(`/projects/${projectId}/jobs/upload`, {
+      method: "POST",
+      headers: withAuthHeaders(token),
+      body: formData,
+    }),
+
   getJob: (jobId: string) => fetchJson<Job>(`/jobs/${jobId}`),
 
   getJobSnapshot: (jobId: string) => fetchJson<JobSnapshot>(`/jobs/${jobId}/snapshot`),

@@ -794,6 +794,10 @@ class ApiControlPlane:
                 normalized_ingest, dedupe_estimate = self._normalize_ingest(payload.ingest)
                 config["ingest"] = normalized_ingest
                 config["dedupe_applied_estimate"] = dedupe_estimate
+            if payload.local_video_path:
+                config["local_video_path"] = payload.local_video_path
+            if payload.local_video_context:
+                config["local_video_context"] = payload.local_video_context
 
             config_path.write_text(
                 json.dumps(
@@ -863,13 +867,23 @@ class ApiControlPlane:
                     job_id=job_id,
                 )
                 ingest_config = extract_ingest_config(config_snapshot)
+
+                # Handle local video upload
+                local_video_path = config_snapshot.get("local_video_path")
+                local_video_context = config_snapshot.get("local_video_context") or ""
+                source_path = local_video_path if local_video_path else None
+
+                # For local uploads, inject source_path into ingest_config
+                if local_video_path and not ingest_config:
+                    ingest_config = {"source_path": local_video_path}
+
                 worker_runtime.run_job(
                     project_id=project_id,
                     job_id=job_id,
-                    source_path=None,
+                    source_path=source_path,
                     ingest_config=ingest_config,
                     title=_as_optional_str(config_snapshot.get("title")),
-                    description=_as_optional_str(config_snapshot.get("description")) or "",
+                    description=_as_optional_str(config_snapshot.get("description")) or local_video_context,
                     tags=_as_str_list(config_snapshot.get("tags")),
                     language_hint=_as_optional_str(config_snapshot.get("language_hint")),
                 )

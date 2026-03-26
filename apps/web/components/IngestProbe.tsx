@@ -250,8 +250,8 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
       setSelectedFile(file);
       setTitle(file.name);
       if (onLocalUpload) {
-        // Signal that we have a file ready
-        onParamsReady({ source_url: `local://${file.name}` } as DualAssetIngestParams);
+        // For upload mode, don't set ingestParams - parent will handle via uploadFile state
+        onLocalUpload(file, uploadContext);
       }
     }
   };
@@ -360,7 +360,12 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
               className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               placeholder="粘贴视频简介、评论或其他背景资料..."
               value={uploadContext}
-              onChange={(e) => setUploadContext(e.target.value)}
+              onChange={(e) => {
+                setUploadContext(e.target.value);
+                if (selectedFile && onLocalUpload) {
+                  onLocalUpload(selectedFile, e.target.value);
+                }
+              }}
               disabled={disabled}
             />
             <p className="text-xs text-muted-foreground">

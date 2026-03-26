@@ -344,13 +344,16 @@ class PipelineOrchestrator:
             request_payload: dict[str, Any] = {
                 "project_id": project_id,
                 "job_id": job_id,
-                "title": title,
+                "title": title or "上传视频",
                 "description": description,
                 "tags": tags,
                 "language_hint": language_hint,
             }
             request_payload.update(ingest_config)
-            if "source_path" not in request_payload and source_path:
+            # source_path takes precedence for local uploads
+            if source_path and "source_url" not in request_payload:
+                request_payload["source_path"] = source_path
+            elif "source_path" not in request_payload and source_path:
                 request_payload["source_path"] = source_path
             try:
                 run_ingest(

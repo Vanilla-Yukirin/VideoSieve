@@ -23,6 +23,7 @@ out/
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -46,6 +47,8 @@ data/
 
 # Development/testing
 Fun-ASR/
+tests/funasr_bug_validation/*.json
+tests/funasr_bug_validation/*.jsonl
 
 # bench
 data/bench/Fun-ASR/

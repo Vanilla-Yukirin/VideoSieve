@@ -403,7 +403,7 @@ export default function JobDetail() {
            <CardTitle className="text-lg">{t("deliverables.title")}</CardTitle>
          </CardHeader>
          <CardContent>
-           <DeliverablesTabs jobId={jobId} />
+           <DeliverablesTabs jobId={jobId} jobStatus={state.status} />
          </CardContent>
        </Card>
 

@@ -121,13 +121,21 @@ function buildTimeline(
 
 interface DeliverableTabsProps {
   jobId: string;
+  jobStatus: string;
 }
 
-export function DeliverablesTabs({ jobId }: DeliverableTabsProps) {
+export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState(0);
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+
+  // When the job transitions to succeeded, reset so Tab 0 re-fetches
+  useEffect(() => {
+    if (jobStatus === "succeeded" && (loadState === "not_found" || loadState === "error")) {
+      setLoadState("idle");
+    }
+  }, [jobStatus, loadState]);
 
   // Fetch transcript + keyframes when Tab 0 is first activated
   useEffect(() => {

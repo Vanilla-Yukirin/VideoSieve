@@ -4,24 +4,50 @@ import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Raw data types (from JSONL files) ────────────────────────────────────────
 
-interface TimelineChunk {
-  chunk_id: string;
+interface TranscriptSegment {
+  segment_id: string;
   start: number;
   end: number;
   text: string;
-  transcript_refs: string[];
-  frame_refs: string[];
-  frame_summary_refs: string[];
+  lang?: string;
+  conf?: number;
 }
 
-interface Timeline {
-  schema_version: string;
-  project_id: string;
-  job_id: string;
-  chunks: TimelineChunk[];
+interface KeyframeRecord {
+  frame_id: string;
+  ts: number;
+  path: string;
+  hash: string;
+  score: number;
+  reason: string;
 }
+
+// ── Merged timeline item types ───────────────────────────────────────────────
+
+type SegmentItem = {
+  kind: "segment";
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  conf?: number;
+};
+
+type FrameItem = {
+  kind: "frame";
+  id: string;
+  ts: number;
+  imageUrl: string;
+  description?: string; // VLM output — populated later
+};
+
+type TimelineItem = SegmentItem | FrameItem;
+
+// ── Load state ───────────────────────────────────────────────────────────────
+
+type LoadState = "idle" | "loading" | "ok" | "not_found" | "error";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,8 +58,8 @@ function formatTime(seconds: number): string {
 }
 
 /** frame_000001 → frames/images/slide_000001.jpg */
-function frameRefToArtifactPath(frameRef: string): string {
-  const num = frameRef.replace(/^frame_/, "");
+function frameIdToArtifactPath(frameId: string): string {
+  const num = frameId.replace(/^frame_/, "");
   return `frames/images/slide_${num}.jpg`;
 }
 
@@ -42,6 +68,53 @@ function encodeArtifactPath(path: string): string {
     .split("/")
     .map((seg) => encodeURIComponent(seg))
     .join("/");
+}
+
+async function fetchJsonl<T>(url: string): Promise<T[] | null> {
+  const res = await fetch(url);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  return text
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as T);
+}
+
+function buildTimeline(
+  segments: TranscriptSegment[],
+  keyframes: KeyframeRecord[],
+  jobId: string,
+): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...segments.map(
+      (seg): SegmentItem => ({
+        kind: "segment",
+        id: seg.segment_id,
+        start: seg.start,
+        end: seg.end,
+        text: seg.text,
+        conf: seg.conf,
+      }),
+    ),
+    ...keyframes.map(
+      (kf): FrameItem => ({
+        kind: "frame",
+        id: kf.frame_id,
+        ts: kf.ts,
+        imageUrl: `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(frameIdToArtifactPath(kf.frame_id))}`,
+      }),
+    ),
+  ];
+
+  // Sort by primary timestamp
+  items.sort((a, b) => {
+    const ta = a.kind === "segment" ? a.start : a.ts;
+    const tb = b.kind === "segment" ? b.start : b.ts;
+    return ta - tb;
+  });
+
+  return items;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -53,26 +126,32 @@ interface DeliverableTabsProps {
 export function DeliverablesTabs({ jobId }: DeliverableTabsProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState(0);
-  const [timeline, setTimeline] = useState<Timeline | null>(null);
-  const [loadState, setLoadState] = useState<"idle" | "loading" | "ok" | "not_found" | "error">(
-    "idle",
-  );
+  const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
 
-  // Fetch timeline.json when Tab 0 is first activated
+  // Fetch transcript + keyframes when Tab 0 is first activated
   useEffect(() => {
     if (activeTab !== 0) return;
     if (loadState !== "idle") return;
 
     setLoadState("loading");
 
-    fetch(`/api/jobs/${jobId}/artifacts/download/fusion/timeline.json`)
-      .then(async (res) => {
-        if (!res.ok) {
-          setLoadState(res.status === 404 ? "not_found" : "error");
+    Promise.all([
+      fetchJsonl<TranscriptSegment>(
+        `/api/jobs/${jobId}/artifacts/download/asr/transcript.jsonl`,
+      ),
+      fetchJsonl<KeyframeRecord>(
+        `/api/jobs/${jobId}/artifacts/download/frames/keyframes.jsonl`,
+      ),
+    ])
+      .then(([segments, keyframes]) => {
+        if (!segments) {
+          // transcript not found yet → treat as not ready
+          setLoadState("not_found");
           return;
         }
-        const data: Timeline = await res.json();
-        setTimeline(data);
+        const items = buildTimeline(segments, keyframes ?? [], jobId);
+        setTimeline(items);
         setLoadState("ok");
       })
       .catch(() => setLoadState("error"));
@@ -108,7 +187,7 @@ export function DeliverablesTabs({ jobId }: DeliverableTabsProps) {
       {/* Tab panels */}
       <div className="pt-4">
         {activeTab === 0 && (
-          <RawTranscriptPanel jobId={jobId} timeline={timeline} loadState={loadState} />
+          <RawTranscriptPanel timeline={timeline} loadState={loadState} />
         )}
         {activeTab === 1 && <PlaceholderPanel message={t("deliverables.polishedPlaceholder")} />}
         {activeTab === 2 && <PlaceholderPanel message={t("deliverables.summaryPlaceholder")} />}
@@ -117,17 +196,13 @@ export function DeliverablesTabs({ jobId }: DeliverableTabsProps) {
   );
 }
 
-// ── Tab 1: Raw transcript with interleaved keyframes ─────────────────────────
-
-type LoadState = "idle" | "loading" | "ok" | "not_found" | "error";
+// ── Tab 0: Interleaved timeline ───────────────────────────────────────────────
 
 function RawTranscriptPanel({
-  jobId,
   timeline,
   loadState,
 }: {
-  jobId: string;
-  timeline: Timeline | null;
+  timeline: TimelineItem[] | null;
   loadState: LoadState;
 }) {
   const { t } = useI18n();
@@ -135,61 +210,90 @@ function RawTranscriptPanel({
   if (loadState === "idle" || loadState === "loading") {
     return <StatusMessage>{t("common.loading")}</StatusMessage>;
   }
-
   if (loadState === "not_found") {
     return <StatusMessage>{t("deliverables.notAvailable")}</StatusMessage>;
   }
-
   if (loadState === "error") {
-    return <StatusMessage className="text-destructive">{t("deliverables.error")}</StatusMessage>;
+    return (
+      <StatusMessage className="text-destructive">{t("deliverables.error")}</StatusMessage>
+    );
   }
 
-  const chunks = timeline?.chunks ?? [];
-
-  if (chunks.length === 0) {
+  const items = timeline ?? [];
+  if (items.length === 0) {
     return <StatusMessage>{t("deliverables.emptyTimeline")}</StatusMessage>;
   }
 
   return (
-    <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
-      {chunks.map((chunk) => {
-        const imageRef = chunk.frame_refs?.[0] ?? null;
-        const imageUrl = imageRef
-          ? `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(frameRefToArtifactPath(imageRef))}`
-          : null;
-
-        return (
-          <div
-            key={chunk.chunk_id}
-            className="flex gap-4 p-3 rounded-lg border border-border/60 bg-card/60 hover:bg-accent/10 transition-colors"
-          >
-            {/* Keyframe image */}
-            {imageUrl ? (
-              <div className="shrink-0 w-36 md:w-44">
-                <img
-                  src={imageUrl}
-                  alt={imageRef ?? "keyframe"}
-                  className="w-full aspect-video object-cover rounded border border-border/40"
-                  loading="lazy"
-                />
-              </div>
-            ) : null}
-
-            {/* Text + timestamp */}
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <span className="block text-xs text-muted-foreground font-mono tabular-nums">
-                {formatTime(chunk.start)} – {formatTime(chunk.end)}
-              </span>
-              <p className="text-sm leading-relaxed break-words">{chunk.text}</p>
-            </div>
-          </div>
-        );
-      })}
+    <div className="space-y-2 max-h-[640px] overflow-y-auto pr-1">
+      {items.map((item) =>
+        item.kind === "frame" ? (
+          <FrameCard key={`frame-${item.id}`} item={item} />
+        ) : (
+          <SegmentCard key={`seg-${item.id}`} item={item} />
+        ),
+      )}
     </div>
   );
 }
 
-// ── Tab 2 & 3: Placeholders ───────────────────────────────────────────────────
+// ── Keyframe card ─────────────────────────────────────────────────────────────
+
+function FrameCard({ item }: { item: FrameItem }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex gap-4 p-3 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors">
+      {/* Image */}
+      <div className="shrink-0 w-40 md:w-52">
+        <img
+          src={item.imageUrl}
+          alt={item.id}
+          className="w-full aspect-video object-cover rounded border border-border/40"
+          loading="lazy"
+        />
+      </div>
+
+      {/* Right: timestamp + VLM description placeholder */}
+      <div className="flex-1 min-w-0 space-y-2 py-1">
+        <span className="block text-xs text-muted-foreground font-mono tabular-nums">
+          {formatTime(item.ts)}
+        </span>
+        {item.description ? (
+          <p className="text-sm leading-relaxed text-foreground">{item.description}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground/60 italic">
+            {t("deliverables.frameNoDesc")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ASR segment card ──────────────────────────────────────────────────────────
+
+function SegmentCard({ item }: { item: SegmentItem }) {
+  return (
+    <div className="flex items-baseline gap-4 px-3 py-2.5 rounded-md hover:bg-accent/10 transition-colors">
+      {/* Timestamp column */}
+      <span className="shrink-0 w-24 text-xs text-muted-foreground font-mono tabular-nums text-right">
+        {formatTime(item.start)}–{formatTime(item.end)}
+      </span>
+
+      {/* Text */}
+      <p className="flex-1 text-sm leading-relaxed break-words">{item.text}</p>
+
+      {/* Confidence badge (optional) */}
+      {item.conf !== undefined ? (
+        <span className="shrink-0 text-xs text-muted-foreground/70 font-mono tabular-nums">
+          {(item.conf * 100).toFixed(0)}%
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Tab 1 & 2: Placeholders ───────────────────────────────────────────────────
 
 function PlaceholderPanel({ message }: { message: string }) {
   return (
@@ -199,7 +303,7 @@ function PlaceholderPanel({ message }: { message: string }) {
   );
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── Shared ────────────────────────────────────────────────────────────────────
 
 function StatusMessage({
   children,

@@ -181,7 +181,16 @@ export type MessageKey =
   | "ingest.type.video"
   | "ingest.type.audio"
   | "ingest.type.muxed"
-  | "ingest.urlPlaceholder";
+  | "ingest.urlPlaceholder"
+  | "deliverables.title"
+  | "deliverables.tabRaw"
+  | "deliverables.tabPolished"
+  | "deliverables.tabSummary"
+  | "deliverables.notAvailable"
+  | "deliverables.error"
+  | "deliverables.emptyTimeline"
+  | "deliverables.polishedPlaceholder"
+  | "deliverables.summaryPlaceholder";
 
 type MessageMap = Record<MessageKey, string>;
 
@@ -367,7 +376,16 @@ export const messages: Record<Locale, MessageMap> = {
     "ingest.type.video": "视频",
     "ingest.type.audio": "音频",
     "ingest.type.muxed": "混流",
-    "ingest.urlPlaceholder": "https://www.bilibili.com/video/BV..."
+    "ingest.urlPlaceholder": "https://www.bilibili.com/video/BV...",
+    "deliverables.title": "成果预览",
+    "deliverables.tabRaw": "原始转录",
+    "deliverables.tabPolished": "润色稿",
+    "deliverables.tabSummary": "摘要",
+    "deliverables.notAvailable": "尚未生成（任务完成后可见）",
+    "deliverables.error": "加载失败，请刷新页面重试",
+    "deliverables.emptyTimeline": "时间线为空",
+    "deliverables.polishedPlaceholder": "润色稿需要配置 LLM API，敬请期待。",
+    "deliverables.summaryPlaceholder": "摘要需要配置 LLM API，敬请期待。"
   },
   en: {
     "lang.zh": "中文",
@@ -550,6 +568,15 @@ export const messages: Record<Locale, MessageMap> = {
     "ingest.type.video": "video",
     "ingest.type.audio": "audio",
     "ingest.type.muxed": "muxed",
-    "ingest.urlPlaceholder": "https://www.bilibili.com/video/BV..."
+    "ingest.urlPlaceholder": "https://www.bilibili.com/video/BV...",
+    "deliverables.title": "Results Preview",
+    "deliverables.tabRaw": "Raw Transcript",
+    "deliverables.tabPolished": "Polished Notes",
+    "deliverables.tabSummary": "Summary",
+    "deliverables.notAvailable": "Not yet generated (visible after job completes)",
+    "deliverables.error": "Failed to load, please refresh and retry",
+    "deliverables.emptyTimeline": "Timeline is empty",
+    "deliverables.polishedPlaceholder": "Polished notes require LLM API configuration.",
+    "deliverables.summaryPlaceholder": "Summary requires LLM API configuration."
   }
 };

@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { DeliverablesTabs } from "@/components/DeliverablesTabs";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { ApiClientError, api } from "@/lib/api/client";
@@ -395,6 +396,16 @@ export default function JobDetail() {
                 </Card>
             </div>
         </div>
+
+       {/* Deliverables: 3-tab results preview */}
+       <Card>
+         <CardHeader>
+           <CardTitle className="text-lg">{t("deliverables.title")}</CardTitle>
+         </CardHeader>
+         <CardContent>
+           <DeliverablesTabs jobId={jobId} />
+         </CardContent>
+       </Card>
 
       {activePreviewArtifact && activePreviewUrl ? (
         <div

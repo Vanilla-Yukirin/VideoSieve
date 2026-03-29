@@ -76,6 +76,27 @@ PROJECT_DELETE_POLL_SECONDS = 0.2
 DEFAULT_COOKIE_USER_ID = "default_user"
 SETTING_GUEST_MODE_ENABLED = "guest_mode_enabled"
 SETTING_GUEST_ALLOW_COOKIE_INPUT = "guest_allow_cookie_input"
+SETTING_VLM_BASE_URL = "vlm_base_url"
+SETTING_VLM_MODEL = "vlm_model"
+SETTING_VLM_FRAME_PROMPT_ZH = "vlm_frame_prompt_zh"
+SETTING_VLM_FRAME_PROMPT_EN = "vlm_frame_prompt_en"
+SETTING_VLM_CONCURRENCY = "vlm_concurrency"
+SETTING_VLM_RPM = "vlm_rpm"
+
+# Must match QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH / DEFAULT_PROMPT_EN exactly
+_DEFAULT_VLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+_DEFAULT_VLM_MODEL = "qwen3.5-plus"
+_DEFAULT_VLM_PROMPT_ZH = (
+    "请直接用自然语言回答，不要JSON。"
+    "请对当前画面做一段完整描述，优先覆盖主要内容、上方区域信息、下方区域信息、可见文字和图示关系。"
+)
+_DEFAULT_VLM_PROMPT_EN = (
+    "Respond in plain natural language, not JSON. "
+    "Give a complete frame description, including main content, upper area details, "
+    "lower area details, visible text, and diagram relationships."
+)
+_DEFAULT_VLM_CONCURRENCY = 5
+_DEFAULT_VLM_RPM = 30
 
 
 class ApiError(RuntimeError):
@@ -376,14 +397,22 @@ class ApiControlPlane:
         _ = self._require_user_from_token(token)
         settings = self._current_settings()
         return SystemSettingsResponse(
-            guest_mode_enabled=settings[SETTING_GUEST_MODE_ENABLED],
-            guest_allow_cookie_input=settings[SETTING_GUEST_ALLOW_COOKIE_INPUT],
+            guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
+            guest_allow_cookie_input=bool(settings[SETTING_GUEST_ALLOW_COOKIE_INPUT]),
+            vlm_base_url=str(settings[SETTING_VLM_BASE_URL]),
+            vlm_model=str(settings[SETTING_VLM_MODEL]),
+            vlm_frame_prompt_zh=str(settings[SETTING_VLM_FRAME_PROMPT_ZH]),
+            vlm_frame_prompt_en=str(settings[SETTING_VLM_FRAME_PROMPT_EN]),
+            vlm_concurrency=int(settings[SETTING_VLM_CONCURRENCY]),  # type: ignore[arg-type]
+            vlm_rpm=int(settings[SETTING_VLM_RPM]),  # type: ignore[arg-type]
+            vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
+            vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
         )
 
     def get_public_access_flags(self) -> PublicAccessFlagsResponse:
         settings = self._current_settings()
         return PublicAccessFlagsResponse(
-            guest_mode_enabled=settings[SETTING_GUEST_MODE_ENABLED],
+            guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
         )
 
     def patch_system_settings(
@@ -414,14 +443,61 @@ class ApiControlPlane:
                 message="GUEST_COOKIE_KEY is required when guest cookie input is enabled",
                 status_code=422,
             )
+        next_vlm_base_url = (
+            payload.vlm_base_url.strip()
+            if payload.vlm_base_url is not None
+            else str(current[SETTING_VLM_BASE_URL])
+        ) or _DEFAULT_VLM_BASE_URL
+        next_vlm_model = (
+            payload.vlm_model.strip()
+            if payload.vlm_model is not None
+            else str(current[SETTING_VLM_MODEL])
+        ) or _DEFAULT_VLM_MODEL
+        next_prompt_zh = (
+            payload.vlm_frame_prompt_zh
+            if payload.vlm_frame_prompt_zh is not None
+            else str(current[SETTING_VLM_FRAME_PROMPT_ZH])
+        ) or _DEFAULT_VLM_PROMPT_ZH
+        next_prompt_en = (
+            payload.vlm_frame_prompt_en
+            if payload.vlm_frame_prompt_en is not None
+            else str(current[SETTING_VLM_FRAME_PROMPT_EN])
+        ) or _DEFAULT_VLM_PROMPT_EN
+        next_concurrency = max(
+            1,
+            payload.vlm_concurrency
+            if payload.vlm_concurrency is not None
+            else int(current[SETTING_VLM_CONCURRENCY]),  # type: ignore[arg-type]
+        )
+        next_rpm = max(
+            0,
+            payload.vlm_rpm
+            if payload.vlm_rpm is not None
+            else int(current[SETTING_VLM_RPM]),  # type: ignore[arg-type]
+        )
+
         self._repository.set_setting(SETTING_GUEST_MODE_ENABLED, json.dumps(next_guest_mode))
         self._repository.set_setting(
             SETTING_GUEST_ALLOW_COOKIE_INPUT, json.dumps(next_allow_cookie)
         )
+        self._repository.set_setting(SETTING_VLM_BASE_URL, json.dumps(next_vlm_base_url))
+        self._repository.set_setting(SETTING_VLM_MODEL, json.dumps(next_vlm_model))
+        self._repository.set_setting(SETTING_VLM_FRAME_PROMPT_ZH, json.dumps(next_prompt_zh))
+        self._repository.set_setting(SETTING_VLM_FRAME_PROMPT_EN, json.dumps(next_prompt_en))
+        self._repository.set_setting(SETTING_VLM_CONCURRENCY, json.dumps(next_concurrency))
+        self._repository.set_setting(SETTING_VLM_RPM, json.dumps(next_rpm))
         self._append_operation_log(event="settings.patch", actor=username, outcome="accepted")
         return SystemSettingsResponse(
             guest_mode_enabled=next_guest_mode,
             guest_allow_cookie_input=next_allow_cookie,
+            vlm_base_url=next_vlm_base_url,
+            vlm_model=next_vlm_model,
+            vlm_frame_prompt_zh=next_prompt_zh,
+            vlm_frame_prompt_en=next_prompt_en,
+            vlm_concurrency=next_concurrency,
+            vlm_rpm=next_rpm,
+            vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
+            vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
         )
 
     def get_guest_cooldown(self) -> GuestCooldownResponse:
@@ -636,6 +712,19 @@ class ApiControlPlane:
             return default
         return raw.strip().lower() in {"1", "true", "yes", "on"}
 
+    def _read_setting_str(self, key: str, *, default: str) -> str:
+        raw = self._repository.get_setting(key)
+        if raw is None:
+            self._repository.set_setting(key, json.dumps(default))
+            return default
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return default
+        if isinstance(parsed, str):
+            return parsed
+        return default
+
     def _read_setting_bool(self, key: str, *, default: bool) -> bool:
         raw = self._repository.get_setting(key)
         if raw is None:
@@ -649,6 +738,19 @@ class ApiControlPlane:
             return parsed
         return default
 
+    def _read_setting_int(self, key: str, *, default: int) -> int:
+        raw = self._repository.get_setting(key)
+        if raw is None:
+            self._repository.set_setting(key, json.dumps(default))
+            return default
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return default
+        if isinstance(parsed, int) and not isinstance(parsed, bool):
+            return parsed
+        return default
+
     def _initialize_settings_from_env_once(self) -> None:
         _ = self._read_setting_bool(
             SETTING_GUEST_MODE_ENABLED,
@@ -658,8 +760,20 @@ class ApiControlPlane:
             SETTING_GUEST_ALLOW_COOKIE_INPUT,
             default=self._read_bool_env("GUEST_ALLOW_COOKIE_INPUT", default=False),
         )
+        _ = self._read_setting_str(
+            SETTING_VLM_BASE_URL,
+            default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
+        )
+        _ = self._read_setting_str(
+            SETTING_VLM_MODEL,
+            default=os.getenv("VLM_MODEL") or _DEFAULT_VLM_MODEL,
+        )
+        _ = self._read_setting_str(SETTING_VLM_FRAME_PROMPT_ZH, default=_DEFAULT_VLM_PROMPT_ZH)
+        _ = self._read_setting_str(SETTING_VLM_FRAME_PROMPT_EN, default=_DEFAULT_VLM_PROMPT_EN)
+        _ = self._read_setting_int(SETTING_VLM_CONCURRENCY, default=_DEFAULT_VLM_CONCURRENCY)
+        _ = self._read_setting_int(SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM)
 
-    def _current_settings(self) -> dict[str, bool]:
+    def _current_settings(self) -> dict[str, object]:
         return {
             SETTING_GUEST_MODE_ENABLED: self._read_setting_bool(
                 SETTING_GUEST_MODE_ENABLED,
@@ -668,6 +782,26 @@ class ApiControlPlane:
             SETTING_GUEST_ALLOW_COOKIE_INPUT: self._read_setting_bool(
                 SETTING_GUEST_ALLOW_COOKIE_INPUT,
                 default=self._read_bool_env("GUEST_ALLOW_COOKIE_INPUT", default=False),
+            ),
+            SETTING_VLM_BASE_URL: self._read_setting_str(
+                SETTING_VLM_BASE_URL,
+                default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
+            ),
+            SETTING_VLM_MODEL: self._read_setting_str(
+                SETTING_VLM_MODEL,
+                default=os.getenv("VLM_MODEL") or _DEFAULT_VLM_MODEL,
+            ),
+            SETTING_VLM_FRAME_PROMPT_ZH: self._read_setting_str(
+                SETTING_VLM_FRAME_PROMPT_ZH, default=_DEFAULT_VLM_PROMPT_ZH
+            ),
+            SETTING_VLM_FRAME_PROMPT_EN: self._read_setting_str(
+                SETTING_VLM_FRAME_PROMPT_EN, default=_DEFAULT_VLM_PROMPT_EN
+            ),
+            SETTING_VLM_CONCURRENCY: self._read_setting_int(
+                SETTING_VLM_CONCURRENCY, default=_DEFAULT_VLM_CONCURRENCY
+            ),
+            SETTING_VLM_RPM: self._read_setting_int(
+                SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM
             ),
         }
 

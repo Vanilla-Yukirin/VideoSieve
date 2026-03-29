@@ -92,11 +92,25 @@ export interface PublicAccessFlagsResponse {
 export interface SystemSettingsResponse {
   guest_mode_enabled: boolean;
   guest_allow_cookie_input: boolean;
+  vlm_base_url: string;
+  vlm_model: string;
+  vlm_frame_prompt_zh: string;
+  vlm_frame_prompt_en: string;
+  vlm_concurrency: number;
+  vlm_rpm: number;
+  vlm_frame_prompt_zh_default: string;
+  vlm_frame_prompt_en_default: string;
 }
 
 export interface SystemSettingsPatchRequest {
   guest_mode_enabled?: boolean;
   guest_allow_cookie_input?: boolean;
+  vlm_base_url?: string;
+  vlm_model?: string;
+  vlm_frame_prompt_zh?: string;
+  vlm_frame_prompt_en?: string;
+  vlm_concurrency?: number;
+  vlm_rpm?: number;
 }
 
 export interface GuestCooldownResponse {

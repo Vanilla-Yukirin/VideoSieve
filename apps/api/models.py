@@ -86,6 +86,16 @@ class SystemSettingsResponse(ApiModel):
 
     guest_mode_enabled: bool
     guest_allow_cookie_input: bool
+    # VLM configuration (mutable via PATCH)
+    vlm_base_url: str
+    vlm_model: str
+    vlm_frame_prompt_zh: str
+    vlm_frame_prompt_en: str
+    vlm_concurrency: int
+    vlm_rpm: int
+    # VLM prompt defaults (read-only, always reflects code constants)
+    vlm_frame_prompt_zh_default: str
+    vlm_frame_prompt_en_default: str
 
 
 class PublicAccessFlagsResponse(ApiModel):
@@ -99,10 +109,28 @@ class SystemSettingsPatchRequest(ApiModel):
 
     guest_mode_enabled: bool | None = None
     guest_allow_cookie_input: bool | None = None
+    vlm_base_url: str | None = None
+    vlm_model: str | None = None
+    vlm_frame_prompt_zh: str | None = None
+    vlm_frame_prompt_en: str | None = None
+    vlm_concurrency: int | None = None
+    vlm_rpm: int | None = None
 
     @model_validator(mode="after")
     def validate_non_empty_patch(self) -> SystemSettingsPatchRequest:
-        if self.guest_mode_enabled is None and self.guest_allow_cookie_input is None:
+        if all(
+            v is None
+            for v in [
+                self.guest_mode_enabled,
+                self.guest_allow_cookie_input,
+                self.vlm_base_url,
+                self.vlm_model,
+                self.vlm_frame_prompt_zh,
+                self.vlm_frame_prompt_en,
+                self.vlm_concurrency,
+                self.vlm_rpm,
+            ]
+        ):
             raise ValueError("at least one settings field must be provided")
         return self
 

@@ -6,6 +6,11 @@ import { useI18n } from "@/lib/i18n/I18nProvider";
 
 // ── Raw data types (from JSONL files) ────────────────────────────────────────
 
+interface FrameSummaryRecord {
+  frame_id: string;
+  description_text: string;
+}
+
 interface TranscriptSegment {
   segment_id: string;
   start: number;
@@ -129,6 +134,7 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [frameSummaries, setFrameSummaries] = useState<Map<string, string>>(new Map());
 
   // When the job transitions to succeeded, reset so Tab 0 re-fetches
   useEffect(() => {
@@ -136,6 +142,14 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
       setLoadState("idle");
     }
   }, [jobStatus, loadState]);
+
+  // While job is running and transcript not yet available, retry every 5 s
+  useEffect(() => {
+    if (loadState !== "not_found") return;
+    if (jobStatus !== "running") return;
+    const timer = setTimeout(() => setLoadState("idle"), 5000);
+    return () => clearTimeout(timer);
+  }, [loadState, jobStatus]);
 
   // Fetch transcript + keyframes when Tab 0 is first activated
   useEffect(() => {
@@ -164,6 +178,55 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
       })
       .catch(() => setLoadState("error"));
   }, [activeTab, jobId, loadState]);
+
+  // Fetch frame_summary.jsonl once the primary timeline is loaded
+  useEffect(() => {
+    if (loadState !== "ok") return;
+
+    fetchJsonl<FrameSummaryRecord>(
+      `/api/jobs/${jobId}/artifacts/download/frame_summary/frame_summary.jsonl`,
+    )
+      .then((records) => {
+        if (!records) return; // 404 = no VLM run, silently skip
+        const map = new Map<string, string>();
+        for (const r of records) {
+          if (r.description_text && !r.description_text.startsWith("[offline frame summary]")) {
+            map.set(r.frame_id, r.description_text);
+          }
+        }
+        setFrameSummaries(map);
+      })
+      .catch(() => {
+        // Non-critical — silently ignore errors
+      });
+  }, [jobId, loadState]);
+
+  // While job is running, poll frame_summary.jsonl every 4 s to pick up new descriptions
+  useEffect(() => {
+    if (loadState !== "ok") return;
+    if (jobStatus !== "running") return;
+
+    const interval = setInterval(() => {
+      fetchJsonl<FrameSummaryRecord>(
+        `/api/jobs/${jobId}/artifacts/download/frame_summary/frame_summary.jsonl`,
+      )
+        .then((records) => {
+          if (!records) return;
+          setFrameSummaries((prev) => {
+            const next = new Map(prev);
+            for (const r of records) {
+              if (r.description_text && !r.description_text.startsWith("[offline frame summary]")) {
+                next.set(r.frame_id, r.description_text);
+              }
+            }
+            return next;
+          });
+        })
+        .catch(() => {});
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [jobId, loadState, jobStatus]);
 
   const tabs: string[] = [
     t("deliverables.tabRaw"),
@@ -195,7 +258,7 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
       {/* Tab panels */}
       <div className="pt-4">
         {activeTab === 0 && (
-          <RawTranscriptPanel timeline={timeline} loadState={loadState} />
+          <RawTranscriptPanel timeline={timeline} loadState={loadState} frameSummaries={frameSummaries} />
         )}
         {activeTab === 1 && <PlaceholderPanel message={t("deliverables.polishedPlaceholder")} />}
         {activeTab === 2 && <PlaceholderPanel message={t("deliverables.summaryPlaceholder")} />}
@@ -209,9 +272,11 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
 function RawTranscriptPanel({
   timeline,
   loadState,
+  frameSummaries,
 }: {
   timeline: TimelineItem[] | null;
   loadState: LoadState;
+  frameSummaries: Map<string, string>;
 }) {
   const { t } = useI18n();
 
@@ -236,7 +301,10 @@ function RawTranscriptPanel({
     <div className="space-y-2 max-h-[640px] overflow-y-auto pr-1">
       {items.map((item) =>
         item.kind === "frame" ? (
-          <FrameCard key={`frame-${item.id}`} item={item} />
+          <FrameCard
+            key={`frame-${item.id}`}
+            item={{ ...item, description: frameSummaries.get(item.id) }}
+          />
         ) : (
           <SegmentCard key={`seg-${item.id}`} item={item} />
         ),

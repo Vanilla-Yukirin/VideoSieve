@@ -47,6 +47,15 @@ export type MessageKey =
   | "settings.saved"
   | "settings.load"
   | "settings.guestCookieKeyRequired"
+  | "settings.vlmSection"
+  | "settings.vlmBaseUrl"
+  | "settings.vlmModel"
+  | "settings.vlmApiKeyHint"
+  | "settings.vlmPromptZh"
+  | "settings.vlmPromptEn"
+  | "settings.vlmPromptReset"
+  | "settings.vlmConcurrency"
+  | "settings.vlmRpm"
   | "project.newJob"
   | "project.cookie"
   | "project.cookieNone"
@@ -243,6 +252,15 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.saved": "设置已保存。",
     "settings.load": "正在加载设置...",
     "settings.guestCookieKeyRequired": "无法开启游客 Cookie 输入：服务端必须配置 GUEST_COOKIE_KEY。",
+    "settings.vlmSection": "视觉语言模型（VLM）",
+    "settings.vlmBaseUrl": "API 端点",
+    "settings.vlmModel": "模型名称",
+    "settings.vlmApiKeyHint": "API Key 在服务端 .env 中配置（QWEN_API_KEY），不在此设置。",
+    "settings.vlmPromptZh": "帧描述提示词（中文）",
+    "settings.vlmPromptEn": "帧描述提示词（英文）",
+    "settings.vlmPromptReset": "重置为默认",
+    "settings.vlmConcurrency": "最大并发请求数",
+    "settings.vlmRpm": "每分钟请求上限（RPM，0 = 不限速）",
     "project.newJob": "新任务",
     "project.cookie": "Cookie",
     "project.cookieNone": "不使用 Cookie",
@@ -436,6 +454,15 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.saved": "Settings saved.",
     "settings.load": "Loading settings...",
     "settings.guestCookieKeyRequired": "Cannot enable guest cookie input: GUEST_COOKIE_KEY is required on the server.",
+    "settings.vlmSection": "Vision Language Model (VLM)",
+    "settings.vlmBaseUrl": "API Endpoint",
+    "settings.vlmModel": "Model Name",
+    "settings.vlmApiKeyHint": "API Key is configured in the server .env (QWEN_API_KEY) — not set here.",
+    "settings.vlmPromptZh": "Frame Prompt (Chinese)",
+    "settings.vlmPromptEn": "Frame Prompt (English)",
+    "settings.vlmPromptReset": "Reset to default",
+    "settings.vlmConcurrency": "Max Concurrent Requests",
+    "settings.vlmRpm": "Requests per Minute (RPM, 0 = unlimited)",
     "project.newJob": "New Job",
     "project.cookie": "Cookie",
     "project.cookieNone": "Do not use cookie",

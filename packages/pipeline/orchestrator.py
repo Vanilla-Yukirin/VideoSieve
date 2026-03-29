@@ -33,6 +33,14 @@ from .control import ControlAckPayload, evaluate_control_command
 from .events import publish_event
 from .models import STAGE_SEQUENCE, STAGE_WEIGHTS, PipelineRunResult
 
+# VLM setting keys — must match apps/api/service.py constants exactly
+_SETTING_VLM_BASE_URL = "vlm_base_url"
+_SETTING_VLM_MODEL = "vlm_model"
+_SETTING_VLM_FRAME_PROMPT_ZH = "vlm_frame_prompt_zh"
+_SETTING_VLM_FRAME_PROMPT_EN = "vlm_frame_prompt_en"
+_SETTING_VLM_CONCURRENCY = "vlm_concurrency"
+_SETTING_VLM_RPM = "vlm_rpm"
+
 
 @dataclass(slots=True)
 class _SafetySignal(Exception):
@@ -474,10 +482,29 @@ class PipelineOrchestrator:
             return
 
         if stage is StageName.FRAME_SUMMARY:
-            FrameSummaryService(self._workspace, provider=QwenFrameSummaryProvider()).run(
+            FrameSummaryService(
+                self._workspace,
+                provider=QwenFrameSummaryProvider(
+                    endpoint=self._read_vlm_str(
+                        _SETTING_VLM_BASE_URL,
+                        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    ),
+                    model=self._read_vlm_str(_SETTING_VLM_MODEL, "qwen3.5-plus"),
+                    prompt_zh=self._read_vlm_str(
+                        _SETTING_VLM_FRAME_PROMPT_ZH,
+                        QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH,
+                    ),
+                    prompt_en=self._read_vlm_str(
+                        _SETTING_VLM_FRAME_PROMPT_EN,
+                        QwenFrameSummaryProvider.DEFAULT_PROMPT_EN,
+                    ),
+                ),
+            ).run(
                 project_id,
                 job_id,
                 language_hint=language_hint,
+                concurrency=self._read_vlm_int(_SETTING_VLM_CONCURRENCY, 5),
+                rpm=self._read_vlm_int(_SETTING_VLM_RPM, 30),
             )
             return
 
@@ -490,6 +517,28 @@ class PipelineOrchestrator:
             return
 
         raise ValueError(f"unsupported stage: {stage.value}")
+
+    def _read_vlm_str(self, key: str, default: str) -> str:
+        """Read a VLM string setting from the repository, falling back to default."""
+        raw = self._repository.get_setting(key)
+        if raw is None:
+            return default
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, str) and parsed.strip() else default
+        except Exception:
+            return default
+
+    def _read_vlm_int(self, key: str, default: int) -> int:
+        """Read a VLM integer setting from the repository, falling back to default."""
+        raw = self._repository.get_setting(key)
+        if raw is None:
+            return default
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, int) and not isinstance(parsed, bool) else default
+        except Exception:
+            return default
 
     def _publish_stage_changed(self, project_id: str, job_id: str, stage: StageName) -> None:
         self._publish_log(

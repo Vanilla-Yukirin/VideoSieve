@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import urllib.error
 import urllib.request
 from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from infra.interfaces import WorkspaceStore
@@ -14,8 +17,47 @@ from infra.interfaces import WorkspaceStore
 from .providers import FrameSummaryProvider, FrameSummaryResult
 
 
+class _RpmLimiter:
+    """Sliding-window rate limiter: at most ``rpm`` calls per 60 seconds.
+
+    Pass ``rpm <= 0`` to disable rate limiting entirely.
+    """
+
+    def __init__(self, rpm: int) -> None:
+        self._rpm = rpm
+        self._timestamps: list[float] = []
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        if self._rpm <= 0:
+            return
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                cutoff = now - 60.0
+                self._timestamps = [t for t in self._timestamps if t > cutoff]
+                if len(self._timestamps) < self._rpm:
+                    self._timestamps.append(now)
+                    return
+                wait_until = self._timestamps[0] + 60.0
+                wait = wait_until - now
+            if wait > 0:
+                time.sleep(wait + 0.05)
+
+
 class QwenFrameSummaryProvider:
     """Qwen-compatible provider for free-text frame summaries."""
+
+    # Built-in default prompts — also used as fallback when DB value is empty
+    DEFAULT_PROMPT_ZH = (
+        "请直接用自然语言回答，不要JSON。"
+        "请对当前画面做一段完整描述，优先覆盖主要内容、上方区域信息、下方区域信息、可见文字和图示关系。"
+    )
+    DEFAULT_PROMPT_EN = (
+        "Respond in plain natural language, not JSON. "
+        "Give a complete frame description, including main content, upper area details, "
+        "lower area details, visible text, and diagram relationships."
+    )
 
     def __init__(
         self,
@@ -24,6 +66,8 @@ class QwenFrameSummaryProvider:
         endpoint: str | None = None,
         model: str | None = None,
         timeout_seconds: float | None = None,
+        prompt_zh: str | None = None,
+        prompt_en: str | None = None,
     ) -> None:
         self._api_key = (api_key or os.getenv("QWEN_API_KEY") or "").strip()
         self._endpoint = (
@@ -34,6 +78,8 @@ class QwenFrameSummaryProvider:
         self._model = model or os.getenv("VLM_MODEL") or "qwen3.5-plus"
         raw_timeout = timeout_seconds or float(os.getenv("VLM_TIMEOUT_SECONDS", "60"))
         self._timeout_seconds = max(5.0, raw_timeout)
+        self._prompt_zh = prompt_zh or None
+        self._prompt_en = prompt_en or None
 
     @property
     def adapter_name(self) -> str:
@@ -42,15 +88,8 @@ class QwenFrameSummaryProvider:
     def _build_prompt(self, *, language_hint: str | None) -> str:
         lang = (language_hint or "zh").strip().lower()
         if lang.startswith("zh"):
-            return (
-                "请直接用自然语言回答，不要JSON。"
-                "请对当前画面做一段完整描述，优先覆盖主要内容、上方区域信息、下方区域信息、可见文字和图示关系。"
-            )
-        return (
-            "Respond in plain natural language, not JSON. "
-            "Give a complete frame description, including main content, upper area details, "
-            "lower area details, visible text, and diagram relationships."
-        )
+            return self._prompt_zh or self.DEFAULT_PROMPT_ZH
+        return self._prompt_en or self.DEFAULT_PROMPT_EN
 
     @staticmethod
     def _image_data_url(image_path: Path) -> str:
@@ -168,30 +207,60 @@ class FrameSummaryService:
         self._provider = provider
 
     def run(
-        self, project_id: str, job_id: str, *, language_hint: str | None = None
+        self,
+        project_id: str,
+        job_id: str,
+        *,
+        language_hint: str | None = None,
+        concurrency: int = 5,
+        rpm: int = 30,
     ) -> list[FrameSummaryResult]:
         self._workspace_store.ensure_job_layout(project_id, job_id)
 
         keyframes_file = self._workspace_store.keyframes_file(project_id, job_id)
+        out_path = self._workspace_store.frame_summary_file(project_id, job_id)
+
         if not keyframes_file.exists():
-            self._write_jsonl(self._workspace_store.frame_summary_file(project_id, job_id), [])
+            self._write_jsonl(out_path, [])
             return []
 
-        results: list[FrameSummaryResult] = []
+        keyframes: list[dict[str, object]] = []
         with keyframes_file.open("r", encoding="utf-8") as handle:
             for line in handle:
-                payload = json.loads(line)
-                frame_id = payload["frame_id"]
-                image_path = Path(payload["path"])
-                results.append(
-                    self._provider.summarize_frame(
-                        frame_id,
-                        image_path,
-                        language_hint=language_hint,
-                    )
-                )
+                line = line.strip()
+                if line:
+                    keyframes.append(json.loads(line))
 
-        self._write_jsonl(self._workspace_store.frame_summary_file(project_id, job_id), results)
+        if not keyframes:
+            self._write_jsonl(out_path, [])
+            return []
+
+        limiter = _RpmLimiter(rpm)
+        file_lock = threading.Lock()
+        results: list[FrameSummaryResult] = []
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("", encoding="utf-8")  # create / clear before streaming
+
+        with out_path.open("a", encoding="utf-8") as outfile:
+
+            def _process_and_write(kf_payload: dict) -> FrameSummaryResult:
+                frame_id = str(kf_payload["frame_id"])
+                image_path = Path(str(kf_payload["path"]))
+                limiter.acquire()
+                record = self._provider.summarize_frame(
+                    frame_id, image_path, language_hint=language_hint
+                )
+                with file_lock:
+                    outfile.write(json.dumps(record.to_json(), ensure_ascii=False) + "\n")
+                    outfile.flush()
+                return record
+
+            with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+                futures = [pool.submit(_process_and_write, kf) for kf in keyframes]
+                for fut in as_completed(futures):
+                    results.append(fut.result())
+
         return results
 
     @staticmethod

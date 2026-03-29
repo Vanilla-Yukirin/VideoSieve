@@ -277,11 +277,11 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         return get_auth_me(_control_plane(request), _token(request))
 
     @app.get("/settings/system")
-    async def get_settings(request: Request) -> dict[str, bool]:
+    async def get_settings(request: Request) -> dict[str, object]:
         return get_system_settings(_control_plane(request), _token(request))
 
     @app.patch("/settings/system")
-    async def patch_settings(request: Request, payload: dict[str, Any]) -> dict[str, bool]:
+    async def patch_settings(request: Request, payload: dict[str, Any]) -> dict[str, object]:
         return patch_system_settings(_control_plane(request), _token(request), payload)
 
     @app.get("/guest/cooldown")

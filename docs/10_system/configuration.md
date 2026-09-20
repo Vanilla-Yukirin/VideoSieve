@@ -51,6 +51,9 @@ worker 解析 secret 后不得把值写回快照、事件或错误。
 | Overall summary | 独立 LLM、提示词版本和上下文预算 | 必须实际总结完整材料，不允许截取／拼接片段冒充摘要 |
 
 测试中的 fake/mock 由依赖注入提供，不能成为生产配置默认值或未知 provider 的兜底。
+设置页选择 provider，transport 由 adapter 决定。当前 `CapsWriter（WS）` 固定使用
+官方 WebSocket；未来的 HTTP ASR API 作为新的 provider adapter 接入，不增加全局
+HTTP／WS 切换项。
 
 ## 4. 创建和执行时校验
 

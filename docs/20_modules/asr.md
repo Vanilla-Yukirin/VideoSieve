@@ -25,6 +25,10 @@
 - 未知、空、`mock`、`baseline` 或已删除的 `funasr_local` 明确拒绝；
 - 测试替身位于 `tests/support.py`，不属于生产包。
 
+下拉框选择 provider，不单独暴露 transport 开关。协议由 adapter 自己封装：
+`CapsWriter（WS）` 固定使用官方 WebSocket；未来接入普通 HTTP ASR API 时新增对应
+provider adapter 和选项，不改变 CapsWriter 的协议。
+
 ## Params
 
 - WebSocket endpoint、language、context 和 timeout；

@@ -75,7 +75,7 @@ VIDEOSIEVE_ASR_TIMEOUT_SECONDS=900
 # CAPSWRITER_TOKEN=only-if-your-server-requires-it
 ```
 
-也可在 Web 的“系统设置”中选择“CapsWriter 服务端”。适配器使用上游原版的根
+也可在 Web 的“系统设置”中选择“CapsWriter（WS）”。适配器使用上游原版的根
 WebSocket 协议。原版 CapsWriter 不要求 Token，只有自建服务启用鉴权时才设置
 `CAPSWRITER_TOKEN`。该值只由 worker 环境读取，不进入 SQLite、任务快照或浏览器。
 

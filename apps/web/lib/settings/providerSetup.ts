@@ -1,4 +1,19 @@
-import { SystemSettingsPatchRequest } from "../api/types";
+import type { SystemSettingsPatchRequest, SystemSettingsResponse } from "../api/types";
+
+type ProviderSetupStatus = Pick<
+  SystemSettingsResponse,
+  "asr_provider" | "asr_endpoint" | "vlm_base_url" | "vlm_model" | "vlm_api_key_configured"
+>;
+
+export function isProviderSetupComplete(settings: ProviderSetupStatus): boolean {
+  return (
+    settings.asr_provider === "capswriter" &&
+    Boolean(settings.asr_endpoint.trim()) &&
+    Boolean(settings.vlm_base_url.trim()) &&
+    Boolean(settings.vlm_model.trim()) &&
+    settings.vlm_api_key_configured
+  );
+}
 
 export interface ProviderSetupValues {
   asrEndpoint: string;

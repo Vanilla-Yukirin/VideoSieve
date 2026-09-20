@@ -10,9 +10,10 @@ import {
   setGuestSessionActive,
   setSessionToken,
 } from "@/lib/auth/session";
-import { canShowGuestEntry } from "@/lib/auth/helpers";
+import { canShowGuestEntry, resolveLandingRoute } from "@/lib/auth/helpers";
 import { Button } from "@/components/Button";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { isProviderSetupComplete } from "@/lib/settings/providerSetup";
 
 export default function LoginPage() {
   const { t } = useI18n();
@@ -38,7 +39,16 @@ export default function LoginPage() {
         if (token) {
           try {
             await api.getAuthMe(token);
-            router.replace("/");
+            const settings = await api.getSystemSettings(token);
+            router.replace(
+              resolveLandingRoute({
+                bootstrapRequired: false,
+                hasToken: true,
+                tokenValid: true,
+                guestSessionActive: false,
+                providerSetupComplete: isProviderSetupComplete(settings),
+              }),
+            );
             return;
           } catch {
             clearSessionToken();
@@ -74,7 +84,16 @@ export default function LoginPage() {
       const response = await api.loginAuth({ username: username.trim(), password });
       setGuestSessionActive(false);
       setSessionToken(response.token);
-      router.replace("/");
+      const settings = await api.getSystemSettings(response.token);
+      router.replace(
+        resolveLandingRoute({
+          bootstrapRequired: false,
+          hasToken: true,
+          tokenValid: true,
+          guestSessionActive: false,
+          providerSetupComplete: isProviderSetupComplete(settings),
+        }),
+      );
     } catch (unknownError) {
       if (unknownError instanceof ApiClientError && unknownError.code === "invalid_credentials") {
         setError(t("login.invalid"));

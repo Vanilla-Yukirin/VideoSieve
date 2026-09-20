@@ -1,9 +1,11 @@
 import {
   buildProviderSetupPatch,
+  isProviderSetupComplete,
   ProviderSetupValues,
   validateProviderSetup,
 } from "./providerSetup";
 import { api } from "../api/client";
+import { resolveLandingRoute } from "../auth/helpers";
 
 const validValues: ProviderSetupValues = {
   asrEndpoint: " ws://127.0.0.1:6016 ",
@@ -20,6 +22,48 @@ const validValues: ProviderSetupValues = {
 };
 
 describe("provider setup helpers", () => {
+  const completeSettings = {
+    asr_provider: "capswriter" as const,
+    asr_endpoint: "ws://127.0.0.1:6016",
+    vlm_base_url: "https://example.test/v1/chat/completions",
+    vlm_model: "vision-model",
+    vlm_api_key_configured: true,
+  };
+
+  it("requires CapsWriter and a configured VLM credential before setup is complete", () => {
+    expect(isProviderSetupComplete(completeSettings)).toBe(true);
+    expect(isProviderSetupComplete({ ...completeSettings, asr_provider: "unconfigured" })).toBe(
+      false,
+    );
+    expect(isProviderSetupComplete({ ...completeSettings, asr_endpoint: "  " })).toBe(false);
+    expect(isProviderSetupComplete({ ...completeSettings, vlm_base_url: "" })).toBe(false);
+    expect(isProviderSetupComplete({ ...completeSettings, vlm_model: "" })).toBe(false);
+    expect(isProviderSetupComplete({ ...completeSettings, vlm_api_key_configured: false })).toBe(
+      false,
+    );
+  });
+
+  it("routes incomplete admins to setup while leaving guest routing unchanged", () => {
+    expect(
+      resolveLandingRoute({
+        bootstrapRequired: false,
+        hasToken: true,
+        tokenValid: true,
+        guestSessionActive: false,
+        providerSetupComplete: false,
+      }),
+    ).toBe("/setup");
+    expect(
+      resolveLandingRoute({
+        bootstrapRequired: false,
+        hasToken: false,
+        tokenValid: false,
+        guestSessionActive: true,
+        providerSetupComplete: false,
+      }),
+    ).toBe("/");
+  });
+
   it("requires the mandatory ASR and VLM fields", () => {
     expect(validateProviderSetup({ ...validValues, asrEndpoint: "" })).toBe(
       "asr_endpoint_required",

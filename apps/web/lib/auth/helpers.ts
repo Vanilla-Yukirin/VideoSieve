@@ -7,9 +7,12 @@ export function resolveLandingRoute(input: {
   hasToken: boolean;
   tokenValid: boolean;
   guestSessionActive: boolean;
+  providerSetupComplete?: boolean;
 }): LandingRoute {
   if (input.bootstrapRequired) return "/setup";
-  if (input.hasToken && input.tokenValid) return "/";
+  if (input.hasToken && input.tokenValid) {
+    return input.providerSetupComplete === false ? "/setup" : "/";
+  }
   if (input.guestSessionActive) return "/";
   return "/login";
 }

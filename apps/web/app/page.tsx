@@ -17,6 +17,7 @@ import { resolveLandingRoute } from "@/lib/auth/helpers";
 import { ApiClientError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/lib/toast/ToastProvider";
+import { isProviderSetupComplete } from "@/lib/settings/providerSetup";
 
 export default function Home() {
   const { t } = useI18n();
@@ -35,12 +36,14 @@ export default function Home() {
         const token = getSessionToken();
         const hasToken = Boolean(token);
         let tokenValid = false;
+        let providerSetupComplete = false;
 
         if (hasToken) {
           try {
             await api.getAuthMe(token);
             tokenValid = true;
             setGuestSessionActive(false);
+            providerSetupComplete = isProviderSetupComplete(await api.getSystemSettings(token));
           } catch {
             clearSessionToken();
             tokenValid = false;
@@ -52,6 +55,7 @@ export default function Home() {
           hasToken,
           tokenValid,
           guestSessionActive: isGuestSessionActive(),
+          providerSetupComplete,
         });
 
         if (target !== "/") {

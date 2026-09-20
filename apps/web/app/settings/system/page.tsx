@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { ApiClientError, api } from "@/lib/api/client";
+import type { SystemSettingsPatchRequest } from "@/lib/api/types";
 import {
   clearSessionToken,
   getSessionToken,
@@ -35,6 +36,8 @@ export default function SystemSettingsPage() {
   const [asrContext, setAsrContext] = useState("");
   const [asrTimeoutSeconds, setAsrTimeoutSeconds] = useState(900);
   const [asrTokenConfigured, setAsrTokenConfigured] = useState(false);
+  const [asrToken, setAsrToken] = useState("");
+  const [clearAsrToken, setClearAsrToken] = useState(false);
 
   // VLM config (mutable)
   const [vlmBaseUrl, setVlmBaseUrl] = useState("");
@@ -43,6 +46,9 @@ export default function SystemSettingsPage() {
   const [vlmRpm, setVlmRpm] = useState(30);
   const [vlmPromptZh, setVlmPromptZh] = useState("");
   const [vlmPromptEn, setVlmPromptEn] = useState("");
+  const [vlmApiKeyConfigured, setVlmApiKeyConfigured] = useState(false);
+  const [vlmApiKey, setVlmApiKey] = useState("");
+  const [clearVlmApiKey, setClearVlmApiKey] = useState(false);
 
   // VLM prompt defaults (read-only, for Reset button)
   const [vlmPromptZhDefault, setVlmPromptZhDefault] = useState("");
@@ -54,6 +60,9 @@ export default function SystemSettingsPage() {
   const [summaryPromptZh, setSummaryPromptZh] = useState("");
   const [summaryPromptEn, setSummaryPromptEn] = useState("");
   const [summaryMaxInputChars, setSummaryMaxInputChars] = useState(24000);
+  const [summaryApiKeyConfigured, setSummaryApiKeyConfigured] = useState(false);
+  const [summaryApiKey, setSummaryApiKey] = useState("");
+  const [clearSummaryApiKey, setClearSummaryApiKey] = useState(false);
   const [summaryPromptZhDefault, setSummaryPromptZhDefault] = useState("");
   const [summaryPromptEnDefault, setSummaryPromptEnDefault] = useState("");
 
@@ -78,6 +87,7 @@ export default function SystemSettingsPage() {
           setAsrContext(settings.asr_context);
           setAsrTimeoutSeconds(settings.asr_timeout_seconds);
           setAsrTokenConfigured(settings.asr_token_configured);
+          setVlmApiKeyConfigured(settings.vlm_api_key_configured);
           setVlmBaseUrl(settings.vlm_base_url);
           setVlmModel(settings.vlm_model);
           setVlmConcurrency(settings.vlm_concurrency);
@@ -91,6 +101,7 @@ export default function SystemSettingsPage() {
           setSummaryPromptZh(settings.summary_prompt_zh);
           setSummaryPromptEn(settings.summary_prompt_en);
           setSummaryMaxInputChars(settings.summary_max_input_chars);
+          setSummaryApiKeyConfigured(settings.summary_api_key_configured);
           setSummaryPromptZhDefault(settings.summary_prompt_zh_default);
           setSummaryPromptEnDefault(settings.summary_prompt_en_default);
         }
@@ -125,7 +136,7 @@ export default function SystemSettingsPage() {
     setError(null);
     setMessage(null);
     try {
-      const settings = await api.patchSystemSettings(token, {
+      const patch: SystemSettingsPatchRequest = {
         guest_mode_enabled: guestModeEnabled,
         guest_allow_cookie_input: guestAllowCookieInput,
         asr_provider: asrProvider,
@@ -144,7 +155,14 @@ export default function SystemSettingsPage() {
         summary_prompt_zh: summaryPromptZh,
         summary_prompt_en: summaryPromptEn,
         summary_max_input_chars: summaryMaxInputChars,
-      });
+        ...(asrToken.trim() ? { asr_token: asrToken.trim() } : {}),
+        ...(vlmApiKey.trim() ? { vlm_api_key: vlmApiKey.trim() } : {}),
+        ...(summaryApiKey.trim() ? { summary_api_key: summaryApiKey.trim() } : {}),
+        ...(clearAsrToken ? { clear_asr_token: true } : {}),
+        ...(clearVlmApiKey ? { clear_vlm_api_key: true } : {}),
+        ...(clearSummaryApiKey ? { clear_summary_api_key: true } : {}),
+      };
+      const settings = await api.patchSystemSettings(token, patch);
       setGuestModeEnabled(settings.guest_mode_enabled);
       setGuestAllowCookieInput(settings.guest_allow_cookie_input);
       setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
@@ -154,6 +172,11 @@ export default function SystemSettingsPage() {
       setAsrContext(settings.asr_context);
       setAsrTimeoutSeconds(settings.asr_timeout_seconds);
       setAsrTokenConfigured(settings.asr_token_configured);
+      setAsrToken("");
+      setClearAsrToken(false);
+      setVlmApiKeyConfigured(settings.vlm_api_key_configured);
+      setVlmApiKey("");
+      setClearVlmApiKey(false);
       setVlmBaseUrl(settings.vlm_base_url);
       setVlmModel(settings.vlm_model);
       setVlmConcurrency(settings.vlm_concurrency);
@@ -167,6 +190,9 @@ export default function SystemSettingsPage() {
       setSummaryPromptZh(settings.summary_prompt_zh);
       setSummaryPromptEn(settings.summary_prompt_en);
       setSummaryMaxInputChars(settings.summary_max_input_chars);
+      setSummaryApiKeyConfigured(settings.summary_api_key_configured);
+      setSummaryApiKey("");
+      setClearSummaryApiKey(false);
       setSummaryPromptZhDefault(settings.summary_prompt_zh_default);
       setSummaryPromptEnDefault(settings.summary_prompt_en_default);
       setMessage(t("settings.saved"));
@@ -314,8 +340,48 @@ export default function SystemSettingsPage() {
                   />
                 </div>
 
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium" htmlFor="asr-token">
+                      {t("settings.asrToken")}
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      {asrTokenConfigured
+                        ? t("settings.credentialConfigured")
+                        : t("settings.credentialNotConfigured")}
+                    </span>
+                  </div>
+                  <input
+                    id="asr-token"
+                    type="password"
+                    autoComplete="new-password"
+                    className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                    value={asrToken}
+                    onChange={(event) => setAsrToken(event.target.value)}
+                    placeholder={t("settings.credentialPlaceholder")}
+                    disabled={saving || clearAsrToken}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("settings.asrTokenHint")}</p>
+                  {asrTokenConfigured ? (
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={clearAsrToken}
+                        onChange={(event) => {
+                          setClearAsrToken(event.target.checked);
+                          if (event.target.checked) setAsrToken("");
+                        }}
+                        disabled={saving}
+                      />
+                      {t("settings.clearCredential")}
+                    </label>
+                  ) : null}
+                  {clearAsrToken ? (
+                    <p className="text-xs text-destructive">{t("settings.clearCredentialMarked")}</p>
+                  ) : null}
+                </div>
+
                 <p className="text-xs text-muted-foreground">
-                  {t("settings.asrTokenHint")} {" "}
                   {asrTokenConfigured
                     ? t("settings.asrTokenConfigured")
                     : t("settings.asrTokenNotConfigured")}
@@ -355,7 +421,46 @@ export default function SystemSettingsPage() {
               />
             </div>
 
-            <p className="text-xs text-muted-foreground">{t("settings.vlmApiKeyHint")}</p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium" htmlFor="vlm-api-key">
+                  {t("settings.vlmApiKey")}
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {vlmApiKeyConfigured
+                    ? t("settings.credentialConfigured")
+                    : t("settings.credentialNotConfigured")}
+                </span>
+              </div>
+              <input
+                id="vlm-api-key"
+                type="password"
+                autoComplete="new-password"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={vlmApiKey}
+                onChange={(event) => setVlmApiKey(event.target.value)}
+                placeholder={t("settings.credentialPlaceholder")}
+                disabled={saving || clearVlmApiKey}
+              />
+              <p className="text-xs text-muted-foreground">{t("settings.vlmApiKeyHint")}</p>
+              {vlmApiKeyConfigured ? (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={clearVlmApiKey}
+                    onChange={(event) => {
+                      setClearVlmApiKey(event.target.checked);
+                      if (event.target.checked) setVlmApiKey("");
+                    }}
+                    disabled={saving}
+                  />
+                  {t("settings.clearCredential")}
+                </label>
+              ) : null}
+              {clearVlmApiKey ? (
+                <p className="text-xs text-destructive">{t("settings.clearCredentialMarked")}</p>
+              ) : null}
+            </div>
 
             <div className="flex gap-4">
               <div className="flex-1 space-y-1">
@@ -453,7 +558,46 @@ export default function SystemSettingsPage() {
               />
             </div>
 
-            <p className="text-xs text-muted-foreground">{t("settings.summaryApiKeyHint")}</p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium" htmlFor="summary-api-key">
+                  {t("settings.summaryApiKey")}
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {summaryApiKeyConfigured
+                    ? t("settings.credentialConfigured")
+                    : t("settings.credentialNotConfigured")}
+                </span>
+              </div>
+              <input
+                id="summary-api-key"
+                type="password"
+                autoComplete="new-password"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={summaryApiKey}
+                onChange={(event) => setSummaryApiKey(event.target.value)}
+                placeholder={t("settings.credentialPlaceholder")}
+                disabled={saving || clearSummaryApiKey}
+              />
+              <p className="text-xs text-muted-foreground">{t("settings.summaryApiKeyHint")}</p>
+              {summaryApiKeyConfigured ? (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={clearSummaryApiKey}
+                    onChange={(event) => {
+                      setClearSummaryApiKey(event.target.checked);
+                      if (event.target.checked) setSummaryApiKey("");
+                    }}
+                    disabled={saving}
+                  />
+                  {t("settings.clearCredential")}
+                </label>
+              ) : null}
+              {clearSummaryApiKey ? (
+                <p className="text-xs text-destructive">{t("settings.clearCredentialMarked")}</p>
+              ) : null}
+            </div>
 
             <div className="space-y-1">
               <label className="block text-sm font-medium">
@@ -515,6 +659,7 @@ export default function SystemSettingsPage() {
           </CardContent>
         </Card>
 
+        <p className="text-xs text-muted-foreground">{t("settings.connectionNotVerified")}</p>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {message ? <p className="text-sm text-green-700">{message}</p> : null}
 

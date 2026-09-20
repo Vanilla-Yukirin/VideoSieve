@@ -26,6 +26,24 @@ export type MessageKey =
   | "setup.checking"
   | "setup.required"
   | "setup.already"
+  | "setup.stepAccount"
+  | "setup.stepProviders"
+  | "setup.providerTitle"
+  | "setup.providerDesc"
+  | "setup.continue"
+  | "setup.finish"
+  | "setup.apiUnavailable"
+  | "setup.retry"
+  | "setup.savedNotVerified"
+  | "setup.summaryOptional"
+  | "setup.summaryEnable"
+  | "setup.asrEndpointRequired"
+  | "setup.vlmBaseUrlRequired"
+  | "setup.vlmModelRequired"
+  | "setup.vlmApiKeyRequired"
+  | "setup.summaryBaseUrlRequired"
+  | "setup.summaryModelRequired"
+  | "setup.summaryApiKeyRequired"
   | "login.title"
   | "login.desc"
   | "login.username"
@@ -61,11 +79,13 @@ export type MessageKey =
   | "settings.asrTokenHint"
   | "settings.asrTokenConfigured"
   | "settings.asrTokenNotConfigured"
+  | "settings.asrToken"
   | "settings.asrUnconfiguredHint"
   | "settings.vlmSection"
   | "settings.vlmBaseUrl"
   | "settings.vlmModel"
   | "settings.vlmApiKeyHint"
+  | "settings.vlmApiKey"
   | "settings.vlmPromptZh"
   | "settings.vlmPromptEn"
   | "settings.vlmPromptReset"
@@ -75,6 +95,14 @@ export type MessageKey =
   | "settings.summaryBaseUrl"
   | "settings.summaryModel"
   | "settings.summaryApiKeyHint"
+  | "settings.summaryApiKey"
+  | "settings.credentialConfigured"
+  | "settings.credentialNotConfigured"
+  | "settings.credentialPlaceholder"
+  | "settings.credentialKeepHint"
+  | "settings.clearCredential"
+  | "settings.clearCredentialMarked"
+  | "settings.connectionNotVerified"
   | "settings.summaryPromptZh"
   | "settings.summaryPromptEn"
   | "settings.summaryMaxInputChars"
@@ -265,6 +293,24 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.checking": "正在检查初始化状态...",
     "setup.required": "用户名和密码不能为空。",
     "setup.already": "系统已初始化，请直接登录。",
+    "setup.stepAccount": "第 1 步，共 2 步 · 管理员账号",
+    "setup.stepProviders": "第 2 步，共 2 步 · 处理服务",
+    "setup.providerTitle": "配置处理服务",
+    "setup.providerDesc": "填写 CapsWriter 和视觉模型配置。整体摘要服务可稍后配置。",
+    "setup.continue": "创建账号并继续",
+    "setup.finish": "保存配置并开始使用",
+    "setup.apiUnavailable": "无法连接 VideoSieve API。请确认 API 已启动后重试。",
+    "setup.retry": "重新检查",
+    "setup.savedNotVerified": "这里只保存配置，当前版本尚未提供连接测试。首次任务仍是实际服务验收。",
+    "setup.summaryOptional": "整体摘要（选填）",
+    "setup.summaryEnable": "现在配置整体摘要服务",
+    "setup.asrEndpointRequired": "请填写 CapsWriter WebSocket 地址。",
+    "setup.vlmBaseUrlRequired": "请填写视觉模型 API 端点。",
+    "setup.vlmModelRequired": "请填写视觉模型名称。",
+    "setup.vlmApiKeyRequired": "请填写视觉模型 API Key，或保留已有密钥。",
+    "setup.summaryBaseUrlRequired": "请填写摘要模型 API 端点。",
+    "setup.summaryModelRequired": "请填写摘要模型名称。",
+    "setup.summaryApiKeyRequired": "请填写摘要模型 API Key，或保留已有密钥。",
     "login.title": "登录",
     "login.desc": "登录后可管理设置并提交不受游客限制的任务。",
     "login.username": "用户名",
@@ -297,14 +343,16 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.asrLanguage": "语言（auto 表示自动）",
     "settings.asrTimeout": "超时时间（秒）",
     "settings.asrContext": "识别上下文（选填）",
-    "settings.asrTokenHint": "Token 为选填项；如服务端要求鉴权，请在服务端 .env 设置 CAPSWRITER_TOKEN。",
+    "settings.asrTokenHint": "Token 为选填项，仅在 CapsWriter 服务要求鉴权时填写。",
     "settings.asrTokenConfigured": "当前已配置 Token。",
     "settings.asrTokenNotConfigured": "当前未配置 Token，原版 CapsWriter 可直接使用。",
+    "settings.asrToken": "CapsWriter Token",
     "settings.asrUnconfiguredHint": "未配置时，任务会明确失败并提示先选择 ASR 服务。",
     "settings.vlmSection": "视觉语言模型（VLM）",
     "settings.vlmBaseUrl": "API 端点",
     "settings.vlmModel": "模型名称",
-    "settings.vlmApiKeyHint": "API Key 在服务端 .env 中配置（QWEN_API_KEY），不在此设置。",
+    "settings.vlmApiKeyHint": "API Key 会加密保存，页面不会回显原值。",
+    "settings.vlmApiKey": "视觉模型 API Key",
     "settings.vlmPromptZh": "帧描述提示词（中文）",
     "settings.vlmPromptEn": "帧描述提示词（英文）",
     "settings.vlmPromptReset": "重置为默认",
@@ -313,7 +361,15 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.summarySection": "整体摘要模型（LLM）",
     "settings.summaryBaseUrl": "API 端点",
     "settings.summaryModel": "模型名称",
-    "settings.summaryApiKeyHint": "API Key 在服务端 .env 中配置（SUMMARY_API_KEY），不在此设置。",
+    "settings.summaryApiKeyHint": "API Key 会加密保存，页面不会回显原值。",
+    "settings.summaryApiKey": "摘要模型 API Key",
+    "settings.credentialConfigured": "已配置",
+    "settings.credentialNotConfigured": "未配置",
+    "settings.credentialPlaceholder": "留空则保留当前密钥",
+    "settings.credentialKeepHint": "输入新值会替换现有密钥；留空不会修改。",
+    "settings.clearCredential": "清除已保存的密钥",
+    "settings.clearCredentialMarked": "保存设置后将清除该密钥。",
+    "settings.connectionNotVerified": "保存配置不会验证连接；请通过实际任务确认服务可用。",
     "settings.summaryPromptZh": "整体摘要提示词（中文）",
     "settings.summaryPromptEn": "整体摘要提示词（英文）",
     "settings.summaryMaxInputChars": "单轮最大输入字符数",
@@ -501,6 +557,24 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.checking": "Checking setup status...",
     "setup.required": "Username and password are required.",
     "setup.already": "System is already initialized. Please login.",
+    "setup.stepAccount": "Step 1 of 2 · Admin account",
+    "setup.stepProviders": "Step 2 of 2 · Processing services",
+    "setup.providerTitle": "Configure processing services",
+    "setup.providerDesc": "Configure CapsWriter and the vision model. Overall summary can be added later.",
+    "setup.continue": "Create account and continue",
+    "setup.finish": "Save configuration and continue",
+    "setup.apiUnavailable": "Cannot reach the VideoSieve API. Start the API and try again.",
+    "setup.retry": "Check again",
+    "setup.savedNotVerified": "This saves configuration only. Connection tests are not available yet; the first job remains the real service check.",
+    "setup.summaryOptional": "Overall summary (optional)",
+    "setup.summaryEnable": "Configure the overall summary service now",
+    "setup.asrEndpointRequired": "Enter the CapsWriter WebSocket endpoint.",
+    "setup.vlmBaseUrlRequired": "Enter the vision model API endpoint.",
+    "setup.vlmModelRequired": "Enter the vision model name.",
+    "setup.vlmApiKeyRequired": "Enter the vision model API key or keep the existing key.",
+    "setup.summaryBaseUrlRequired": "Enter the summary model API endpoint.",
+    "setup.summaryModelRequired": "Enter the summary model name.",
+    "setup.summaryApiKeyRequired": "Enter the summary model API key or keep the existing key.",
     "login.title": "Login",
     "login.desc": "Sign in to manage settings and submit unrestricted jobs.",
     "login.username": "Username",
@@ -533,14 +607,16 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.asrLanguage": "Language (auto for detection)",
     "settings.asrTimeout": "Timeout (seconds)",
     "settings.asrContext": "Recognition context (optional)",
-    "settings.asrTokenHint": "The token is optional. Set CAPSWRITER_TOKEN in the server .env only when the service requires authentication.",
+    "settings.asrTokenHint": "The token is optional and only needed when the CapsWriter service requires authentication.",
     "settings.asrTokenConfigured": "A token is currently configured.",
     "settings.asrTokenNotConfigured": "No token is configured; upstream CapsWriter works without one.",
+    "settings.asrToken": "CapsWriter token",
     "settings.asrUnconfiguredHint": "Jobs fail explicitly and ask for ASR configuration while no provider is selected.",
     "settings.vlmSection": "Vision Language Model (VLM)",
     "settings.vlmBaseUrl": "API Endpoint",
     "settings.vlmModel": "Model Name",
-    "settings.vlmApiKeyHint": "API Key is configured in the server .env (QWEN_API_KEY) — not set here.",
+    "settings.vlmApiKeyHint": "The API key is stored encrypted and is never shown again.",
+    "settings.vlmApiKey": "Vision model API key",
     "settings.vlmPromptZh": "Frame Prompt (Chinese)",
     "settings.vlmPromptEn": "Frame Prompt (English)",
     "settings.vlmPromptReset": "Reset to default",
@@ -549,7 +625,15 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.summarySection": "Overall Summary Model (LLM)",
     "settings.summaryBaseUrl": "API Endpoint",
     "settings.summaryModel": "Model Name",
-    "settings.summaryApiKeyHint": "API Key is configured in the server .env (SUMMARY_API_KEY), not stored here.",
+    "settings.summaryApiKeyHint": "The API key is stored encrypted and is never shown again.",
+    "settings.summaryApiKey": "Summary model API key",
+    "settings.credentialConfigured": "Configured",
+    "settings.credentialNotConfigured": "Not configured",
+    "settings.credentialPlaceholder": "Leave blank to keep the current credential",
+    "settings.credentialKeepHint": "Enter a new value to replace the saved credential; leave blank to keep it.",
+    "settings.clearCredential": "Clear saved credential",
+    "settings.clearCredentialMarked": "This credential will be cleared when you save settings.",
+    "settings.connectionNotVerified": "Saving does not verify connectivity; confirm the service with a real job.",
     "settings.summaryPromptZh": "Overall Summary Prompt (Chinese)",
     "settings.summaryPromptEn": "Overall Summary Prompt (English)",
     "settings.summaryMaxInputChars": "Maximum input characters per request",

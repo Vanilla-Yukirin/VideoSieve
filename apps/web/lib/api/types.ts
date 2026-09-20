@@ -108,6 +108,7 @@ export interface SystemSettingsResponse {
   asr_context: string;
   asr_timeout_seconds: number;
   asr_token_configured: boolean;
+  vlm_api_key_configured: boolean;
   vlm_base_url: string;
   vlm_model: string;
   vlm_frame_prompt_zh: string;
@@ -121,6 +122,7 @@ export interface SystemSettingsResponse {
   summary_prompt_zh: string;
   summary_prompt_en: string;
   summary_max_input_chars: number;
+  summary_api_key_configured: boolean;
   summary_prompt_zh_default: string;
   summary_prompt_en_default: string;
 }
@@ -133,14 +135,20 @@ export interface SystemSettingsPatchRequest {
   asr_language?: string;
   asr_context?: string;
   asr_timeout_seconds?: number;
+  asr_token?: string;
+  clear_asr_token?: boolean;
   vlm_base_url?: string;
   vlm_model?: string;
+  vlm_api_key?: string;
+  clear_vlm_api_key?: boolean;
   vlm_frame_prompt_zh?: string;
   vlm_frame_prompt_en?: string;
   vlm_concurrency?: number;
   vlm_rpm?: number;
   summary_base_url?: string;
   summary_model?: string;
+  summary_api_key?: string;
+  clear_summary_api_key?: boolean;
   summary_prompt_zh?: string;
   summary_prompt_en?: string;
   summary_max_input_chars?: number;

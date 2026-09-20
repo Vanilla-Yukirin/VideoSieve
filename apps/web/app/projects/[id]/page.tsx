@@ -64,6 +64,12 @@ export default function ProjectDetail() {
     () => api.listMeCookies()
   );
 
+  const resolvedCookieId = guestCookieDisabled
+    ? ""
+    : selectedCookieId && (cookies ?? []).some((cookie) => cookie.id === selectedCookieId)
+      ? selectedCookieId
+      : resolveDefaultCookieId(cookies ?? []);
+
   useEffect(() => {
     let cancelled = false;
     const loadPolicy = async () => {
@@ -98,23 +104,7 @@ export default function ProjectDetail() {
   }, [sessionToken, router]);
 
   useEffect(() => {
-    if (guestCookieDisabled) {
-      setSelectedCookieId("");
-      return;
-    }
-    if (!cookies || cookies.length === 0) {
-      setSelectedCookieId("");
-      return;
-    }
-    const hasSelected = cookies.some((cookie) => cookie.id === selectedCookieId);
-    if (!selectedCookieId || !hasSelected) {
-      setSelectedCookieId(resolveDefaultCookieId(cookies));
-    }
-  }, [cookies, selectedCookieId, guestCookieDisabled]);
-
-  useEffect(() => {
     if (!isGuest) {
-      setGuestCooldown(null);
       return;
     }
 
@@ -189,7 +179,7 @@ export default function ProjectDetail() {
       const candidateIngest = ingestParams
         ? {
             ...ingestParams,
-            ...(selectedCookieId.trim() ? { cookie_id: selectedCookieId.trim() } : {}),
+            ...(resolvedCookieId.trim() ? { cookie_id: resolvedCookieId.trim() } : {}),
           }
         : undefined;
       const ingestWithCookie = sanitizeIngestForSubmit(candidateIngest, {
@@ -296,7 +286,8 @@ export default function ProjectDetail() {
     await executeDeleteProject(false);
   };
 
-  const isGuestCooldownActive = isGuestCooldownBlocking(isGuest, guestCooldown);
+  const effectiveGuestCooldown = isGuest ? guestCooldown : null;
+  const isGuestCooldownActive = isGuestCooldownBlocking(isGuest, effectiveGuestCooldown);
 
   if (projectError) {
     return (
@@ -357,7 +348,7 @@ export default function ProjectDetail() {
                   onParamsReady={setIngestParams}
                   onLocalUpload={handleLocalUpload}
                   disabled={isCreatingJob}
-                  cookieId={guestCookieDisabled ? undefined : selectedCookieId}
+                  cookieId={guestCookieDisabled ? undefined : resolvedCookieId}
                 />
 
                 <div className="space-y-2">
@@ -367,7 +358,7 @@ export default function ProjectDetail() {
                   <select
                     id="cookie-select"
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    value={selectedCookieId}
+                    value={resolvedCookieId}
                     onChange={(e) => setSelectedCookieId(e.target.value)}
                     disabled={isCreatingJob || Boolean(cookiesError) || guestCookieDisabled}
                   >
@@ -412,7 +403,7 @@ export default function ProjectDetail() {
                         disabled={(!ingestParams?.source_url && !uploadFile) || isGuestCooldownActive || isDeletingProject}
                     >
                         {isGuestCooldownActive
-                          ? t("project.cooldown", { seconds: guestCooldown?.remaining_seconds ?? 0 })
+                          ? t("project.cooldown", { seconds: effectiveGuestCooldown?.remaining_seconds ?? 0 })
                           : t("project.start")}
                     </Button>
                 </div>

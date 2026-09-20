@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
@@ -149,7 +150,8 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   // When the job transitions to succeeded, reset so Tab 0 re-fetches
   useEffect(() => {
     if (jobStatus === "succeeded" && (loadState === "not_found" || loadState === "error")) {
-      setLoadState("idle");
+      const timer = window.setTimeout(() => setLoadState("idle"), 0);
+      return () => window.clearTimeout(timer);
     }
   }, [jobStatus, loadState]);
 
@@ -166,17 +168,17 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     if (activeTab !== 0) return;
     if (loadState !== "idle") return;
 
-    setLoadState("loading");
-
-    Promise.all([
-      fetchJsonl<TranscriptSegment>(
-        `/api/jobs/${jobId}/artifacts/download/asr/transcript.jsonl`,
-      ),
-      fetchJsonl<KeyframeRecord>(
-        `/api/jobs/${jobId}/artifacts/download/frames/keyframes.jsonl`,
-      ),
-    ])
-      .then(([segments, keyframes]) => {
+    const loadTimeline = async () => {
+      setLoadState("loading");
+      try {
+        const [segments, keyframes] = await Promise.all([
+          fetchJsonl<TranscriptSegment>(
+            `/api/jobs/${jobId}/artifacts/download/asr/transcript.jsonl`,
+          ),
+          fetchJsonl<KeyframeRecord>(
+            `/api/jobs/${jobId}/artifacts/download/frames/keyframes.jsonl`,
+          ),
+        ]);
         if (!segments) {
           // transcript not found yet → treat as not ready
           setLoadState("not_found");
@@ -185,8 +187,11 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
         const items = buildTimeline(segments, keyframes ?? [], jobId);
         setTimeline(items);
         setLoadState("ok");
-      })
-      .catch(() => setLoadState("error"));
+      } catch {
+        setLoadState("error");
+      }
+    };
+    void loadTimeline();
   }, [activeTab, jobId, loadState]);
 
   // Fetch frame_summary.jsonl once the primary timeline is loaded
@@ -240,9 +245,10 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
 
   useEffect(() => {
     if (activeTab !== 2 || summaryLoadState !== "idle") return;
-    setSummaryLoadState("loading");
-    fetch(`/api/jobs/${jobId}/artifacts/download/outputs/summary.json`)
-      .then(async (response) => {
+    const loadSummary = async () => {
+      setSummaryLoadState("loading");
+      try {
+        const response = await fetch(`/api/jobs/${jobId}/artifacts/download/outputs/summary.json`);
         if (response.status === 404) {
           setSummaryLoadState("not_found");
           return;
@@ -254,13 +260,17 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
         }
         setSummary(payload);
         setSummaryLoadState("ok");
-      })
-      .catch(() => setSummaryLoadState("error"));
+      } catch {
+        setSummaryLoadState("error");
+      }
+    };
+    void loadSummary();
   }, [activeTab, jobId, summaryLoadState]);
 
   useEffect(() => {
     if (jobStatus === "succeeded" && summaryLoadState === "not_found") {
-      setSummaryLoadState("idle");
+      const timer = window.setTimeout(() => setSummaryLoadState("idle"), 0);
+      return () => window.clearTimeout(timer);
     }
   }, [jobStatus, summaryLoadState]);
 
@@ -359,11 +369,13 @@ function FrameCard({ item }: { item: FrameItem }) {
     <div className="flex gap-4 p-3 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors">
       {/* Image */}
       <div className="shrink-0 w-40 md:w-52">
-        <img
+        <Image
           src={item.imageUrl}
           alt={item.id}
+          width={832}
+          height={468}
+          unoptimized
           className="w-full aspect-video object-cover rounded border border-border/40"
-          loading="lazy"
         />
       </div>
 

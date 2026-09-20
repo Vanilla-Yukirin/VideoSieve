@@ -15,7 +15,7 @@ interface ProjectCardProps {
 
 export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
   const { t } = useI18n();
-  const [autoRemoved, setAutoRemoved] = React.useState(false);
+  const autoRemoved = React.useRef(false);
   const { data: project, error, isLoading } = useSWR(
     projectId ? `/projects/${projectId}` : null,
     () => api.getProject(projectId)
@@ -23,11 +23,11 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
   const isNotFound = error instanceof ApiClientError && error.code === "not_found";
 
   React.useEffect(() => {
-    if (isNotFound && !autoRemoved) {
+    if (isNotFound && !autoRemoved.current) {
+      autoRemoved.current = true;
       onRemove(projectId);
-      setAutoRemoved(true);
     }
-  }, [isNotFound, autoRemoved, onRemove, projectId]);
+  }, [isNotFound, onRemove, projectId]);
 
   if (isLoading) {
     return (

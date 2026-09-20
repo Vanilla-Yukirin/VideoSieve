@@ -95,7 +95,7 @@ export default function SystemSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, t]);
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();

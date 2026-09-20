@@ -10,11 +10,14 @@ export function useProjectIndex() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
+        // The index belongs to browser storage and is intentionally hydrated after mount.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setProjectIds(JSON.parse(stored));
       } catch (e) {
         console.error("Failed to parse project index", e);
       }
     }
+    // Mark the client-only storage read complete, including the empty-index case.
     setIsLoaded(true);
   }, []);
 

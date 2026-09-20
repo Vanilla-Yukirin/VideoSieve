@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, KeyRound, Settings } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ToastProvider } from "@/lib/toast/ToastProvider";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -11,29 +11,31 @@ import { getSessionToken, SESSION_CHANGED_EVENT } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
+function subscribeToSession(listener: () => void): () => void {
+  window.addEventListener(SESSION_CHANGED_EVENT, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(SESSION_CHANGED_EVENT, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function getSessionSnapshot(): boolean {
+  return Boolean(getSessionToken());
+}
+
+function getServerSessionSnapshot(): boolean {
+  return false;
+}
+
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { t } = useI18n();
-  const [hasToken, setHasToken] = useState(false);
-
-  const syncHasToken = () => {
-    setHasToken(Boolean(getSessionToken()));
-  };
-
-  useEffect(() => {
-    syncHasToken();
-  }, [pathname]);
-
-  useEffect(() => {
-    syncHasToken();
-    window.addEventListener(SESSION_CHANGED_EVENT, syncHasToken);
-    window.addEventListener("storage", syncHasToken);
-
-    return () => {
-      window.removeEventListener(SESSION_CHANGED_EVENT, syncHasToken);
-      window.removeEventListener("storage", syncHasToken);
-    };
-  }, []);
+  const hasToken = useSyncExternalStore(
+    subscribeToSession,
+    getSessionSnapshot,
+    getServerSessionSnapshot,
+  );
 
   const isCompactPage = pathname.startsWith("/login") || pathname.startsWith("/setup");
 

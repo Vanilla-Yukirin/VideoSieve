@@ -292,7 +292,7 @@ def _gates(profile: str, evidence_path: Path | None) -> list[Callable[[], GateRe
         lambda: _node_script_gate(
             "frontend-lint",
             "node_modules/eslint/bin/eslint.js",
-            ["."],
+            [".", "--max-warnings=0"],
         ),
         lambda: _node_script_gate(
             "frontend-types",

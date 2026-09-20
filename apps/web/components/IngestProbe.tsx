@@ -96,6 +96,76 @@ type IngestProbeProps = {
   cookieId?: string;
 };
 
+type FormatSelectorProps = {
+  label: string;
+  hint?: string;
+  selectedVideo: string;
+  selectedAudio: string;
+  videoOptions: IngestFormatItem[];
+  audioOptions: IngestFormatItem[];
+  disabled: boolean;
+  onVideoChange: (value: string) => void;
+  onAudioChange: (value: string) => void;
+};
+
+function FormatSelector({
+  label,
+  hint,
+  selectedVideo,
+  selectedAudio,
+  videoOptions,
+  audioOptions,
+  disabled,
+  onVideoChange,
+  onAudioChange,
+}: FormatSelectorProps) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-3">
+        <div>
+          <div className="text-sm font-semibold">{label}</div>
+          {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-medium">{t("ingest.video")}</label>
+          <select
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            value={selectedVideo}
+            onChange={(event) => onVideoChange(event.target.value)}
+            disabled={disabled}
+          >
+            <option value="">{t("ingest.auto")}</option>
+            {videoOptions.map((format) => (
+              <option key={format.format_id} value={format.format_id}>
+                {format.format_id} | {format.resolution ?? "?"} | {format.fps ?? "-"}fps | {format.vcodec ?? "-"}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-medium">{t("ingest.audio")}</label>
+          <select
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            value={selectedAudio}
+            onChange={(event) => onAudioChange(event.target.value)}
+            disabled={disabled}
+          >
+            <option value="">{t("ingest.auto")}</option>
+            {audioOptions.map((format) => (
+              <option key={format.format_id} value={format.format_id}>
+                {format.format_id} | {format.acodec ?? "audio"} | {format.tbr?.toFixed(0) ?? "-"}k
+              </option>
+            ))}
+          </select>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, cookieId }: IngestProbeProps) {
   const { t } = useI18n();
   const [mode, setMode] = useState<"url" | "upload">("url");
@@ -183,66 +253,6 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
       setLoading(false);
     }
   };
-
-  // --- Format selector sub-component ---
-  const FormatSelector = ({
-    label,
-    hint,
-    selectedVideo: selVid,
-    selectedAudio: selAud,
-    onVideoChange,
-    onAudioChange,
-  }: {
-    label: string;
-    hint?: string;
-    selectedVideo: string;
-    selectedAudio: string;
-    onVideoChange: (value: string) => void;
-    onAudioChange: (value: string) => void;
-  }) => (
-    <Card>
-      <CardContent className="space-y-3 p-3">
-        <div>
-          <div className="text-sm font-semibold">{label}</div>
-          {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium">{t("ingest.video")}</label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            value={selVid}
-            onChange={(e) => onVideoChange(e.target.value)}
-            disabled={disabled}
-          >
-            <option value="">{t("ingest.auto")}</option>
-            {videoOptions.map((f) => (
-              <option key={f.format_id} value={f.format_id}>
-                {f.format_id} | {f.resolution ?? "?"} | {f.fps ?? "-"}fps | {f.vcodec ?? "-"}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-medium">{t("ingest.audio")}</label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            value={selAud}
-            onChange={(e) => onAudioChange(e.target.value)}
-            disabled={disabled}
-          >
-            <option value="">{t("ingest.auto")}</option>
-            {audioOptions.map((f) => (
-              <option key={f.format_id} value={f.format_id}>
-                {f.format_id} | {f.acodec ?? "audio"} | {f.tbr?.toFixed(0) ?? "-"}k
-              </option>
-            ))}
-          </select>
-        </div>
-      </CardContent>
-    </Card>
-  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -429,6 +439,9 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
             hint={t("ingest.analysisHint")}
             selectedVideo={analysisVideo}
             selectedAudio={analysisAudio}
+            videoOptions={videoOptions}
+            audioOptions={audioOptions}
+            disabled={disabled}
             onVideoChange={(v) => {
               setAnalysisVideo(v);
               emitParams(url, v, analysisAudio, qualityVideo, qualityAudio);
@@ -444,6 +457,9 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
             hint={t("ingest.qualityHint")}
             selectedVideo={qualityVideo}
             selectedAudio={qualityAudio}
+            videoOptions={videoOptions}
+            audioOptions={audioOptions}
+            disabled={disabled}
             onVideoChange={(v) => {
               setQualityVideo(v);
               emitParams(url, analysisVideo, analysisAudio, v, qualityAudio);

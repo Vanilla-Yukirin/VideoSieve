@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useJobRealtime } from "@/lib/hooks/useJobRealtime";
@@ -40,6 +41,7 @@ export default function JobDetail() {
   const params = useParams();
   const jobId = params.id as string;
   const state = useJobRealtime(jobId);
+  const sendCommand = state.sendCommand;
 
   // Calculate generic progress bar color
   const progressColor = 
@@ -126,7 +128,12 @@ export default function JobDetail() {
         }
         return;
       }
-      window.location.assign(keyframesZipUrl);
+      const anchor = document.createElement("a");
+      anchor.href = keyframesZipUrl;
+      anchor.download = `${jobId}-keyframes.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
     } catch {
       alert(t("job.keyframesZipDownloadFailed"));
     }
@@ -156,21 +163,23 @@ export default function JobDetail() {
     if (!deleteIntent) return;
 
     if (state.isMissing) {
-      setDeleteIntent(false);
-      return;
+      const timer = window.setTimeout(handleDeleted, 0);
+      return () => window.clearTimeout(timer);
     }
 
     if (deleteRetryCount >= 20) {
-      setDeleteIntent(false);
-      setDeleteRetryStopped(true);
-      pushToast({ level: "warning", message: t("control.deleteRetryMaxed") });
-      return;
+      const timer = window.setTimeout(() => {
+        setDeleteIntent(false);
+        setDeleteRetryStopped(true);
+        pushToast({ level: "warning", message: t("control.deleteRetryMaxed") });
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     const delayMs = deleteRetryCount < 3 ? 500 : deleteRetryCount < 8 ? 1000 : 2000;
     const timer = window.setTimeout(async () => {
       try {
-        const ack = await state.sendCommand("delete");
+        const ack = await sendCommand("delete");
         if (ack.reason === "job deleted") {
           handleDeleted();
           return;
@@ -190,7 +199,7 @@ export default function JobDetail() {
     pushToast,
     t,
     handleDeleted,
-    state.sendCommand,
+    sendCommand,
   ]);
   const showPrev = () => {
     setPreviewIndex((current) => {
@@ -321,7 +330,14 @@ export default function JobDetail() {
                       onClick={() => openPreview(index)}
                       className="group block overflow-hidden rounded border border-border/70 bg-muted/20"
                      >
-                       <img src={imageUrl} alt={artifact.path.split("/").pop() || t("job.keyframeAlt")} className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]" loading="lazy" />
+                       <Image
+                         src={imageUrl}
+                         alt={artifact.path.split("/").pop() || t("job.keyframeAlt")}
+                         width={640}
+                         height={360}
+                         unoptimized
+                         className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]"
+                       />
                      </button>
                    );
                  })}
@@ -415,9 +431,12 @@ export default function JobDetail() {
             className="relative w-full max-w-5xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <img
+            <Image
               src={activePreviewUrl}
               alt={activePreviewArtifact.path.split("/").pop() || t("job.keyframeAlt")}
+              width={1920}
+              height={1080}
+              unoptimized
               className="max-h-[82vh] w-full rounded-md object-contain"
             />
             <button

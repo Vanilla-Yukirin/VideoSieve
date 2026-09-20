@@ -42,6 +42,8 @@ export default function CookieVaultSettingsPage() {
 
   useEffect(() => {
     const cached = window.localStorage.getItem(VALIDATE_SOURCE_URL_STORAGE_KEY);
+    // Browser storage is unavailable during server rendering; hydrate this preference on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValidateSourceUrl(resolveInitialValidateSourceUrl(cached));
   }, []);
 

@@ -17,6 +17,7 @@ class ControlDecision:
     code: str | None = None
     reason: str | None = None
     target_status: JobStatus | None = None
+    request_pause: bool = False
     request_cancel: bool = False
     request_cleanup: bool = False
 
@@ -47,10 +48,15 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
 
     if command is ControlCommandType.PAUSE:
         if current is JobStatus.RUNNING:
-            return ControlDecision(command=command, accepted=True, target_status=JobStatus.PAUSED)
+            return ControlDecision(
+                command=command,
+                accepted=True,
+                request_pause=True,
+            )
         if current in {
             JobStatus.QUEUED,
             JobStatus.PAUSED,
+            JobStatus.INTERRUPTED,
             JobStatus.SUCCEEDED,
             JobStatus.FAILED,
             JobStatus.CANCELLED,
@@ -65,6 +71,8 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
     if command is ControlCommandType.RESUME:
         if current is JobStatus.PAUSED:
             return ControlDecision(command=command, accepted=True, target_status=JobStatus.RUNNING)
+        if current is JobStatus.INTERRUPTED:
+            return ControlDecision(command=command, accepted=True, target_status=JobStatus.QUEUED)
         if current is JobStatus.QUEUED:
             return ControlDecision(
                 command=command,
@@ -80,19 +88,16 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
         )
 
     if command is ControlCommandType.CANCEL:
-        if current in {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED}:
+        if current in {
+            JobStatus.QUEUED,
+            JobStatus.RUNNING,
+            JobStatus.PAUSED,
+            JobStatus.INTERRUPTED,
+        }:
             return ControlDecision(
                 command=command,
                 accepted=True,
-                target_status=JobStatus.CANCEL_REQUESTED,
                 request_cancel=True,
-            )
-        if current is JobStatus.CANCEL_REQUESTED:
-            return ControlDecision(
-                command=command,
-                accepted=True,
-                code=ALREADY_IN_TARGET_STATE,
-                reason="cancel is already requested",
             )
         return ControlDecision(
             command=command,
@@ -108,19 +113,11 @@ def evaluate_control_command(command: ControlCommandType, current: JobStatus) ->
                 accepted=True,
                 request_cleanup=True,
             )
-        if current is JobStatus.CANCEL_REQUESTED:
-            return ControlDecision(
-                command=command,
-                accepted=True,
-                code=DELETE_PENDING_CLEANUP,
-                reason="delete accepted, waiting for terminal state before cleanup",
-            )
         return ControlDecision(
             command=command,
             accepted=True,
             code=DELETE_PENDING_CLEANUP,
             reason="delete accepted, waiting for terminal state before cleanup",
-            target_status=JobStatus.CANCEL_REQUESTED,
             request_cancel=True,
         )
 

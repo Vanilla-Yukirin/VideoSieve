@@ -38,6 +38,15 @@ export default function SystemSettingsPage() {
   const [vlmPromptZhDefault, setVlmPromptZhDefault] = useState("");
   const [vlmPromptEnDefault, setVlmPromptEnDefault] = useState("");
 
+  // Overall summary uses a separate text-model endpoint and credential.
+  const [summaryBaseUrl, setSummaryBaseUrl] = useState("");
+  const [summaryModel, setSummaryModel] = useState("");
+  const [summaryPromptZh, setSummaryPromptZh] = useState("");
+  const [summaryPromptEn, setSummaryPromptEn] = useState("");
+  const [summaryMaxInputChars, setSummaryMaxInputChars] = useState(24000);
+  const [summaryPromptZhDefault, setSummaryPromptZhDefault] = useState("");
+  const [summaryPromptEnDefault, setSummaryPromptEnDefault] = useState("");
+
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -61,6 +70,13 @@ export default function SystemSettingsPage() {
           setVlmPromptEn(settings.vlm_frame_prompt_en);
           setVlmPromptZhDefault(settings.vlm_frame_prompt_zh_default);
           setVlmPromptEnDefault(settings.vlm_frame_prompt_en_default);
+          setSummaryBaseUrl(settings.summary_base_url);
+          setSummaryModel(settings.summary_model);
+          setSummaryPromptZh(settings.summary_prompt_zh);
+          setSummaryPromptEn(settings.summary_prompt_en);
+          setSummaryMaxInputChars(settings.summary_max_input_chars);
+          setSummaryPromptZhDefault(settings.summary_prompt_zh_default);
+          setSummaryPromptEnDefault(settings.summary_prompt_en_default);
         }
       } catch (unknownError) {
         if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
@@ -102,6 +118,11 @@ export default function SystemSettingsPage() {
         vlm_rpm: vlmRpm,
         vlm_frame_prompt_zh: vlmPromptZh,
         vlm_frame_prompt_en: vlmPromptEn,
+        summary_base_url: summaryBaseUrl,
+        summary_model: summaryModel,
+        summary_prompt_zh: summaryPromptZh,
+        summary_prompt_en: summaryPromptEn,
+        summary_max_input_chars: summaryMaxInputChars,
       });
       setGuestModeEnabled(settings.guest_mode_enabled);
       setGuestAllowCookieInput(settings.guest_allow_cookie_input);
@@ -114,6 +135,13 @@ export default function SystemSettingsPage() {
       setVlmPromptEn(settings.vlm_frame_prompt_en);
       setVlmPromptZhDefault(settings.vlm_frame_prompt_zh_default);
       setVlmPromptEnDefault(settings.vlm_frame_prompt_en_default);
+      setSummaryBaseUrl(settings.summary_base_url);
+      setSummaryModel(settings.summary_model);
+      setSummaryPromptZh(settings.summary_prompt_zh);
+      setSummaryPromptEn(settings.summary_prompt_en);
+      setSummaryMaxInputChars(settings.summary_max_input_chars);
+      setSummaryPromptZhDefault(settings.summary_prompt_zh_default);
+      setSummaryPromptEnDefault(settings.summary_prompt_en_default);
       setMessage(t("settings.saved"));
     } catch (unknownError) {
       if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
@@ -271,6 +299,95 @@ export default function SystemSettingsPage() {
                 className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm font-mono resize-y"
                 value={vlmPromptEn}
                 onChange={(e) => setVlmPromptEn(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("settings.summarySection")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">{t("settings.summaryBaseUrl")}</label>
+              <input
+                type="text"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={summaryBaseUrl}
+                onChange={(event) => setSummaryBaseUrl(event.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">{t("settings.summaryModel")}</label>
+              <input
+                type="text"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={summaryModel}
+                onChange={(event) => setSummaryModel(event.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">{t("settings.summaryApiKeyHint")}</p>
+
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">
+                {t("settings.summaryMaxInputChars")}
+              </label>
+              <input
+                type="number"
+                min={1000}
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={summaryMaxInputChars}
+                onChange={(event) =>
+                  setSummaryMaxInputChars(Math.max(1000, parseInt(event.target.value, 10) || 1000))
+                }
+                disabled={saving}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium">{t("settings.summaryPromptZh")}</label>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => setSummaryPromptZh(summaryPromptZhDefault)}
+                  disabled={saving}
+                >
+                  {t("settings.vlmPromptReset")}
+                </button>
+              </div>
+              <textarea
+                rows={4}
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm font-mono resize-y"
+                value={summaryPromptZh}
+                onChange={(event) => setSummaryPromptZh(event.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium">{t("settings.summaryPromptEn")}</label>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground underline"
+                  onClick={() => setSummaryPromptEn(summaryPromptEnDefault)}
+                  disabled={saving}
+                >
+                  {t("settings.vlmPromptReset")}
+                </button>
+              </div>
+              <textarea
+                rows={4}
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm font-mono resize-y"
+                value={summaryPromptEn}
+                onChange={(event) => setSummaryPromptEn(event.target.value)}
                 disabled={saving}
               />
             </div>

@@ -173,7 +173,9 @@ class FunASRLocalProvider(ASRProvider):
         )
 
         # Determine timestamp source for metadata
-        timestamp_source = "vad_timestamps_reconstruction" if vad_segments else "timestamps_fallback"
+        timestamp_source = (
+            "vad_timestamps_reconstruction" if vad_segments else "timestamps_fallback"
+        )
 
         metadata = {
             "adapter_name": self.adapter_name,
@@ -288,7 +290,7 @@ def _as_seconds(value: Any, *, default: float) -> float:
 
 
 def _as_float(value: Any, *, default: float) -> float:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     return default
 
@@ -296,7 +298,7 @@ def _as_float(value: Any, *, default: float) -> float:
 def _estimate_duration_from_timestamp(timestamp: Any, text: str) -> float:
     if isinstance(timestamp, list) and timestamp:
         last = timestamp[-1]
-        if isinstance(last, (list, tuple)) and len(last) >= 2:
+        if isinstance(last, list | tuple) and len(last) >= 2:
             end = _as_seconds(last[1], default=0.0)
             if end > 0:
                 return end

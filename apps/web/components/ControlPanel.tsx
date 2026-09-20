@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ControlCommandType } from "@/lib/api/types";
+import { ControlAck, ControlCommandType } from "@/lib/api/types";
 import { Button } from "./Button";
 import { Pause, Play, Square, Trash2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -7,12 +7,7 @@ import { useToast } from "@/lib/toast/ToastProvider";
 
 interface ControlPanelProps {
   status: string;
-  sendCommand: (command: ControlCommandType) => Promise<{
-    command: string;
-    accepted: boolean;
-    reason?: string;
-    code?: string;
-  }>;
+  sendCommand: (command: ControlCommandType) => Promise<ControlAck>;
   onDeleted?: () => void;
   onDeletePending?: () => void;
 }

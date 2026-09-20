@@ -35,8 +35,24 @@ class EventBus(ABC):
         """Publish one event envelope to a channel."""
 
     @abstractmethod
-    def subscribe(self, channel: str, handler: EventHandler) -> EventSubscription:
+    def subscribe(
+        self,
+        channel: str,
+        handler: EventHandler,
+        *,
+        after_cursor: int | None = None,
+    ) -> EventSubscription:
         """Subscribe to one channel and return an unsubscribe handle."""
+
+    @abstractmethod
+    def list_after(
+        self, channel: str, *, after_cursor: int, limit: int = 1000
+    ) -> list[InfraEvent]:
+        """Replay events after one monotonic cursor."""
+
+    @abstractmethod
+    def latest_cursor(self, channel: str) -> int:
+        """Return the latest cursor for one channel, or zero."""
 
     @abstractmethod
     def close(self) -> None:
@@ -103,6 +119,56 @@ class JobRepository(ABC):
     @abstractmethod
     def list_pending_delete_job_ids(self) -> list[str]:
         """List job ids that still have delete intent pending."""
+
+    @abstractmethod
+    def claim_next_job(self, worker_id: str) -> JobRecord | None:
+        """Atomically claim the oldest runnable job for one worker."""
+
+    @abstractmethod
+    def heartbeat_job(self, job_id: str, worker_id: str) -> bool:
+        """Refresh a job lease when it is still owned by the worker."""
+
+    @abstractmethod
+    def release_job_claim(self, job_id: str, worker_id: str) -> bool:
+        """Clear a worker claim when it is still owned by that worker."""
+
+    @abstractmethod
+    def mark_stale_jobs_interrupted(self, stale_before: datetime) -> list[str]:
+        """Mark stale claimed jobs interrupted without automatically rerunning them."""
+
+    @abstractmethod
+    def recover_interrupted_job(self, job_id: str) -> bool:
+        """Explicitly move an interrupted job back to the durable queue."""
+
+    @abstractmethod
+    def request_job_control(
+        self, job_id: str, command: str, *, request_id: str | None = None
+    ) -> int:
+        """Persist a control request and return its monotonically increasing version."""
+
+    @abstractmethod
+    def acknowledge_job_control(
+        self, job_id: str, worker_id: str, control_version: int
+    ) -> bool:
+        """Acknowledge one control version from the worker that owns the job."""
+
+    @abstractmethod
+    def acknowledge_unowned_job_control(self, job_id: str, control_version: int) -> bool:
+        """Acknowledge a control version when no worker owns or executes the job."""
+
+    @abstractmethod
+    def append_job_event(self, channel: str, event: InfraEvent) -> int:
+        """Persist one event and return its monotonic cursor."""
+
+    @abstractmethod
+    def list_job_events(
+        self, channel: str, *, after_event_id: int = 0, limit: int = 1000
+    ) -> list[InfraEvent]:
+        """List persisted events after one cursor."""
+
+    @abstractmethod
+    def latest_job_event_id(self, channel: str) -> int:
+        """Return the latest persisted cursor for one channel, or zero."""
 
     @abstractmethod
     def close(self) -> None:

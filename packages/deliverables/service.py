@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
-from contracts.models import SCHEMA_VERSION
 from infra.interfaces import WorkspaceStore
+from overall_summary import OverallSummaryService
 
 
 @dataclass(frozen=True)
@@ -17,16 +18,29 @@ class DeliverablesResult:
     job_id: str
     clean_transcript_path: str
     illustrated_notes_path: str
-    summary_path: str
+    summary_path: str | None
 
 
 class DeliverablesService:
     """Create MVP deliverables from timeline chunks."""
 
-    def __init__(self, workspace_store: WorkspaceStore) -> None:
+    def __init__(
+        self,
+        workspace_store: WorkspaceStore,
+        *,
+        overall_summary: OverallSummaryService | None = None,
+    ) -> None:
         self._workspace_store = workspace_store
+        self._overall_summary = overall_summary
 
-    def run(self, project_id: str, *, job_id: str) -> DeliverablesResult:
+    def run(
+        self,
+        project_id: str,
+        *,
+        job_id: str,
+        summary_enabled: bool = False,
+        language_hint: str | None = None,
+    ) -> DeliverablesResult:
         self._workspace_store.ensure_job_layout(project_id, job_id)
 
         timeline_path = self._workspace_store.timeline_file(project_id, job_id)
@@ -42,24 +56,40 @@ class DeliverablesService:
         if not isinstance(chunks, list):
             raise ValueError("timeline chunks must be a list")
 
-        clean_transcript_path.write_text(self._render_clean_transcript(chunks), encoding="utf-8")
-        illustrated_notes_path.write_text(self._render_illustrated_notes(chunks), encoding="utf-8")
+        if not any(
+            isinstance(chunk, dict) and str(chunk.get("text") or "").strip()
+            for chunk in chunks
+        ):
+            raise ValueError("DELIVERABLES_INPUT_EMPTY: timeline contains no transcript text")
 
-        summary_payload = {
-            "schema_version": SCHEMA_VERSION,
-            "title": f"Summary for {project_id}",
-            "summary": self._render_summary_text(chunks),
-        }
-        summary_path.write_text(
-            json.dumps(summary_payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        clean_transcript = self._render_clean_transcript(chunks)
+        illustrated_notes = self._render_illustrated_notes(chunks)
+        clean_transcript_path.unlink(missing_ok=True)
+        illustrated_notes_path.unlink(missing_ok=True)
+        summary_path.unlink(missing_ok=True)
+
+        if summary_enabled:
+            if self._overall_summary is None:
+                raise RuntimeError(
+                    "overall summary is enabled but no model-backed summary service is configured"
+                )
+            self._overall_summary.run(
+                project_id,
+                job_id=job_id,
+                language_hint=language_hint,
+            )
+        else:
+            summary_path.unlink(missing_ok=True)
+
+        self._write_text_atomic(clean_transcript_path, clean_transcript)
+        self._write_text_atomic(illustrated_notes_path, illustrated_notes)
 
         return DeliverablesResult(
             project_id=project_id,
             job_id=job_id,
             clean_transcript_path=str(clean_transcript_path),
             illustrated_notes_path=str(illustrated_notes_path),
-            summary_path=str(summary_path),
+            summary_path=str(summary_path) if summary_enabled else None,
         )
 
     @staticmethod
@@ -100,21 +130,18 @@ class DeliverablesService:
         return "\n".join(lines)
 
     @staticmethod
-    def _render_summary_text(chunks: list[object]) -> str:
-        texts: list[str] = []
-        for chunk in chunks:
-            if isinstance(chunk, dict):
-                text = str(chunk.get("text", "")).strip()
-                if text:
-                    texts.append(text)
-        if not texts:
-            return "No content available."
-        return " ".join(texts[:3])
-
-    @staticmethod
     def _to_slide_placeholder_name(frame_ref: str) -> str:
         if frame_ref.startswith("slide_"):
             return frame_ref
         if frame_ref.startswith("frame_"):
             return "slide_" + frame_ref[len("frame_") :]
         return frame_ref
+
+    @staticmethod
+    def _write_text_atomic(path: Path, content: str) -> None:
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)

@@ -27,8 +27,13 @@ export interface ArtifactItem {
 export interface JobSnapshot {
   project_id: string;
   job_id: string;
+  state_version: number;
   status: string;
   current_stage: string | null;
+  requested_action: string | null;
+  control_phase: "accepted" | "applied" | null;
+  control_request_id: string | null;
+  attempt: number;
   progress: number;
   latest_logs: string[];
   artifacts: ArtifactItem[];
@@ -37,6 +42,10 @@ export interface JobSnapshot {
 export interface ControlAck {
   command: string;
   accepted: boolean;
+  phase?: "accepted" | "applied" | "rejected" | "failed";
+  confirmed?: boolean;
+  execution_state?: string;
+  requested_action?: string | null;
   reason?: string;
   code?: string;
   request_id?: string;
@@ -101,6 +110,13 @@ export interface SystemSettingsResponse {
   vlm_rpm: number;
   vlm_frame_prompt_zh_default: string;
   vlm_frame_prompt_en_default: string;
+  summary_base_url: string;
+  summary_model: string;
+  summary_prompt_zh: string;
+  summary_prompt_en: string;
+  summary_max_input_chars: number;
+  summary_prompt_zh_default: string;
+  summary_prompt_en_default: string;
 }
 
 export interface SystemSettingsPatchRequest {
@@ -112,6 +128,11 @@ export interface SystemSettingsPatchRequest {
   vlm_frame_prompt_en?: string;
   vlm_concurrency?: number;
   vlm_rpm?: number;
+  summary_base_url?: string;
+  summary_model?: string;
+  summary_prompt_zh?: string;
+  summary_prompt_en?: string;
+  summary_max_input_chars?: number;
 }
 
 export interface GuestCooldownResponse {

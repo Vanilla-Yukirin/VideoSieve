@@ -16,8 +16,13 @@ export type Action =
 export const initialState: RealtimeState = {
   project_id: "",
   job_id: "",
+  state_version: 0,
   status: "unknown",
   current_stage: null,
+  requested_action: null,
+  control_phase: null,
+  control_request_id: null,
+  attempt: 0,
   progress: 0,
   latest_logs: [],
   artifacts: [],
@@ -63,6 +68,16 @@ export function jobReducer(state: RealtimeState, action: Action): RealtimeState 
         return {
           ...state,
           current_stage: payload.to,
+        };
+      }
+      if (eventType === "job_state_changed") {
+        return {
+          ...state,
+          status: typeof payload.to === "string" ? payload.to : state.status,
+          current_stage:
+            typeof payload.stage === "string" || payload.stage === null
+              ? payload.stage
+              : state.current_stage,
         };
       }
       if (eventType === "snapshot") {

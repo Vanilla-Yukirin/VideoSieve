@@ -14,6 +14,8 @@ def publish_event(
     job_id: str,
     event_type: str,
     payload: dict[str, object],
+    state_version: int | None = None,
+    request_id: str | None = None,
 ) -> None:
     """Publish one job-scoped event envelope."""
 
@@ -25,5 +27,7 @@ def publish_event(
             job_id=job_id,
             payload=payload,
             ts=datetime.now(UTC).isoformat(),
+            state_version=state_version,
+            request_id=request_id,
         ),
     )

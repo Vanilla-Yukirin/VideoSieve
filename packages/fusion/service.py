@@ -165,7 +165,7 @@ class FusionService:
 
     @staticmethod
     def _to_float(value: object) -> float:
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return float(value)
         if isinstance(value, str):
             return float(value)

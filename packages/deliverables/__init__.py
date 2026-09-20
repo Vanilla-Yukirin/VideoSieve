@@ -1,5 +1,5 @@
 """Deliverables generation package."""
 
-from .service import DeliverablesService
+from .service import DeliverablesResult, DeliverablesService
 
-__all__ = ["DeliverablesService"]
+__all__ = ["DeliverablesResult", "DeliverablesService"]

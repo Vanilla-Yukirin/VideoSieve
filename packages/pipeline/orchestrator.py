@@ -8,9 +8,9 @@ import time
 from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from asr import ASRProvider, BaselineASRProvider, write_transcript_jsonl
+from asr import ASRProvider, write_transcript_jsonl
 from contracts import ControlCommandType, JobStatus, StageName
 from core import apply_job_transition
 from deliverables import DeliverablesService
@@ -27,19 +27,18 @@ from keyframes import (
     build_images_zip,
     write_images_for_records,
 )
+from overall_summary import OpenAICompatibleSummaryProvider, OverallSummaryService
 
 from .checkpoint import CheckpointStore
 from .control import ControlAckPayload, evaluate_control_command
 from .events import publish_event
 from .models import STAGE_SEQUENCE, STAGE_WEIGHTS, PipelineRunResult
 
-# VLM setting keys — must match apps/api/service.py constants exactly
-_SETTING_VLM_BASE_URL = "vlm_base_url"
-_SETTING_VLM_MODEL = "vlm_model"
-_SETTING_VLM_FRAME_PROMPT_ZH = "vlm_frame_prompt_zh"
-_SETTING_VLM_FRAME_PROMPT_EN = "vlm_frame_prompt_en"
-_SETTING_VLM_CONCURRENCY = "vlm_concurrency"
-_SETTING_VLM_RPM = "vlm_rpm"
+_DEFAULT_SUMMARY_BASE_URL = (
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+)
+_DEFAULT_SUMMARY_MODEL = "qwen-plus"
+_DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24_000
 
 
 @dataclass(slots=True)
@@ -56,12 +55,14 @@ class PipelineOrchestrator:
         repository: JobRepository,
         workspace: WorkspaceStore,
         event_bus: EventBus,
-        asr_provider: ASRProvider | None = None,
+        asr_provider: ASRProvider,
+        worker_id: str | None = None,
     ) -> None:
         self._repository = repository
         self._workspace = workspace
         self._event_bus = event_bus
-        self._asr_provider = asr_provider or BaselineASRProvider()
+        self._asr_provider = asr_provider
+        self._worker_id = worker_id
         self._checkpoint_store = CheckpointStore(workspace)
         self._pending_pause: set[str] = set()
         self._pending_cancel: set[str] = set()
@@ -84,6 +85,7 @@ class PipelineOrchestrator:
         """Run or rerun one job with checkpoint support."""
 
         self._workspace.ensure_project_layout(project_id)
+        job_config = self._load_job_config(project_id, job_id)
         checkpoint = self._checkpoint_store.load(project_id, job_id)
         checkpoint.reused_until_stage = None
 
@@ -123,13 +125,27 @@ class PipelineOrchestrator:
                         tags=tags or [],
                         language_hint=language_hint,
                         duration_seconds=duration_seconds,
+                        job_config=job_config,
                     )
                 except _SafetySignal:
                     raise
                 except Exception as exc:
+                    # Providers may surface cooperative cancellation as their own
+                    # domain exception. Re-check persisted control before treating
+                    # that exception as a stage failure.
+                    self._safety_point(project_id, job_id)
                     checkpoint.stage_statuses[stage.value] = "failed"
                     self._checkpoint_store.save(checkpoint)
-                    self._set_job_status(project_id, job_id, JobStatus.FAILED, stage=stage)
+                    error_code = str(getattr(exc, "code", "PIPELINE_STAGE_FAILED"))
+                    retryable = bool(getattr(exc, "retryable", False))
+                    self._set_job_status(
+                        project_id,
+                        job_id,
+                        JobStatus.FAILED,
+                        stage=stage,
+                        error_code=error_code,
+                        error_message=str(exc),
+                    )
                     self._publish_log(
                         project_id,
                         job_id,
@@ -146,8 +162,9 @@ class PipelineOrchestrator:
                         event_type="error",
                         payload={
                             "stage": stage.value,
-                            "code": "PIPELINE_STAGE_FAILED",
+                            "code": error_code,
                             "message": str(exc),
+                            "retryable": retryable,
                         },
                     )
                     raise
@@ -196,6 +213,15 @@ class PipelineOrchestrator:
                     reused_until_stage=checkpoint.reused_until_stage,
                 )
 
+            if signal.kind == JobStatus.INTERRUPTED.value:
+                return PipelineRunResult(
+                    project_id=project_id,
+                    job_id=job_id,
+                    status=JobStatus.INTERRUPTED.value,
+                    completed_stages=completed,
+                    reused_until_stage=checkpoint.reused_until_stage,
+                )
+
             self._set_job_status(
                 project_id,
                 job_id,
@@ -227,7 +253,7 @@ class PipelineOrchestrator:
         if (
             command is ControlCommandType.PAUSE
             and decision.accepted
-            and decision.target_status is not None
+            and decision.request_pause
         ):
             self._pending_pause.add(job_id)
         if command is ControlCommandType.DELETE:
@@ -257,10 +283,27 @@ class PipelineOrchestrator:
         return payload
 
     def _safety_point(self, project_id: str, job_id: str) -> None:
-        current = _to_job_status(self._job_status(job_id))
+        job = self._repository.get_job(job_id)
+        if job is None:
+            raise ValueError(f"job not found: {job_id}")
+        if self._worker_id is not None and not self._repository.heartbeat_job(
+            job_id, self._worker_id
+        ):
+            raise _SafetySignal(JobStatus.INTERRUPTED.value)
+        current = _to_job_status(job.status)
+        pending_command = (
+            job.control_command if job.control_version > job.control_ack_version else None
+        )
 
-        if current is JobStatus.CANCEL_REQUESTED:
+        if pending_command == ControlCommandType.CANCEL.value:
+            acknowledged = self._acknowledge_control(job)
             self._set_job_status(project_id, job_id, JobStatus.CANCELLED, stage=None)
+            if acknowledged:
+                self._publish_control_confirmation(
+                    project_id,
+                    job,
+                    execution_state=JobStatus.CANCELLED,
+                )
             self._pending_cancel.discard(job_id)
             raise _SafetySignal(JobStatus.CANCELLED.value)
 
@@ -276,9 +319,65 @@ class PipelineOrchestrator:
             self._pending_cancel.discard(job_id)
             raise _SafetySignal(JobStatus.CANCELLED.value)
 
-        if job_id in self._pending_pause and current is JobStatus.RUNNING:
+        if (
+            pending_command == ControlCommandType.PAUSE.value
+            or (job_id in self._pending_pause and current is JobStatus.RUNNING)
+        ):
+            acknowledged = self._acknowledge_control(job)
+            self._set_job_status(
+                project_id,
+                job_id,
+                JobStatus.PAUSED,
+                stage=StageName(job.stage) if job.stage else None,
+            )
+            if acknowledged:
+                self._publish_control_confirmation(
+                    project_id,
+                    job,
+                    execution_state=JobStatus.PAUSED,
+                )
             self._pending_pause.discard(job_id)
             raise _SafetySignal(JobStatus.PAUSED.value)
+
+    def _acknowledge_control(self, job: JobRecord) -> bool:
+        if (
+            self._worker_id is None
+            or job.control_command is None
+            or job.control_version <= job.control_ack_version
+        ):
+            return False
+        return cast(
+            bool,
+            self._repository.acknowledge_job_control(
+                job.job_id,
+                self._worker_id,
+                job.control_version,
+            ),
+        )
+
+    def _publish_control_confirmation(
+        self,
+        project_id: str,
+        job: JobRecord,
+        *,
+        execution_state: JobStatus,
+    ) -> None:
+        publish_event(
+            self._event_bus,
+            project_id=project_id,
+            job_id=job.job_id,
+            event_type="control_ack",
+            payload={
+                "command": job.control_command,
+                "accepted": True,
+                "phase": "applied",
+                "confirmed": True,
+                "control_version": job.control_version,
+                "execution_state": execution_state.value,
+                "requested_action": None,
+            },
+            request_id=job.control_request_id,
+        )
 
     def _run_stage(
         self,
@@ -293,6 +392,7 @@ class PipelineOrchestrator:
         tags: list[str],
         language_hint: str | None,
         duration_seconds: float,
+        job_config: dict[str, Any],
     ) -> None:
         if stage is StageName.INGEST:
             last_download_log_at = 0.0
@@ -482,29 +582,33 @@ class PipelineOrchestrator:
             return
 
         if stage is StageName.FRAME_SUMMARY:
+            raw_frame_config = job_config.get("frame_summary")
+            if not isinstance(raw_frame_config, dict):
+                raise RuntimeError(
+                    "FRAME_SUMMARY_CONFIG_MISSING: immutable frame_summary config is missing"
+                )
             FrameSummaryService(
                 self._workspace,
                 provider=QwenFrameSummaryProvider(
-                    endpoint=self._read_vlm_str(
-                        _SETTING_VLM_BASE_URL,
-                        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    endpoint=_required_named_config_str(
+                        raw_frame_config,
+                        "base_url",
+                        error_prefix="FRAME_SUMMARY_CONFIG_MISSING",
                     ),
-                    model=self._read_vlm_str(_SETTING_VLM_MODEL, "qwen3.5-plus"),
-                    prompt_zh=self._read_vlm_str(
-                        _SETTING_VLM_FRAME_PROMPT_ZH,
-                        QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH,
+                    model=_required_named_config_str(
+                        raw_frame_config,
+                        "model",
+                        error_prefix="FRAME_SUMMARY_CONFIG_MISSING",
                     ),
-                    prompt_en=self._read_vlm_str(
-                        _SETTING_VLM_FRAME_PROMPT_EN,
-                        QwenFrameSummaryProvider.DEFAULT_PROMPT_EN,
-                    ),
+                    prompt_zh=_optional_config_str(raw_frame_config, "prompt_zh"),
+                    prompt_en=_optional_config_str(raw_frame_config, "prompt_en"),
                 ),
             ).run(
                 project_id,
                 job_id,
                 language_hint=language_hint,
-                concurrency=self._read_vlm_int(_SETTING_VLM_CONCURRENCY, 5),
-                rpm=self._read_vlm_int(_SETTING_VLM_RPM, 30),
+                concurrency=_positive_config_int(raw_frame_config, "concurrency", 5),
+                rpm=_nonnegative_config_int(raw_frame_config, "rpm", 30),
             )
             return
 
@@ -513,32 +617,50 @@ class PipelineOrchestrator:
             return
 
         if stage is StageName.DELIVERABLES:
-            DeliverablesService(self._workspace).run(project_id, job_id=job_id)
+            summary_enabled = job_config.get("summary_enabled") is True
+            summary_service: OverallSummaryService | None = None
+            if summary_enabled:
+                raw_summary_config = job_config.get("overall_summary")
+                if not isinstance(raw_summary_config, dict):
+                    raise RuntimeError(
+                        "OVERALL_SUMMARY_CONFIG_MISSING: "
+                        "immutable overall_summary config is missing"
+                    )
+                summary_service = OverallSummaryService(
+                    self._workspace,
+                    OpenAICompatibleSummaryProvider(
+                        base_url=_required_config_str(raw_summary_config, "base_url"),
+                        model=_required_config_str(raw_summary_config, "model"),
+                        prompt_zh=_optional_config_str(raw_summary_config, "prompt_zh"),
+                        prompt_en=_optional_config_str(raw_summary_config, "prompt_en"),
+                    ),
+                    max_input_chars=_positive_config_int(
+                        raw_summary_config,
+                        "max_input_chars",
+                        _DEFAULT_SUMMARY_MAX_INPUT_CHARS,
+                    ),
+                )
+            DeliverablesService(
+                self._workspace,
+                overall_summary=summary_service,
+            ).run(
+                project_id,
+                job_id=job_id,
+                summary_enabled=summary_enabled,
+                language_hint=language_hint,
+            )
             return
 
         raise ValueError(f"unsupported stage: {stage.value}")
 
-    def _read_vlm_str(self, key: str, default: str) -> str:
-        """Read a VLM string setting from the repository, falling back to default."""
-        raw = self._repository.get_setting(key)
-        if raw is None:
-            return default
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, str) and parsed.strip() else default
-        except Exception:
-            return default
-
-    def _read_vlm_int(self, key: str, default: int) -> int:
-        """Read a VLM integer setting from the repository, falling back to default."""
-        raw = self._repository.get_setting(key)
-        if raw is None:
-            return default
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, int) and not isinstance(parsed, bool) else default
-        except Exception:
-            return default
+    def _load_job_config(self, project_id: str, job_id: str) -> dict[str, Any]:
+        path = self._workspace.config_snapshot_file(project_id, job_id)
+        if not path.exists():
+            return {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("job config snapshot must be a JSON object")
+        return payload
 
     def _publish_stage_changed(self, project_id: str, job_id: str, stage: StageName) -> None:
         self._publish_log(
@@ -604,8 +726,15 @@ class PipelineOrchestrator:
         return str(job.status)
 
     def _is_cancel_requested(self, job_id: str) -> bool:
-        status = _to_job_status(self._job_status(job_id))
-        return status in {JobStatus.CANCEL_REQUESTED, JobStatus.CANCELLED}
+        job = self._repository.get_job(job_id)
+        if job is None:
+            return True
+        status = _to_job_status(job.status)
+        pending_cancel = (
+            job.control_command == ControlCommandType.CANCEL.value
+            and job.control_version > job.control_ack_version
+        )
+        return status is JobStatus.CANCELLED or pending_cancel
 
     def _set_job_status(
         self,
@@ -614,6 +743,8 @@ class PipelineOrchestrator:
         target: JobStatus,
         *,
         stage: StageName | None,
+        error_code: str | None = None,
+        error_message: str | None = None,
     ) -> None:
         current = _to_job_status(self._job_status(job_id))
         if current is not target:
@@ -622,8 +753,21 @@ class PipelineOrchestrator:
             job_id,
             status=target.value,
             stage=stage.value if stage is not None else None,
+            error_code=error_code,
+            error_message=error_message,
         )
         self._repository.update_project_status(project_id, target.value)
+        publish_event(
+            self._event_bus,
+            project_id=project_id,
+            job_id=job_id,
+            event_type="job_state_changed",
+            payload={
+                "from": current.value,
+                "to": target.value,
+                "stage": stage.value if stage is not None else None,
+            },
+        )
 
 
 def _to_job_status(value: str) -> JobStatus:
@@ -653,3 +797,44 @@ def _load_keyframe_records(path: Path) -> list[KeyframeRecord]:
             )
         )
     return records
+
+
+def _required_config_str(config: dict[str, Any], key: str) -> str:
+    return _required_named_config_str(
+        config,
+        key,
+        error_prefix="OVERALL_SUMMARY_CONFIG_MISSING",
+    )
+
+
+def _required_named_config_str(
+    config: dict[str, Any],
+    key: str,
+    *,
+    error_prefix: str,
+) -> str:
+    value = config.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"{error_prefix}: {key} is required")
+    return value.strip()
+
+
+def _optional_config_str(config: dict[str, Any], key: str) -> str | None:
+    value = config.get(key)
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
+def _positive_config_int(config: dict[str, Any], key: str, default: int) -> int:
+    value = config.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return default
+    return value
+
+
+def _nonnegative_config_int(config: dict[str, Any], key: str, default: int) -> int:
+    value = config.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return default
+    return value

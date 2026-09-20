@@ -14,7 +14,7 @@ from pathlib import Path
 
 from infra.interfaces import WorkspaceStore
 
-from .providers import FrameSummaryProvider, FrameSummaryResult
+from .providers import FrameSummaryProvider, FrameSummaryProviderError, FrameSummaryResult
 
 
 class _RpmLimiter:
@@ -100,10 +100,6 @@ class QwenFrameSummaryProvider:
         encoded = b64encode(image_path.read_bytes()).decode("ascii")
         return f"data:{mime};base64,{encoded}"
 
-    def _offline_text(self, frame_id: str, image_path: Path) -> str:
-        label = image_path.stem or frame_id
-        return f"[offline frame summary] frame {label}. No remote model response is available."
-
     def summarize_frame(
         self,
         frame_id: str,
@@ -113,12 +109,10 @@ class QwenFrameSummaryProvider:
     ) -> FrameSummaryResult:
         lang = language_hint or "und"
         if not self._api_key:
-            text = self._offline_text(frame_id, image_path)
-            return FrameSummaryResult(
-                frame_id=frame_id,
-                lang=lang,
-                provider=self.adapter_name,
-                description_text=text,
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_CONFIG_MISSING",
+                "QWEN_API_KEY is required for frame summary generation",
+                retryable=False,
             )
 
         payload = {
@@ -153,20 +147,41 @@ class QwenFrameSummaryProvider:
         try:
             with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
                 raw = response.read().decode("utf-8")
-        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError):
-            text = self._offline_text(frame_id, image_path)
-            return FrameSummaryResult(
-                frame_id=frame_id,
-                lang=lang,
-                provider=self.adapter_name,
-                description_text=text,
-            )
+        except urllib.error.HTTPError as exc:
+            retryable = exc.code == 429 or exc.code >= 500
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_PROVIDER_HTTP_ERROR",
+                f"frame summary provider returned HTTP {exc.code}",
+                retryable=retryable,
+            ) from exc
+        except (TimeoutError, urllib.error.URLError) as exc:
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
+                "frame summary provider request failed",
+                retryable=True,
+            ) from exc
 
         try:
             parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = {}
-        text = _extract_message_text(parsed).strip() or self._offline_text(frame_id, image_path)
+        except json.JSONDecodeError as exc:
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_INVALID_RESPONSE",
+                "frame summary provider returned invalid JSON",
+                retryable=True,
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_INVALID_RESPONSE",
+                "frame summary provider response must be a JSON object",
+                retryable=True,
+            )
+        text = _extract_message_text(parsed).strip()
+        if not text:
+            raise FrameSummaryProviderError(
+                "FRAME_SUMMARY_EMPTY_RESPONSE",
+                "frame summary provider returned empty content",
+                retryable=True,
+            )
         return FrameSummaryResult(
             frame_id=frame_id,
             lang=lang,
@@ -219,6 +234,8 @@ class FrameSummaryService:
 
         keyframes_file = self._workspace_store.keyframes_file(project_id, job_id)
         out_path = self._workspace_store.frame_summary_file(project_id, job_id)
+        out_path.unlink(missing_ok=True)
+        out_path.with_suffix(f"{out_path.suffix}.tmp").unlink(missing_ok=True)
 
         if not keyframes_file.exists():
             self._write_jsonl(out_path, [])
@@ -236,31 +253,28 @@ class FrameSummaryService:
             return []
 
         limiter = _RpmLimiter(rpm)
-        file_lock = threading.Lock()
-        results: list[FrameSummaryResult] = []
+        results_by_frame_id: dict[str, FrameSummaryResult] = {}
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("", encoding="utf-8")  # create / clear before streaming
+        def _process(kf_payload: dict[str, object]) -> FrameSummaryResult:
+            frame_id = str(kf_payload["frame_id"])
+            image_path = Path(str(kf_payload["path"]))
+            limiter.acquire()
+            return self._provider.summarize_frame(
+                frame_id, image_path, language_hint=language_hint
+            )
 
-        with out_path.open("a", encoding="utf-8") as outfile:
+        with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+            futures = [pool.submit(_process, kf) for kf in keyframes]
+            for future in as_completed(futures):
+                result = future.result()
+                results_by_frame_id[result.frame_id] = result
 
-            def _process_and_write(kf_payload: dict) -> FrameSummaryResult:
-                frame_id = str(kf_payload["frame_id"])
-                image_path = Path(str(kf_payload["path"]))
-                limiter.acquire()
-                record = self._provider.summarize_frame(
-                    frame_id, image_path, language_hint=language_hint
-                )
-                with file_lock:
-                    outfile.write(json.dumps(record.to_json(), ensure_ascii=False) + "\n")
-                    outfile.flush()
-                return record
-
-            with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-                futures = [pool.submit(_process_and_write, kf) for kf in keyframes]
-                for fut in as_completed(futures):
-                    results.append(fut.result())
-
+        results = [
+            results_by_frame_id[str(keyframe["frame_id"])]
+            for keyframe in keyframes
+            if str(keyframe["frame_id"]) in results_by_frame_id
+        ]
+        self._write_jsonl_atomic(out_path, results)
         return results
 
     @staticmethod
@@ -269,3 +283,12 @@ class FrameSummaryService:
         with path.open("w", encoding="utf-8") as handle:
             for row in rows:
                 handle.write(json.dumps(row.to_json(), ensure_ascii=False) + "\n")
+
+    @classmethod
+    def _write_jsonl_atomic(cls, path: Path, rows: list[FrameSummaryResult]) -> None:
+        temp_path = path.with_suffix(f"{path.suffix}.tmp")
+        try:
+            cls._write_jsonl(temp_path, rows)
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)

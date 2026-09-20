@@ -8,8 +8,7 @@ import shutil
 import sqlite3
 import tempfile
 from base64 import urlsafe_b64encode
-from collections.abc import Iterator
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -365,7 +364,7 @@ def _build_format_selector(video_format_id: str | None, audio_format_id: str | N
 
 
 def _to_float(value: object) -> float | None:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     return None
 
@@ -756,7 +755,11 @@ def _progress_percent_str(event: dict[str, Any]) -> str | None:
 
     downloaded = event.get("downloaded_bytes")
     total = event.get("total_bytes") or event.get("total_bytes_estimate")
-    if isinstance(downloaded, (int, float)) and isinstance(total, (int, float)) and total > 0:
+    if (
+        isinstance(downloaded, int | float)
+        and isinstance(total, int | float)
+        and total > 0
+    ):
         return f"{(float(downloaded) / float(total)) * 100:.1f}%"
     return None
 
@@ -769,7 +772,7 @@ def _progress_speed_str(event: dict[str, Any]) -> str | None:
             return value
 
     speed = event.get("speed")
-    if isinstance(speed, (int, float)) and speed > 0:
+    if isinstance(speed, int | float) and speed > 0:
         mib = float(speed) / (1024.0 * 1024.0)
         return f"{mib:.2f}MiB/s"
     return None
@@ -783,7 +786,7 @@ def _progress_eta_str(event: dict[str, Any]) -> str | None:
             return value
 
     eta = event.get("eta")
-    if isinstance(eta, (int, float)) and eta >= 0:
+    if isinstance(eta, int | float) and eta >= 0:
         seconds = int(eta)
         hours, rem = divmod(seconds, 3600)
         minutes, secs = divmod(rem, 60)

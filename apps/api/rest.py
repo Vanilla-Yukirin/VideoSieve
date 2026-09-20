@@ -131,7 +131,7 @@ def get_auth_me(control_plane: ApiControlPlane, token: str | None) -> dict[str, 
     return control_plane.get_me(token).model_dump(mode="json")
 
 
-def get_system_settings(control_plane: ApiControlPlane, token: str | None) -> dict[str, bool]:
+def get_system_settings(control_plane: ApiControlPlane, token: str | None) -> dict[str, Any]:
     """GET /settings/system"""
 
     return control_plane.get_system_settings(token).model_dump(mode="json")
@@ -141,7 +141,7 @@ def patch_system_settings(
     control_plane: ApiControlPlane,
     token: str | None,
     payload: dict[str, Any],
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     """PATCH /settings/system"""
 
     request = SystemSettingsPatchRequest.model_validate(payload)

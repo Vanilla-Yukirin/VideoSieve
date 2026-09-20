@@ -15,9 +15,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from math import ceil
+from typing import cast
 
 from cryptography.fernet import Fernet, InvalidToken
-from asr import create_asr_provider_from_env
 from workers import WorkerRuntime
 
 from contracts import ControlCommandType, JobStatus
@@ -25,23 +25,17 @@ from core import DELETE_PENDING_CLEANUP
 from infra import (
     EventBus,
     EventSubscription,
-    FileSystemWorkspaceStore,
     InfraEvent,
     JobRecord,
     JobRepository,
-    SQLiteJobRepository,
     UserCookieRecord,
     WorkspaceStore,
 )
 from ingest import IngestRequest, probe_url_formats
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
-from pipeline import PipelineOrchestrator
+from overall_summary import OpenAICompatibleSummaryProvider
 from pipeline.control import ControlAckPayload, evaluate_control_command
-from pipeline.dispatch import (
-    PIPELINE_DISPATCH_FAILED,
-    extract_ingest_config,
-    load_job_config_snapshot,
-)
+from pipeline.dispatch import PIPELINE_DISPATCH_FAILED
 
 from .models import (
     ArtifactItem,
@@ -82,6 +76,11 @@ SETTING_VLM_FRAME_PROMPT_ZH = "vlm_frame_prompt_zh"
 SETTING_VLM_FRAME_PROMPT_EN = "vlm_frame_prompt_en"
 SETTING_VLM_CONCURRENCY = "vlm_concurrency"
 SETTING_VLM_RPM = "vlm_rpm"
+SETTING_SUMMARY_BASE_URL = "summary_base_url"
+SETTING_SUMMARY_MODEL = "summary_model"
+SETTING_SUMMARY_PROMPT_ZH = "summary_prompt_zh"
+SETTING_SUMMARY_PROMPT_EN = "summary_prompt_en"
+SETTING_SUMMARY_MAX_INPUT_CHARS = "summary_max_input_chars"
 
 # Must match QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH / DEFAULT_PROMPT_EN exactly
 _DEFAULT_VLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
@@ -97,6 +96,13 @@ _DEFAULT_VLM_PROMPT_EN = (
 )
 _DEFAULT_VLM_CONCURRENCY = 5
 _DEFAULT_VLM_RPM = 30
+_DEFAULT_SUMMARY_BASE_URL = (
+    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+)
+_DEFAULT_SUMMARY_MODEL = "qwen-plus"
+_DEFAULT_SUMMARY_PROMPT_ZH = OpenAICompatibleSummaryProvider.DEFAULT_PROMPT_ZH
+_DEFAULT_SUMMARY_PROMPT_EN = OpenAICompatibleSummaryProvider.DEFAULT_PROMPT_EN
+_DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24_000
 
 
 class ApiError(RuntimeError):
@@ -121,20 +127,6 @@ class ApiConfigError(RuntimeError):
     """Raised when required API runtime configuration is missing."""
 
 
-def _as_optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
-def _as_str_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value]
-
-
 class ApiControlPlane:
     """REST-facing service for project/job control and snapshots."""
 
@@ -153,20 +145,13 @@ class ApiControlPlane:
         self._repository = repository
         self._workspace = workspace
         self._event_bus = event_bus
+        self._uses_default_control_dispatcher = control_dispatcher is None
         self._control_dispatcher = control_dispatcher or self._default_control_dispatcher
-        self._asr_provider = create_asr_provider_from_env()
-        self._worker_runtime = worker_runtime or WorkerRuntime(
-            PipelineOrchestrator(
-                repository=repository,
-                workspace=workspace,
-                event_bus=event_bus,
-                asr_provider=self._asr_provider,
-            )
-        )
+        self._worker_runtime = worker_runtime
         # Dispatcher mode is fixed at construction time.
         # Runtime hot-swap is not supported.
         self._uses_default_job_dispatcher = job_dispatcher is None
-        self._job_dispatcher = job_dispatcher or self._default_job_dispatcher
+        self._job_dispatcher = job_dispatcher
         self._subscriptions: dict[str, EventSubscription] = {}
         self._latest_progress: dict[str, float] = {}
         self._latest_stage: dict[str, str | None] = {}
@@ -253,6 +238,7 @@ class ApiControlPlane:
                         JobStatus.QUEUED.value,
                         JobStatus.RUNNING.value,
                         JobStatus.PAUSED.value,
+                        JobStatus.INTERRUPTED.value,
                     }
                     for job in jobs:
                         if job.job_id not in active_job_ids:
@@ -403,10 +389,17 @@ class ApiControlPlane:
             vlm_model=str(settings[SETTING_VLM_MODEL]),
             vlm_frame_prompt_zh=str(settings[SETTING_VLM_FRAME_PROMPT_ZH]),
             vlm_frame_prompt_en=str(settings[SETTING_VLM_FRAME_PROMPT_EN]),
-            vlm_concurrency=int(settings[SETTING_VLM_CONCURRENCY]),  # type: ignore[arg-type]
-            vlm_rpm=int(settings[SETTING_VLM_RPM]),  # type: ignore[arg-type]
+            vlm_concurrency=int(str(settings[SETTING_VLM_CONCURRENCY])),
+            vlm_rpm=int(str(settings[SETTING_VLM_RPM])),
             vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
             vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
+            summary_base_url=str(settings[SETTING_SUMMARY_BASE_URL]),
+            summary_model=str(settings[SETTING_SUMMARY_MODEL]),
+            summary_prompt_zh=str(settings[SETTING_SUMMARY_PROMPT_ZH]),
+            summary_prompt_en=str(settings[SETTING_SUMMARY_PROMPT_EN]),
+            summary_max_input_chars=int(str(settings[SETTING_SUMMARY_MAX_INPUT_CHARS])),
+            summary_prompt_zh_default=_DEFAULT_SUMMARY_PROMPT_ZH,
+            summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
 
     def get_public_access_flags(self) -> PublicAccessFlagsResponse:
@@ -423,12 +416,12 @@ class ApiControlPlane:
         next_guest_mode = (
             payload.guest_mode_enabled
             if payload.guest_mode_enabled is not None
-            else current[SETTING_GUEST_MODE_ENABLED]
+            else bool(current[SETTING_GUEST_MODE_ENABLED])
         )
         next_allow_cookie = (
             payload.guest_allow_cookie_input
             if payload.guest_allow_cookie_input is not None
-            else current[SETTING_GUEST_ALLOW_COOKIE_INPUT]
+            else bool(current[SETTING_GUEST_ALLOW_COOKIE_INPUT])
         )
         if next_allow_cookie and not self._guest_cookie_key():
             self._append_operation_log(
@@ -467,13 +460,39 @@ class ApiControlPlane:
             1,
             payload.vlm_concurrency
             if payload.vlm_concurrency is not None
-            else int(current[SETTING_VLM_CONCURRENCY]),  # type: ignore[arg-type]
+            else int(str(current[SETTING_VLM_CONCURRENCY]))
         )
         next_rpm = max(
             0,
             payload.vlm_rpm
             if payload.vlm_rpm is not None
-            else int(current[SETTING_VLM_RPM]),  # type: ignore[arg-type]
+            else int(str(current[SETTING_VLM_RPM]))
+        )
+        next_summary_base_url = (
+            payload.summary_base_url.strip()
+            if payload.summary_base_url is not None
+            else str(current[SETTING_SUMMARY_BASE_URL])
+        ) or _DEFAULT_SUMMARY_BASE_URL
+        next_summary_model = (
+            payload.summary_model.strip()
+            if payload.summary_model is not None
+            else str(current[SETTING_SUMMARY_MODEL])
+        ) or _DEFAULT_SUMMARY_MODEL
+        next_summary_prompt_zh = (
+            payload.summary_prompt_zh
+            if payload.summary_prompt_zh is not None
+            else str(current[SETTING_SUMMARY_PROMPT_ZH])
+        ) or _DEFAULT_SUMMARY_PROMPT_ZH
+        next_summary_prompt_en = (
+            payload.summary_prompt_en
+            if payload.summary_prompt_en is not None
+            else str(current[SETTING_SUMMARY_PROMPT_EN])
+        ) or _DEFAULT_SUMMARY_PROMPT_EN
+        next_summary_max_input_chars = max(
+            1_000,
+            payload.summary_max_input_chars
+            if payload.summary_max_input_chars is not None
+            else int(str(current[SETTING_SUMMARY_MAX_INPUT_CHARS]))
         )
 
         self._repository.set_setting(SETTING_GUEST_MODE_ENABLED, json.dumps(next_guest_mode))
@@ -486,6 +505,20 @@ class ApiControlPlane:
         self._repository.set_setting(SETTING_VLM_FRAME_PROMPT_EN, json.dumps(next_prompt_en))
         self._repository.set_setting(SETTING_VLM_CONCURRENCY, json.dumps(next_concurrency))
         self._repository.set_setting(SETTING_VLM_RPM, json.dumps(next_rpm))
+        self._repository.set_setting(
+            SETTING_SUMMARY_BASE_URL, json.dumps(next_summary_base_url)
+        )
+        self._repository.set_setting(SETTING_SUMMARY_MODEL, json.dumps(next_summary_model))
+        self._repository.set_setting(
+            SETTING_SUMMARY_PROMPT_ZH, json.dumps(next_summary_prompt_zh)
+        )
+        self._repository.set_setting(
+            SETTING_SUMMARY_PROMPT_EN, json.dumps(next_summary_prompt_en)
+        )
+        self._repository.set_setting(
+            SETTING_SUMMARY_MAX_INPUT_CHARS,
+            json.dumps(next_summary_max_input_chars),
+        )
         self._append_operation_log(event="settings.patch", actor=username, outcome="accepted")
         return SystemSettingsResponse(
             guest_mode_enabled=next_guest_mode,
@@ -498,6 +531,13 @@ class ApiControlPlane:
             vlm_rpm=next_rpm,
             vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
             vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
+            summary_base_url=next_summary_base_url,
+            summary_model=next_summary_model,
+            summary_prompt_zh=next_summary_prompt_zh,
+            summary_prompt_en=next_summary_prompt_en,
+            summary_max_input_chars=next_summary_max_input_chars,
+            summary_prompt_zh_default=_DEFAULT_SUMMARY_PROMPT_ZH,
+            summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
 
     def get_guest_cooldown(self) -> GuestCooldownResponse:
@@ -772,6 +812,24 @@ class ApiControlPlane:
         _ = self._read_setting_str(SETTING_VLM_FRAME_PROMPT_EN, default=_DEFAULT_VLM_PROMPT_EN)
         _ = self._read_setting_int(SETTING_VLM_CONCURRENCY, default=_DEFAULT_VLM_CONCURRENCY)
         _ = self._read_setting_int(SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM)
+        _ = self._read_setting_str(
+            SETTING_SUMMARY_BASE_URL,
+            default=os.getenv("SUMMARY_BASE_URL") or _DEFAULT_SUMMARY_BASE_URL,
+        )
+        _ = self._read_setting_str(
+            SETTING_SUMMARY_MODEL,
+            default=os.getenv("SUMMARY_MODEL") or _DEFAULT_SUMMARY_MODEL,
+        )
+        _ = self._read_setting_str(
+            SETTING_SUMMARY_PROMPT_ZH, default=_DEFAULT_SUMMARY_PROMPT_ZH
+        )
+        _ = self._read_setting_str(
+            SETTING_SUMMARY_PROMPT_EN, default=_DEFAULT_SUMMARY_PROMPT_EN
+        )
+        _ = self._read_setting_int(
+            SETTING_SUMMARY_MAX_INPUT_CHARS,
+            default=_DEFAULT_SUMMARY_MAX_INPUT_CHARS,
+        )
 
     def _current_settings(self) -> dict[str, object]:
         return {
@@ -802,6 +860,24 @@ class ApiControlPlane:
             ),
             SETTING_VLM_RPM: self._read_setting_int(
                 SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM
+            ),
+            SETTING_SUMMARY_BASE_URL: self._read_setting_str(
+                SETTING_SUMMARY_BASE_URL,
+                default=os.getenv("SUMMARY_BASE_URL") or _DEFAULT_SUMMARY_BASE_URL,
+            ),
+            SETTING_SUMMARY_MODEL: self._read_setting_str(
+                SETTING_SUMMARY_MODEL,
+                default=os.getenv("SUMMARY_MODEL") or _DEFAULT_SUMMARY_MODEL,
+            ),
+            SETTING_SUMMARY_PROMPT_ZH: self._read_setting_str(
+                SETTING_SUMMARY_PROMPT_ZH, default=_DEFAULT_SUMMARY_PROMPT_ZH
+            ),
+            SETTING_SUMMARY_PROMPT_EN: self._read_setting_str(
+                SETTING_SUMMARY_PROMPT_EN, default=_DEFAULT_SUMMARY_PROMPT_EN
+            ),
+            SETTING_SUMMARY_MAX_INPUT_CHARS: self._read_setting_int(
+                SETTING_SUMMARY_MAX_INPUT_CHARS,
+                default=_DEFAULT_SUMMARY_MAX_INPUT_CHARS,
             ),
         }
 
@@ -912,9 +988,6 @@ class ApiControlPlane:
                     )
 
             job_id = f"j_{uuid.uuid4().hex[:12]}"
-            self._repository.create_job(
-                job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
-            )
             self._workspace.ensure_job_layout(payload.project_id, job_id)
             config_path = self._workspace.config_snapshot_file(payload.project_id, job_id)
 
@@ -922,6 +995,22 @@ class ApiControlPlane:
                 "schema_version": "1.0",
                 "project_id": payload.project_id,
                 "job_id": job_id,
+            }
+            runtime_settings = self._current_settings()
+            config["frame_summary"] = {
+                "base_url": runtime_settings[SETTING_VLM_BASE_URL],
+                "model": runtime_settings[SETTING_VLM_MODEL],
+                "prompt_zh": runtime_settings[SETTING_VLM_FRAME_PROMPT_ZH],
+                "prompt_en": runtime_settings[SETTING_VLM_FRAME_PROMPT_EN],
+                "concurrency": runtime_settings[SETTING_VLM_CONCURRENCY],
+                "rpm": runtime_settings[SETTING_VLM_RPM],
+            }
+            config["overall_summary"] = {
+                "base_url": runtime_settings[SETTING_SUMMARY_BASE_URL],
+                "model": runtime_settings[SETTING_SUMMARY_MODEL],
+                "prompt_zh": runtime_settings[SETTING_SUMMARY_PROMPT_ZH],
+                "prompt_en": runtime_settings[SETTING_SUMMARY_PROMPT_EN],
+                "max_input_chars": runtime_settings[SETTING_SUMMARY_MAX_INPUT_CHARS],
             }
             if payload.summary_enabled is not None:
                 config["summary_enabled"] = payload.summary_enabled
@@ -941,6 +1030,11 @@ class ApiControlPlane:
                     indent=2,
                 ),
                 encoding="utf-8",
+            )
+            # Queue visibility is the commit point: the independent worker must
+            # never claim a job before its immutable configuration exists.
+            self._repository.create_job(
+                job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
             )
             if actor == "guest":
                 self._append_operation_log(
@@ -964,18 +1058,7 @@ class ApiControlPlane:
             return lock
 
     def _dispatch_job_if_needed(self, project_id: str, job_id: str) -> None:
-        if self._uses_default_job_dispatcher:
-            with self._dispatch_lock:
-                if job_id in self._dispatched_jobs:
-                    return
-                self._dispatched_jobs.add(job_id)
-
-            try:
-                self._job_dispatcher(project_id, job_id)
-            except Exception as exc:  # pragma: no cover - thread start failures are rare
-                with self._dispatch_lock:
-                    self._dispatched_jobs.discard(job_id)
-                self._mark_dispatch_failure(project_id, job_id, exc)
+        if self._job_dispatcher is None:
             return
 
         try:
@@ -983,68 +1066,16 @@ class ApiControlPlane:
         except Exception as exc:
             self._mark_dispatch_failure(project_id, job_id, exc)
 
-    def _default_job_dispatcher(self, project_id: str, job_id: str) -> None:
-        def _runner() -> None:
-            thread_repo: SQLiteJobRepository | None = None
-            try:
-                thread_repo = self._open_thread_safe_repository()
-                thread_workspace = self._open_thread_safe_workspace()
-                worker_runtime = WorkerRuntime(
-                    PipelineOrchestrator(
-                        repository=thread_repo,
-                        workspace=thread_workspace,
-                        event_bus=self._event_bus,
-                        asr_provider=self._asr_provider,
-                    )
-                )
-                config_snapshot = load_job_config_snapshot(
-                    thread_workspace,
-                    project_id=project_id,
-                    job_id=job_id,
-                )
-                ingest_config = extract_ingest_config(config_snapshot)
-
-                # Handle local video upload
-                local_video_path = config_snapshot.get("local_video_path")
-                local_video_context = config_snapshot.get("local_video_context") or ""
-                source_path = local_video_path if local_video_path else None
-
-                # For local uploads, inject source_path into ingest_config
-                if local_video_path and not ingest_config:
-                    ingest_config = {"source_path": local_video_path}
-
-                worker_runtime.run_job(
-                    project_id=project_id,
-                    job_id=job_id,
-                    source_path=source_path,
-                    ingest_config=ingest_config,
-                    title=_as_optional_str(config_snapshot.get("title")),
-                    description=_as_optional_str(config_snapshot.get("description")) or local_video_context,
-                    tags=_as_str_list(config_snapshot.get("tags")),
-                    language_hint=_as_optional_str(config_snapshot.get("language_hint")),
-                )
-            except Exception as exc:
-                self._mark_dispatch_failure(project_id, job_id, exc)
-            finally:
-                if thread_repo is not None:
-                    thread_repo.close()
-                with self._dispatch_lock:
-                    self._dispatched_jobs.discard(job_id)
-
-        threading.Thread(target=_runner, name=f"pipeline-dispatch-{job_id}", daemon=True).start()
-
     def _mark_dispatch_failure(self, project_id: str, job_id: str, error: Exception) -> None:
         message = str(error) or error.__class__.__name__
-        repository = self._open_thread_safe_repository()
-        repository.update_job_status(
+        self._repository.update_job_status(
             job_id,
             status=JobStatus.FAILED.value,
             stage=None,
             error_code=PIPELINE_DISPATCH_FAILED,
             error_message=message,
         )
-        repository.update_project_status(project_id, JobStatus.FAILED.value)
-        repository.close()
+        self._repository.update_project_status(project_id, JobStatus.FAILED.value)
         detailed = (
             f"阶段 dispatch | 结果: 失败 | 原因: {message} | 建议: 检查任务配置与运行依赖后重试"
         )
@@ -1071,20 +1102,6 @@ class ApiControlPlane:
                 },
             ),
         )
-
-    def _open_thread_safe_repository(self) -> SQLiteJobRepository:
-        db_path = getattr(self._repository, "_db_path", None)
-        if db_path is None:
-            raise RuntimeError("thread dispatch requires sqlite repository")
-        repository = SQLiteJobRepository(db_path)
-        repository.ensure_schema()
-        return repository
-
-    def _open_thread_safe_workspace(self) -> FileSystemWorkspaceStore:
-        base_dir = getattr(self._workspace, "_base_dir", None)
-        if base_dir is None:
-            raise RuntimeError("thread dispatch requires filesystem workspace")
-        return FileSystemWorkspaceStore(base_dir)
 
     def _normalize_ingest(self, ingest: IngestParams) -> tuple[dict[str, object], bool]:
         analysis_asset = ingest.analysis_asset
@@ -1217,7 +1234,12 @@ class ApiControlPlane:
 
         items: list[ArtifactItem] = []
         for path in sorted(
-            (item for item in root.rglob("*") if item.is_file()), key=lambda p: p.as_posix()
+            (
+                item
+                for item in root.rglob("*")
+                if item.is_file() and not item.name.endswith(".tmp")
+            ),
+            key=lambda p: p.as_posix(),
         ):
             relative = path.relative_to(root).as_posix()
             items.append(ArtifactItem(path=relative, size_bytes=path.stat().st_size))
@@ -1252,8 +1274,21 @@ class ApiControlPlane:
         return JobSnapshot(
             project_id=job.project_id,
             job_id=job_id,
+            state_version=job.state_version,
             status=job.status,
             current_stage=stage,
+            requested_action=(
+                job.control_command
+                if job.control_version > job.control_ack_version
+                else None
+            ),
+            control_phase=(
+                "accepted"
+                if job.control_version > job.control_ack_version
+                else ("applied" if job.control_command is not None else None)
+            ),
+            control_request_id=job.control_request_id,
+            attempt=job.attempt,
             progress=progress,
             latest_logs=list(merged_logs),
             artifacts=self.list_artifacts(job.project_id, job_id),
@@ -1264,12 +1299,20 @@ class ApiControlPlane:
         *,
         job_id: str,
         command: ControlCommandType,
+        request_id: str | None = None,
     ) -> dict[str, str | bool]:
         """Dispatch one job-scoped control command."""
 
         job = self._repository.get_job(job_id)
         if job is None:
             raise KeyError(f"job not found: {job_id}")
+        if self._uses_default_control_dispatcher:
+            return self._default_control_dispatcher(
+                job.project_id,
+                job_id,
+                command,
+                request_id=request_id,
+            )
         return self._control_dispatcher(job.project_id, job_id, command)
 
     def _consume_event(self, event: InfraEvent) -> None:
@@ -1327,7 +1370,7 @@ class ApiControlPlane:
             JobStatus.QUEUED.value,
             JobStatus.RUNNING.value,
             JobStatus.PAUSED.value,
-            JobStatus.CANCEL_REQUESTED.value,
+            JobStatus.INTERRUPTED.value,
         }
         with self._dispatch_lock:
             running_jobs = set(self._dispatched_jobs)
@@ -1388,6 +1431,8 @@ class ApiControlPlane:
         project_id: str,
         job_id: str,
         command: ControlCommandType,
+        *,
+        request_id: str | None = None,
     ) -> dict[str, str | bool]:
         current = self._repository.get_job(job_id)
         if current is None:
@@ -1395,76 +1440,115 @@ class ApiControlPlane:
 
         decision = evaluate_control_command(command, JobStatus(current.status))
 
-        if decision.target_status is not None:
-            self._repository.update_job_status(
-                job_id, status=decision.target_status.value, stage=None
+        if not decision.accepted:
+            return cast(
+                dict[str, str | bool],
+                ControlAckPayload(
+                    command=command.value,
+                    accepted=False,
+                    reason=decision.reason,
+                    code=decision.code,
+                ).to_dict(),
             )
-            if decision.target_status is JobStatus.CANCEL_REQUESTED:
-                is_running = False
-                if self._uses_default_job_dispatcher:
-                    with self._dispatch_lock:
-                        is_running = job_id in self._dispatched_jobs
-                if not is_running:
-                    self._repository.update_job_status(
-                        job_id,
-                        status=JobStatus.CANCELLED.value,
-                        stage=None,
-                    )
-                    self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
-                    decision = ControlAckPayload(
-                        command=command.value,
-                        accepted=decision.accepted,
-                        reason="cancel completed (no active worker)",
-                        code=decision.code,
-                    )
-                    return decision.to_dict()
-            if decision.target_status is not JobStatus.CANCEL_REQUESTED:
-                self._repository.update_project_status(project_id, decision.target_status.value)
+
+        if command is ControlCommandType.PAUSE and decision.request_pause:
+            self._repository.request_job_control(
+                job_id,
+                ControlCommandType.PAUSE.value,
+                request_id=request_id,
+            )
+            return cast(
+                dict[str, str | bool],
+                ControlAckPayload(
+                    command=command.value,
+                    accepted=True,
+                    reason="pause requested; awaiting worker acknowledgement",
+                ).to_dict(),
+            )
+
+        if command is ControlCommandType.RESUME and decision.target_status is not None:
+            if JobStatus(current.status) is JobStatus.INTERRUPTED:
+                self._repository.recover_interrupted_job(job_id)
+            self._repository.request_job_control(
+                job_id,
+                ControlCommandType.RESUME.value,
+                request_id=request_id,
+            )
+            return cast(
+                dict[str, str | bool],
+                ControlAckPayload(
+                    command=command.value,
+                    accepted=True,
+                    reason="resume requested; awaiting worker claim",
+                ).to_dict(),
+            )
+
+        if decision.request_cancel:
+            control_version = self._repository.request_job_control(
+                job_id,
+                ControlCommandType.CANCEL.value,
+                request_id=request_id,
+            )
+            if current.worker_id is None:
+                self._repository.update_job_status(
+                    job_id,
+                    status=JobStatus.CANCELLED.value,
+                    stage=current.stage,
+                )
+                self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
+                self._repository.acknowledge_unowned_job_control(
+                    job_id,
+                    control_version,
+                )
 
         if command is ControlCommandType.DELETE:
             if self._job_worker_may_be_running(job_id):
                 self._mark_job_delete_pending(job_id)
-                return ControlAckPayload(
-                    command=command.value,
-                    accepted=True,
-                    code=DELETE_PENDING_CLEANUP,
-                    reason="delete accepted, waiting for worker to stop before cleanup",
-                ).to_dict()
+                return cast(
+                    dict[str, str | bool],
+                    ControlAckPayload(
+                        command=command.value,
+                        accepted=True,
+                        code=DELETE_PENDING_CLEANUP,
+                        reason="delete accepted, waiting for worker to stop before cleanup",
+                    ).to_dict(),
+                )
 
             latest = self._repository.get_job(job_id)
             if latest is None:
                 self._clear_job_delete_pending(job_id)
-                return ControlAckPayload(
-                    command=command.value,
-                    accepted=True,
-                    reason="job already deleted",
-                ).to_dict()
-            latest_status = JobStatus(latest.status)
-            if latest_status is JobStatus.CANCEL_REQUESTED:
-                self._repository.update_job_status(
-                    job_id,
-                    status=JobStatus.CANCELLED.value,
-                    stage=None,
-                )
-                self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
-
-            if decision.request_cleanup or latest_status is JobStatus.CANCEL_REQUESTED:
-                if not self._cleanup_job_workspace(project_id, job_id):
-                    self._mark_job_delete_pending(job_id)
-                    return ControlAckPayload(
+                return cast(
+                    dict[str, str | bool],
+                    ControlAckPayload(
                         command=command.value,
                         accepted=True,
-                        code=DELETE_PENDING_CLEANUP,
-                        reason="delete accepted, waiting for file handles to release",
-                    ).to_dict()
+                        reason="job already deleted",
+                    ).to_dict(),
+                )
+            latest_status = JobStatus(latest.status)
+            if decision.request_cleanup or latest_status is JobStatus.CANCELLED:
+                if not self._cleanup_job_workspace(project_id, job_id):
+                    self._mark_job_delete_pending(job_id)
+                    return cast(
+                        dict[str, str | bool],
+                        ControlAckPayload(
+                            command=command.value,
+                            accepted=True,
+                            code=DELETE_PENDING_CLEANUP,
+                            reason="delete accepted, waiting for file handles to release",
+                        ).to_dict(),
+                    )
                 self._repository.delete_job(job_id)
                 self._clear_job_tracking(job_id)
                 self._clear_job_delete_pending(job_id)
-                return ControlAckPayload(
-                    command=command.value,
-                    accepted=True,
-                    reason="job deleted",
-                ).to_dict()
+                return cast(
+                    dict[str, str | bool],
+                    ControlAckPayload(
+                        command=command.value,
+                        accepted=True,
+                        reason="job deleted",
+                    ).to_dict(),
+                )
 
         ack_payload: dict[str, str | bool] = ControlAckPayload(
             command=command.value,
@@ -1475,8 +1559,9 @@ class ApiControlPlane:
         return ack_payload
 
     def _job_worker_may_be_running(self, job_id: str) -> bool:
-        if not self._uses_default_job_dispatcher:
-            return False
+        job = self._repository.get_job(job_id)
+        if job is not None and job.worker_id is not None:
+            return True
         with self._dispatch_lock:
             return job_id in self._dispatched_jobs
 

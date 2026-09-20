@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from .interfaces import JobRepository
 from .models import (
     AuthUserRecord,
+    InfraEvent,
     JobRecord,
     OperationLogRecord,
     ProjectRecord,
@@ -28,8 +30,18 @@ class SQLiteJobRepository(JobRepository):
 
     def __init__(self, db_path: str | Path) -> None:
         self._db_path = Path(db_path)
-        self._conn = sqlite3.connect(self._db_path)
+        self._conn = sqlite3.connect(self._db_path, timeout=5.0)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout = 5000")
+        self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
+
+    @property
+    def db_path(self) -> Path:
+        """Return the backing database path for sibling process adapters."""
+
+        return self._db_path
 
     def ensure_schema(self) -> None:
         self._conn.executescript(
@@ -50,12 +62,37 @@ class SQLiteJobRepository(JobRepository):
               error_code TEXT,
               error_message TEXT,
               delete_pending INTEGER NOT NULL DEFAULT 0,
+              worker_id TEXT,
+              attempt INTEGER NOT NULL DEFAULT 0,
+              claimed_at TEXT,
+              heartbeat_at TEXT,
+              control_command TEXT,
+              control_version INTEGER NOT NULL DEFAULT 0,
+              control_ack_version INTEGER NOT NULL DEFAULT 0,
+              control_requested_at TEXT,
+              control_acknowledged_at TEXT,
+              control_request_id TEXT,
+              state_version INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(project_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_jobs_project_id ON jobs(project_id);
+            CREATE TABLE IF NOT EXISTS job_events (
+              event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+              channel TEXT NOT NULL,
+              event_type TEXT NOT NULL,
+              project_id TEXT NOT NULL,
+              job_id TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              ts TEXT NOT NULL,
+              state_version INTEGER NOT NULL DEFAULT 0,
+              request_id TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_events_channel_cursor
+            ON job_events(channel, event_id);
 
             CREATE TABLE IF NOT EXISTS user_cookies (
               id TEXT PRIMARY KEY,
@@ -114,13 +151,80 @@ class SQLiteJobRepository(JobRepository):
             for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()
             if len(row) > 1
         }
-        if "delete_pending" not in job_columns:
-            self._conn.execute(
-                """
-                ALTER TABLE jobs
-                ADD COLUMN delete_pending INTEGER NOT NULL DEFAULT 0
-                """
-            )
+        migrations = {
+            "delete_pending": "INTEGER NOT NULL DEFAULT 0",
+            "worker_id": "TEXT",
+            "attempt": "INTEGER NOT NULL DEFAULT 0",
+            "claimed_at": "TEXT",
+            "heartbeat_at": "TEXT",
+            "control_command": "TEXT",
+            "control_version": "INTEGER NOT NULL DEFAULT 0",
+            "control_ack_version": "INTEGER NOT NULL DEFAULT 0",
+            "control_requested_at": "TEXT",
+            "control_acknowledged_at": "TEXT",
+            "control_request_id": "TEXT",
+            "state_version": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, declaration in migrations.items():
+            if column not in job_columns:
+                self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {declaration}")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_queue ON jobs(status, created_at)"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_heartbeat ON jobs(status, heartbeat_at)"
+        )
+        event_columns = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(job_events)").fetchall()
+            if len(row) > 1
+        }
+        event_migrations = {
+            "state_version": "INTEGER NOT NULL DEFAULT 0",
+            "request_id": "TEXT",
+        }
+        for column, declaration in event_migrations.items():
+            if column not in event_columns:
+                self._conn.execute(
+                    f"ALTER TABLE job_events ADD COLUMN {column} {declaration}"
+                )
+        legacy_now = _utc_now_iso()
+        self._conn.execute(
+            """
+            UPDATE jobs
+            SET
+              control_command = 'pause',
+              control_version = CASE WHEN control_version < 1 THEN 1 ELSE control_version END,
+              control_requested_at = COALESCE(control_requested_at, ?),
+              status = CASE WHEN worker_id IS NULL THEN 'interrupted' ELSE 'running' END,
+              state_version = state_version + 1,
+              updated_at = ?
+            WHERE status = 'pause_requested'
+            """,
+            (legacy_now, legacy_now),
+        )
+        self._conn.execute(
+            """
+            UPDATE jobs
+            SET
+              control_command = 'cancel',
+              control_version = CASE WHEN control_version < 1 THEN 1 ELSE control_version END,
+              control_requested_at = COALESCE(control_requested_at, ?),
+              status = CASE WHEN worker_id IS NULL THEN 'interrupted' ELSE 'running' END,
+              state_version = state_version + 1,
+              updated_at = ?
+            WHERE status = 'cancel_requested'
+            """,
+            (legacy_now, legacy_now),
+        )
+        self._conn.execute(
+            """
+            UPDATE projects
+            SET status = 'interrupted', updated_at = ?
+            WHERE status IN ('pause_requested', 'cancel_requested')
+            """,
+            (legacy_now,),
+        )
         self._conn.commit()
 
     def upsert_project(self, project_id: str, *, title: str | None, status: str) -> None:
@@ -200,10 +304,24 @@ class SQLiteJobRepository(JobRepository):
               error_code,
               error_message,
               delete_pending,
+              worker_id,
+              attempt,
+              claimed_at,
+              heartbeat_at,
+              control_command,
+              control_version,
+              control_ack_version,
+              control_requested_at,
+              control_acknowledged_at,
+              control_request_id,
+              state_version,
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, ?, NULL, NULL, 0, ?, ?)
+            VALUES (
+              ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL,
+              NULL, NULL, 0, 0, NULL, NULL, NULL, 0, ?, ?
+            )
             """,
             (job_id, project_id, status, stage, now, now),
         )
@@ -220,6 +338,17 @@ class SQLiteJobRepository(JobRepository):
               error_code,
               error_message,
               delete_pending,
+              worker_id,
+              attempt,
+              claimed_at,
+              heartbeat_at,
+              control_command,
+              control_version,
+              control_ack_version,
+              control_requested_at,
+              control_acknowledged_at,
+              control_request_id,
+              state_version,
               created_at,
               updated_at
             FROM jobs
@@ -229,17 +358,7 @@ class SQLiteJobRepository(JobRepository):
         ).fetchone()
         if row is None:
             return None
-        return JobRecord(
-            job_id=row["job_id"],
-            project_id=row["project_id"],
-            status=row["status"],
-            stage=row["stage"],
-            error_code=row["error_code"],
-            error_message=row["error_message"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            delete_pending=bool(row["delete_pending"]),
-        )
+        return self._to_job_record(row)
 
     def list_jobs_for_project(self, project_id: str) -> list[JobRecord]:
         rows = self._conn.execute(
@@ -252,6 +371,17 @@ class SQLiteJobRepository(JobRepository):
               error_code,
               error_message,
               delete_pending,
+              worker_id,
+              attempt,
+              claimed_at,
+              heartbeat_at,
+              control_command,
+              control_version,
+              control_ack_version,
+              control_requested_at,
+              control_acknowledged_at,
+              control_request_id,
+              state_version,
               created_at,
               updated_at
             FROM jobs
@@ -260,20 +390,7 @@ class SQLiteJobRepository(JobRepository):
             """,
             (project_id,),
         ).fetchall()
-        return [
-            JobRecord(
-                job_id=row["job_id"],
-                project_id=row["project_id"],
-                status=row["status"],
-                stage=row["stage"],
-                error_code=row["error_code"],
-                error_message=row["error_message"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                delete_pending=bool(row["delete_pending"]),
-            )
-            for row in rows
-        ]
+        return [self._to_job_record(row) for row in rows]
 
     def update_job_status(
         self,
@@ -296,6 +413,7 @@ class SQLiteJobRepository(JobRepository):
               stage = ?,
               error_code = ?,
               error_message = ?,
+              state_version = state_version + 1,
               updated_at = ?
             WHERE job_id = ?
             """,
@@ -341,6 +459,343 @@ class SQLiteJobRepository(JobRepository):
             """
         ).fetchall()
         return [str(row["job_id"]) for row in rows]
+
+    def claim_next_job(self, worker_id: str) -> JobRecord | None:
+        """Atomically lease one queued job or one paused job with a resume request."""
+
+        now = _utc_now_iso()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                """
+                SELECT job_id, project_id
+                FROM jobs
+                WHERE
+                  status = 'queued'
+                  OR (
+                    status = 'paused'
+                    AND control_command = 'resume'
+                    AND control_version > control_ack_version
+                  )
+                ORDER BY created_at ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                self._conn.commit()
+                return None
+
+            job_id = str(row["job_id"])
+            project_id = str(row["project_id"])
+            cursor = self._conn.execute(
+                """
+                UPDATE jobs
+                SET
+                  status = 'running',
+                  worker_id = ?,
+                  attempt = attempt + 1,
+                  claimed_at = ?,
+                  heartbeat_at = ?,
+                  state_version = state_version + 1,
+                  control_ack_version = CASE
+                    WHEN control_command = 'resume' AND control_version > control_ack_version
+                    THEN control_version
+                    ELSE control_ack_version
+                  END,
+                  control_acknowledged_at = CASE
+                    WHEN control_command = 'resume' AND control_version > control_ack_version
+                    THEN ?
+                    ELSE control_acknowledged_at
+                  END,
+                  updated_at = ?
+                WHERE job_id = ?
+                  AND (
+                    status = 'queued'
+                    OR (
+                      status = 'paused'
+                      AND control_command = 'resume'
+                      AND control_version > control_ack_version
+                    )
+                  )
+                """,
+                (worker_id, now, now, now, now, job_id),
+            )
+            if cursor.rowcount != 1:
+                self._conn.rollback()
+                return None
+            self._conn.execute(
+                """
+                UPDATE projects
+                SET status = 'running', updated_at = ?
+                WHERE project_id = ?
+                """,
+                (now, project_id),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return self.get_job(job_id)
+
+    def heartbeat_job(self, job_id: str, worker_id: str) -> bool:
+        cursor = self._conn.execute(
+            """
+            UPDATE jobs
+            SET heartbeat_at = ?
+            WHERE job_id = ?
+              AND worker_id = ?
+              AND status = 'running'
+            """,
+            (_utc_now_iso(), job_id, worker_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def release_job_claim(self, job_id: str, worker_id: str) -> bool:
+        cursor = self._conn.execute(
+            """
+            UPDATE jobs
+            SET worker_id = NULL, claimed_at = NULL, heartbeat_at = NULL, updated_at = ?
+            WHERE job_id = ? AND worker_id = ?
+            """,
+            (_utc_now_iso(), job_id, worker_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def mark_stale_jobs_interrupted(self, stale_before: datetime) -> list[str]:
+        """Fence stale claims by moving them to an explicit interrupted state."""
+
+        cutoff = stale_before.isoformat()
+        now = _utc_now_iso()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            rows = self._conn.execute(
+                """
+                SELECT job_id, project_id
+                FROM jobs
+                WHERE worker_id IS NOT NULL
+                  AND status = 'running'
+                  AND COALESCE(heartbeat_at, claimed_at) < ?
+                ORDER BY created_at ASC
+                """,
+                (cutoff,),
+            ).fetchall()
+            job_ids = [str(row["job_id"]) for row in rows]
+            if job_ids:
+                placeholders = ",".join("?" for _ in job_ids)
+                self._conn.execute(
+                    f"""
+                    UPDATE jobs
+                    SET
+                      status = 'interrupted',
+                      worker_id = NULL,
+                      claimed_at = NULL,
+                      heartbeat_at = NULL,
+                      state_version = state_version + 1,
+                      updated_at = ?
+                    WHERE job_id IN ({placeholders})
+                    """,
+                    (now, *job_ids),
+                )
+                project_ids = sorted({str(row["project_id"]) for row in rows})
+                project_placeholders = ",".join("?" for _ in project_ids)
+                self._conn.execute(
+                    f"""
+                    UPDATE projects
+                    SET status = 'interrupted', updated_at = ?
+                    WHERE project_id IN ({project_placeholders})
+                    """,
+                    (now, *project_ids),
+                )
+            self._conn.commit()
+            return job_ids
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def recover_interrupted_job(self, job_id: str) -> bool:
+        """Explicitly return an interrupted job to the queue."""
+
+        now = _utc_now_iso()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT project_id FROM jobs WHERE job_id = ? AND status = 'interrupted'",
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                self._conn.commit()
+                return False
+            self._conn.execute(
+                """
+                UPDATE jobs
+                SET
+                  status = 'queued',
+                  worker_id = NULL,
+                  claimed_at = NULL,
+                  heartbeat_at = NULL,
+                  control_command = NULL,
+                  control_ack_version = control_version,
+                  control_acknowledged_at = ?,
+                  error_code = NULL,
+                  error_message = NULL,
+                  state_version = state_version + 1,
+                  updated_at = ?
+                WHERE job_id = ? AND status = 'interrupted'
+                """,
+                (now, now, job_id),
+            )
+            self._conn.execute(
+                "UPDATE projects SET status = 'queued', updated_at = ? WHERE project_id = ?",
+                (now, str(row["project_id"])),
+            )
+            self._conn.commit()
+            return True
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def request_job_control(
+        self, job_id: str, command: str, *, request_id: str | None = None
+    ) -> int:
+        now = _utc_now_iso()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT control_version FROM jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                self._conn.rollback()
+                raise KeyError(f"job not found: {job_id}")
+            version = int(row["control_version"]) + 1
+            self._conn.execute(
+                """
+                UPDATE jobs
+                SET
+                  control_command = ?,
+                  control_version = ?,
+                  control_requested_at = ?,
+                  control_acknowledged_at = NULL,
+                  control_request_id = ?,
+                  updated_at = ?
+                WHERE job_id = ?
+                """,
+                (command, version, now, request_id, now, job_id),
+            )
+            self._conn.commit()
+            return version
+        except Exception:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+            raise
+
+    def acknowledge_job_control(
+        self, job_id: str, worker_id: str, control_version: int
+    ) -> bool:
+        now = _utc_now_iso()
+        cursor = self._conn.execute(
+            """
+            UPDATE jobs
+            SET control_ack_version = ?, control_acknowledged_at = ?, updated_at = ?
+            WHERE job_id = ?
+              AND worker_id = ?
+              AND control_version = ?
+              AND control_ack_version < ?
+            """,
+            (control_version, now, now, job_id, worker_id, control_version, control_version),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def acknowledge_unowned_job_control(self, job_id: str, control_version: int) -> bool:
+        now = _utc_now_iso()
+        cursor = self._conn.execute(
+            """
+            UPDATE jobs
+            SET control_ack_version = ?, control_acknowledged_at = ?, updated_at = ?
+            WHERE job_id = ?
+              AND worker_id IS NULL
+              AND control_version = ?
+              AND control_ack_version < ?
+            """,
+            (control_version, now, now, job_id, control_version, control_version),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def append_job_event(self, channel: str, event: InfraEvent) -> int:
+        ts = event.ts or _utc_now_iso()
+        state_version = event.state_version
+        if state_version is None:
+            state_row = self._conn.execute(
+                "SELECT state_version FROM jobs WHERE job_id = ?", (event.job_id,)
+            ).fetchone()
+            state_version = int(state_row["state_version"]) if state_row is not None else 0
+        cursor = self._conn.execute(
+            """
+            INSERT INTO job_events (
+              channel, event_type, project_id, job_id, payload_json, ts, state_version, request_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                channel,
+                event.event_type,
+                event.project_id,
+                event.job_id,
+                json.dumps(event.payload, ensure_ascii=False, separators=(",", ":")),
+                ts,
+                state_version,
+                event.request_id,
+            ),
+        )
+        self._conn.commit()
+        if cursor.lastrowid is None:
+            raise RuntimeError("SQLite did not return an event cursor")
+        return int(cursor.lastrowid)
+
+    def list_job_events(
+        self, channel: str, *, after_event_id: int = 0, limit: int = 1000
+    ) -> list[InfraEvent]:
+        safe_limit = max(1, min(limit, 10_000))
+        rows = self._conn.execute(
+            """
+            SELECT
+              event_id,
+              event_type,
+              project_id,
+              job_id,
+              payload_json,
+              ts,
+              state_version,
+              request_id
+            FROM job_events
+            WHERE channel = ? AND event_id > ?
+            ORDER BY event_id ASC
+            LIMIT ?
+            """,
+            (channel, after_event_id, safe_limit),
+        ).fetchall()
+        return [
+            InfraEvent(
+                event_type=str(row["event_type"]),
+                project_id=str(row["project_id"]),
+                job_id=str(row["job_id"]),
+                payload=dict(json.loads(str(row["payload_json"]))),
+                ts=str(row["ts"]),
+                event_id=int(row["event_id"]),
+                state_version=int(row["state_version"]),
+                request_id=row["request_id"],
+            )
+            for row in rows
+        ]
+
+    def latest_job_event_id(self, channel: str) -> int:
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(event_id), 0) AS event_id FROM job_events WHERE channel = ?",
+            (channel,),
+        ).fetchone()
+        return int(row["event_id"]) if row is not None else 0
 
     def close(self) -> None:
         self._conn.close()
@@ -686,6 +1141,30 @@ class SQLiteJobRepository(JobRepository):
         except Exception:
             self._conn.rollback()
             raise
+
+    def _to_job_record(self, row: sqlite3.Row) -> JobRecord:
+        return JobRecord(
+            job_id=str(row["job_id"]),
+            project_id=str(row["project_id"]),
+            status=str(row["status"]),
+            stage=row["stage"],
+            error_code=row["error_code"],
+            error_message=row["error_message"],
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+            delete_pending=bool(row["delete_pending"]),
+            worker_id=row["worker_id"],
+            attempt=int(row["attempt"]),
+            claimed_at=row["claimed_at"],
+            heartbeat_at=row["heartbeat_at"],
+            control_command=row["control_command"],
+            control_version=int(row["control_version"]),
+            control_ack_version=int(row["control_ack_version"]),
+            control_requested_at=row["control_requested_at"],
+            control_acknowledged_at=row["control_acknowledged_at"],
+            control_request_id=row["control_request_id"],
+            state_version=int(row["state_version"]),
+        )
 
     def _to_user_cookie_record(self, row: sqlite3.Row) -> UserCookieRecord:
         return UserCookieRecord(

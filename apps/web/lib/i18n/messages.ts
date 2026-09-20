@@ -56,6 +56,13 @@ export type MessageKey =
   | "settings.vlmPromptReset"
   | "settings.vlmConcurrency"
   | "settings.vlmRpm"
+  | "settings.summarySection"
+  | "settings.summaryBaseUrl"
+  | "settings.summaryModel"
+  | "settings.summaryApiKeyHint"
+  | "settings.summaryPromptZh"
+  | "settings.summaryPromptEn"
+  | "settings.summaryMaxInputChars"
   | "project.newJob"
   | "project.cookie"
   | "project.cookieNone"
@@ -261,6 +268,13 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.vlmPromptReset": "重置为默认",
     "settings.vlmConcurrency": "最大并发请求数",
     "settings.vlmRpm": "每分钟请求上限（RPM，0 = 不限速）",
+    "settings.summarySection": "整体摘要模型（LLM）",
+    "settings.summaryBaseUrl": "API 端点",
+    "settings.summaryModel": "模型名称",
+    "settings.summaryApiKeyHint": "API Key 在服务端 .env 中配置（SUMMARY_API_KEY），不在此设置。",
+    "settings.summaryPromptZh": "整体摘要提示词（中文）",
+    "settings.summaryPromptEn": "整体摘要提示词（英文）",
+    "settings.summaryMaxInputChars": "单轮最大输入字符数",
     "project.newJob": "新任务",
     "project.cookie": "Cookie",
     "project.cookieNone": "不使用 Cookie",
@@ -463,6 +477,13 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.vlmPromptReset": "Reset to default",
     "settings.vlmConcurrency": "Max Concurrent Requests",
     "settings.vlmRpm": "Requests per Minute (RPM, 0 = unlimited)",
+    "settings.summarySection": "Overall Summary Model (LLM)",
+    "settings.summaryBaseUrl": "API Endpoint",
+    "settings.summaryModel": "Model Name",
+    "settings.summaryApiKeyHint": "API Key is configured in the server .env (SUMMARY_API_KEY), not stored here.",
+    "settings.summaryPromptZh": "Overall Summary Prompt (Chinese)",
+    "settings.summaryPromptEn": "Overall Summary Prompt (English)",
+    "settings.summaryMaxInputChars": "Maximum input characters per request",
     "project.newJob": "New Job",
     "project.cookie": "Cookie",
     "project.cookieNone": "Do not use cookie",

@@ -96,6 +96,14 @@ class SystemSettingsResponse(ApiModel):
     # VLM prompt defaults (read-only, always reflects code constants)
     vlm_frame_prompt_zh_default: str
     vlm_frame_prompt_en_default: str
+    # Overall summary LLM configuration. Credentials stay in SUMMARY_API_KEY.
+    summary_base_url: str
+    summary_model: str
+    summary_prompt_zh: str
+    summary_prompt_en: str
+    summary_max_input_chars: int
+    summary_prompt_zh_default: str
+    summary_prompt_en_default: str
 
 
 class PublicAccessFlagsResponse(ApiModel):
@@ -115,6 +123,11 @@ class SystemSettingsPatchRequest(ApiModel):
     vlm_frame_prompt_en: str | None = None
     vlm_concurrency: int | None = None
     vlm_rpm: int | None = None
+    summary_base_url: str | None = None
+    summary_model: str | None = None
+    summary_prompt_zh: str | None = None
+    summary_prompt_en: str | None = None
+    summary_max_input_chars: int | None = None
 
     @model_validator(mode="after")
     def validate_non_empty_patch(self) -> SystemSettingsPatchRequest:
@@ -129,6 +142,11 @@ class SystemSettingsPatchRequest(ApiModel):
                 self.vlm_frame_prompt_en,
                 self.vlm_concurrency,
                 self.vlm_rpm,
+                self.summary_base_url,
+                self.summary_model,
+                self.summary_prompt_zh,
+                self.summary_prompt_en,
+                self.summary_max_input_chars,
             ]
         ):
             raise ValueError("at least one settings field must be provided")
@@ -201,8 +219,13 @@ class JobSnapshot(ApiModel):
 
     project_id: str
     job_id: str
+    state_version: int = Field(default=0, ge=0)
     status: str
     current_stage: str | None = None
+    requested_action: str | None = None
+    control_phase: str | None = None
+    control_request_id: str | None = None
+    attempt: int = Field(default=0, ge=0)
     progress: float = Field(ge=0.0, le=100.0)
     latest_logs: list[str] = Field(default_factory=list)
     artifacts: list[ArtifactItem] = Field(default_factory=list)
@@ -212,6 +235,7 @@ class WsControlCommand(ApiModel):
     """WS client command payload."""
 
     command: ControlCommandType
+    request_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 def validate_netscape_cookie_text(raw: str) -> str:

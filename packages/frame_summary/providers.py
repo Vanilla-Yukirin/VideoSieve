@@ -7,6 +7,15 @@ from pathlib import Path
 from typing import Protocol
 
 
+class FrameSummaryProviderError(RuntimeError):
+    """A configuration or provider failure that must fail the pipeline stage."""
+
+    def __init__(self, code: str, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+
+
 @dataclass(frozen=True)
 class FrameSummaryResult:
     """One JSONL row for ``frame_summary/frame_summary.jsonl``."""

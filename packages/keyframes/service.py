@@ -537,7 +537,7 @@ def build_images_zip(workspace_store: WorkspaceStore, project_id: str, job_id: s
     if not image_files:
         raise FileNotFoundError(f"keyframe images not found: {images_dir}")
 
-    zip_path = workspace_store.job_path(project_id, job_id, "frames", "images.zip")
+    zip_path = Path(workspace_store.job_path(project_id, job_id, "frames", "images.zip"))
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for image_path in image_files:

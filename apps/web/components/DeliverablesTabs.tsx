@@ -29,6 +29,14 @@ interface KeyframeRecord {
   reason: string;
 }
 
+interface SummaryRecord {
+  title: string;
+  summary: string;
+  provider: string;
+  model: string;
+  source_sections: number;
+}
+
 // ── Merged timeline item types ───────────────────────────────────────────────
 
 type SegmentItem = {
@@ -135,6 +143,8 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [frameSummaries, setFrameSummaries] = useState<Map<string, string>>(new Map());
+  const [summary, setSummary] = useState<SummaryRecord | null>(null);
+  const [summaryLoadState, setSummaryLoadState] = useState<LoadState>("idle");
 
   // When the job transitions to succeeded, reset so Tab 0 re-fetches
   useEffect(() => {
@@ -228,6 +238,32 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     return () => clearInterval(interval);
   }, [jobId, loadState, jobStatus]);
 
+  useEffect(() => {
+    if (activeTab !== 2 || summaryLoadState !== "idle") return;
+    setSummaryLoadState("loading");
+    fetch(`/api/jobs/${jobId}/artifacts/download/outputs/summary.json`)
+      .then(async (response) => {
+        if (response.status === 404) {
+          setSummaryLoadState("not_found");
+          return;
+        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = (await response.json()) as SummaryRecord;
+        if (!payload.summary || !payload.provider || !payload.model) {
+          throw new Error("invalid summary artifact");
+        }
+        setSummary(payload);
+        setSummaryLoadState("ok");
+      })
+      .catch(() => setSummaryLoadState("error"));
+  }, [activeTab, jobId, summaryLoadState]);
+
+  useEffect(() => {
+    if (jobStatus === "succeeded" && summaryLoadState === "not_found") {
+      setSummaryLoadState("idle");
+    }
+  }, [jobStatus, summaryLoadState]);
+
   const tabs: string[] = [
     t("deliverables.tabRaw"),
     t("deliverables.tabPolished"),
@@ -261,7 +297,9 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
           <RawTranscriptPanel timeline={timeline} loadState={loadState} frameSummaries={frameSummaries} />
         )}
         {activeTab === 1 && <PlaceholderPanel message={t("deliverables.polishedPlaceholder")} />}
-        {activeTab === 2 && <PlaceholderPanel message={t("deliverables.summaryPlaceholder")} />}
+        {activeTab === 2 && (
+          <SummaryPanel summary={summary} loadState={summaryLoadState} />
+        )}
       </div>
     </div>
   );
@@ -376,6 +414,34 @@ function PlaceholderPanel({ message }: { message: string }) {
     <div className="flex items-center justify-center h-40 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
       {message}
     </div>
+  );
+}
+
+function SummaryPanel({
+  summary,
+  loadState,
+}: {
+  summary: SummaryRecord | null;
+  loadState: LoadState;
+}) {
+  const { t } = useI18n();
+  if (loadState === "idle" || loadState === "loading") {
+    return <StatusMessage>{t("common.loading")}</StatusMessage>;
+  }
+  if (loadState === "not_found") {
+    return <StatusMessage>{t("deliverables.notAvailable")}</StatusMessage>;
+  }
+  if (loadState === "error" || summary === null) {
+    return <StatusMessage className="text-destructive">{t("deliverables.error")}</StatusMessage>;
+  }
+  return (
+    <article className="space-y-3 rounded-lg border border-border p-4">
+      <h3 className="font-semibold">{summary.title}</h3>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">{summary.summary}</p>
+      <p className="text-xs text-muted-foreground">
+        {summary.provider} / {summary.model} · {summary.source_sections}
+      </p>
+    </article>
   );
 }
 

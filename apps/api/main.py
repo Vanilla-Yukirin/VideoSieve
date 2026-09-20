@@ -8,7 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -16,15 +16,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 
-from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from infra import (
+    EventBus,
+    FileSystemWorkspaceStore,
+    RedisEventBus,
+    SQLiteEventBus,
+    SQLiteJobRepository,
+)
 
 from .rest import (
     control_job,
     create_job,
     create_me_cookie,
     create_project,
-    delete_project,
     delete_me_cookie,
+    delete_project,
     get_auth_bootstrap_status,
     get_auth_me,
     get_guest_cooldown,
@@ -52,7 +58,7 @@ from .ws_gateway import JobWebSocketGateway
 class _Runtime:
     repository: SQLiteJobRepository
     workspace: FileSystemWorkspaceStore
-    event_bus: RedisEventBus
+    event_bus: EventBus
     control_plane: ApiControlPlane
     ws_gateway: JobWebSocketGateway
 
@@ -60,9 +66,10 @@ class _Runtime:
 class _SocketQueueAdapter:
     def __init__(self) -> None:
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._loop = asyncio.get_running_loop()
 
     def send_json(self, payload: dict[str, Any]) -> None:
-        self.queue.put_nowait(payload)
+        self._loop.call_soon_threadsafe(self.queue.put_nowait, payload)
 
 
 ALLOWED_ARTIFACT_PREFIXES: tuple[str, ...] = (
@@ -94,7 +101,7 @@ def _validation_details(exc: ValidationError | RequestValidationError) -> list[d
             cleaned["ctx"] = {
                 key: (
                     value
-                    if isinstance(value, (str, int, float, bool, list, dict, type(None)))
+                    if isinstance(value, str | int | float | bool | list | dict | type(None))
                     else str(value)
                 )
                 for key, value in ctx.items()
@@ -110,13 +117,11 @@ def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool |
     repository = SQLiteJobRepository(data_dir / "infra.db")
     repository.ensure_schema()
     workspace = FileSystemWorkspaceStore(data_dir / "workspaces")
-    event_bus = RedisEventBus(
-        stub_mode=(
-            stub_mode_override
-            if stub_mode_override is not None
-            else _read_bool_env("VIDEOSIEVE_EVENTBUS_STUB_MODE", default=True)
-        )
-    )
+    event_bus: EventBus
+    if stub_mode_override is True:
+        event_bus = RedisEventBus(stub_mode=True)
+    else:
+        event_bus = SQLiteEventBus(data_dir / "infra.db")
     control_plane = ApiControlPlane(
         repository=repository,
         workspace=workspace,
@@ -321,9 +326,9 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
     async def post_upload_local_video(
         project_id: str,
         request: Request,
-        video: UploadFile = File(...),
-        context: str = Form(""),
-        summary_enabled: str = Form("false"),
+        video: Annotated[UploadFile, File()],
+        context: Annotated[str, Form()] = "",
+        summary_enabled: Annotated[str, Form()] = "false",
     ) -> dict[str, str]:
         token = _token(request)
         actor = "guest"
@@ -490,7 +495,13 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         sender_task = asyncio.create_task(_sender())
 
         try:
-            runtime.ws_gateway.connect(job_id=job_id, socket=socket_adapter)
+            raw_after_cursor = websocket.query_params.get("after_cursor")
+            after_cursor = int(raw_after_cursor) if raw_after_cursor is not None else None
+            runtime.ws_gateway.connect(
+                job_id=job_id,
+                socket=socket_adapter,
+                after_cursor=after_cursor,
+            )
         except KeyError:
             sender_task.cancel()
             await websocket.close(code=4404, reason="job not found")
@@ -499,8 +510,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         try:
             while True:
                 message = await websocket.receive_json()
-                ack = runtime.ws_gateway.handle_command(job_id=job_id, payload=message)
-                await websocket.send_json({"event_type": "control_ack", "payload": ack})
+                runtime.ws_gateway.handle_command(job_id=job_id, payload=message)
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:

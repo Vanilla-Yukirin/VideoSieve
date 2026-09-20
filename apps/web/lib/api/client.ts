@@ -2,8 +2,6 @@ import {
   Project,
   Job,
   JobSnapshot,
-  ControlAck,
-  ControlCommandType,
   CreateProjectRequest,
   DeleteProjectResponse,
   ApiErrorResponse,
@@ -147,11 +145,6 @@ export const api = {
   getJobSnapshot: (jobId: string) => fetchJson<JobSnapshot>(`/jobs/${jobId}/snapshot`),
 
   listJobArtifacts: (jobId: string) => fetchJson<ArtifactItem[]>(`/jobs/${jobId}/artifacts`),
-
-  controlJob: (jobId: string, command: ControlCommandType) =>
-    fetchJson<ControlAck>(`/jobs/${jobId}/control/${command}`, {
-      method: "POST",
-    }),
 
   // Probe: source_url with optional cookie_id
   probeIngestFormats: (payload: IngestProbeRequest) => {

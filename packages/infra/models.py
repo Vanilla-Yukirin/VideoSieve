@@ -16,6 +16,9 @@ class InfraEvent:
     job_id: str
     payload: dict[str, Any] = field(default_factory=dict)
     ts: str | None = None
+    event_id: int | None = None
+    state_version: int | None = None
+    request_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -42,6 +45,17 @@ class JobRecord:
     created_at: str
     updated_at: str
     delete_pending: bool = False
+    worker_id: str | None = None
+    attempt: int = 0
+    claimed_at: str | None = None
+    heartbeat_at: str | None = None
+    control_command: str | None = None
+    control_version: int = 0
+    control_ack_version: int = 0
+    control_requested_at: str | None = None
+    control_acknowledged_at: str | None = None
+    control_request_id: str | None = None
+    state_version: int = 0
 
 
 @dataclass(slots=True)

@@ -45,6 +45,9 @@ packages = [
   "packages/asr",
   "packages/keyframes",
   "packages/frame_summary",
+  "packages/overall_summary",
+  "packages/deliverables",
+  "packages/fusion",
   "apps/api",
   "workers",
 ]
@@ -64,6 +67,7 @@ include = [
 target-version = "py311"
 line-length = 100
 src = ["apps", "packages", "workers", "tests"]
+exclude = ["packages/asr/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -71,6 +75,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.11"
 files = ["apps", "packages", "workers", "tests"]
+exclude = "^packages/asr/vendor/"
 explicit_package_bases = true
 ignore_missing_imports = true
 warn_unused_ignores = true
@@ -81,6 +86,7 @@ warn_return_any = true
 addopts = "-q"
 testpaths = ["tests/unit"]
 pythonpath = [
+  ".",
   "packages",
   "apps/api",
   "workers",

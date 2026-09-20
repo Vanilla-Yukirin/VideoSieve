@@ -1,9 +1,19 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import {
+  EMPTY_JSONL_CURSOR,
+  fetchJsonl,
+  fetchJsonlDelta,
+  JsonlCursor,
+} from "@/lib/artifacts/jsonl";
+import {
+  frameNameToArtifactPath,
+  parseIllustratedNotes,
+} from "@/lib/artifacts/illustratedNotes";
 
 // ── Raw data types (from JSONL files) ────────────────────────────────────────
 
@@ -84,17 +94,6 @@ function encodeArtifactPath(path: string): string {
     .join("/");
 }
 
-async function fetchJsonl<T>(url: string): Promise<T[] | null> {
-  const res = await fetch(url);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
-  return text
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as T);
-}
-
 function buildTimeline(
   segments: TranscriptSegment[],
   keyframes: KeyframeRecord[],
@@ -144,8 +143,43 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [frameSummaries, setFrameSummaries] = useState<Map<string, string>>(new Map());
+  const [polishedNotes, setPolishedNotes] = useState<string | null>(null);
+  const [polishedLoadState, setPolishedLoadState] = useState<LoadState>("idle");
   const [summary, setSummary] = useState<SummaryRecord | null>(null);
   const [summaryLoadState, setSummaryLoadState] = useState<LoadState>("idle");
+  const frameCursorRef = useRef<JsonlCursor>(EMPTY_JSONL_CURSOR);
+  const frameFetchInFlightRef = useRef(false);
+
+  const refreshFrameSummaries = useCallback(async (complete: boolean) => {
+    if (frameFetchInFlightRef.current) return;
+    frameFetchInFlightRef.current = true;
+    try {
+      const result = await fetchJsonlDelta<FrameSummaryRecord>(
+        `/api/jobs/${jobId}/artifacts/download/frame_summary/frame_summary.jsonl`,
+        frameCursorRef.current,
+        { complete },
+      );
+      if (!result) return;
+      frameCursorRef.current = result.cursor;
+      if (result.records.length === 0 && !result.reset) return;
+      setFrameSummaries((previous) => {
+        const next = result.reset ? new Map<string, string>() : new Map(previous);
+        for (const record of result.records) {
+          if (
+            record.description_text &&
+            !record.description_text.startsWith("[offline frame summary]")
+          ) {
+            next.set(record.frame_id, record.description_text);
+          }
+        }
+        return next;
+      });
+    } catch {
+      // Frame descriptions are optional; the transcript remains usable on fetch errors.
+    } finally {
+      frameFetchInFlightRef.current = false;
+    }
+  }, [jobId]);
 
   // When the job transitions to succeeded, reset so Tab 0 re-fetches
   useEffect(() => {
@@ -194,27 +228,11 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     void loadTimeline();
   }, [activeTab, jobId, loadState]);
 
-  // Fetch frame_summary.jsonl once the primary timeline is loaded
+  // Fetch frame_summary.jsonl once, then request only appended byte ranges.
   useEffect(() => {
     if (loadState !== "ok") return;
-
-    fetchJsonl<FrameSummaryRecord>(
-      `/api/jobs/${jobId}/artifacts/download/frame_summary/frame_summary.jsonl`,
-    )
-      .then((records) => {
-        if (!records) return; // 404 = no VLM run, silently skip
-        const map = new Map<string, string>();
-        for (const r of records) {
-          if (r.description_text && !r.description_text.startsWith("[offline frame summary]")) {
-            map.set(r.frame_id, r.description_text);
-          }
-        }
-        setFrameSummaries(map);
-      })
-      .catch(() => {
-        // Non-critical — silently ignore errors
-      });
-  }, [jobId, loadState]);
+    void refreshFrameSummaries(jobStatus !== "running");
+  }, [jobStatus, loadState, refreshFrameSummaries]);
 
   // While job is running, poll frame_summary.jsonl every 4 s to pick up new descriptions
   useEffect(() => {
@@ -222,26 +240,43 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     if (jobStatus !== "running") return;
 
     const interval = setInterval(() => {
-      fetchJsonl<FrameSummaryRecord>(
-        `/api/jobs/${jobId}/artifacts/download/frame_summary/frame_summary.jsonl`,
-      )
-        .then((records) => {
-          if (!records) return;
-          setFrameSummaries((prev) => {
-            const next = new Map(prev);
-            for (const r of records) {
-              if (r.description_text && !r.description_text.startsWith("[offline frame summary]")) {
-                next.set(r.frame_id, r.description_text);
-              }
-            }
-            return next;
-          });
-        })
-        .catch(() => {});
+      void refreshFrameSummaries(false);
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [jobId, loadState, jobStatus]);
+  }, [loadState, jobStatus, refreshFrameSummaries]);
+
+  useEffect(() => {
+    if (activeTab !== 1 || polishedLoadState !== "idle") return;
+    const loadPolishedNotes = async () => {
+      setPolishedLoadState("loading");
+      try {
+        const response = await fetch(
+          `/api/jobs/${jobId}/artifacts/download/outputs/illustrated_notes.md`,
+        );
+        if (response.status === 404) {
+          setPolishedLoadState("not_found");
+          return;
+        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        setPolishedNotes(await response.text());
+        setPolishedLoadState("ok");
+      } catch {
+        setPolishedLoadState("error");
+      }
+    };
+    void loadPolishedNotes();
+  }, [activeTab, jobId, polishedLoadState]);
+
+  useEffect(() => {
+    if (
+      jobStatus === "succeeded" &&
+      (polishedLoadState === "not_found" || polishedLoadState === "error")
+    ) {
+      const timer = window.setTimeout(() => setPolishedLoadState("idle"), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [jobStatus, polishedLoadState]);
 
   useEffect(() => {
     if (activeTab !== 2 || summaryLoadState !== "idle") return;
@@ -306,7 +341,13 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
         {activeTab === 0 && (
           <RawTranscriptPanel timeline={timeline} loadState={loadState} frameSummaries={frameSummaries} />
         )}
-        {activeTab === 1 && <PlaceholderPanel message={t("deliverables.polishedPlaceholder")} />}
+        {activeTab === 1 && (
+          <PolishedNotesPanel
+            jobId={jobId}
+            markdown={polishedNotes}
+            loadState={polishedLoadState}
+          />
+        )}
         {activeTab === 2 && (
           <SummaryPanel summary={summary} loadState={summaryLoadState} />
         )}
@@ -419,15 +460,71 @@ function SegmentCard({ item }: { item: SegmentItem }) {
   );
 }
 
-// ── Tab 1 & 2: Placeholders ───────────────────────────────────────────────────
+// ── Tab 1: Published illustrated notes ────────────────────────────────────────
 
-function PlaceholderPanel({ message }: { message: string }) {
+function PolishedNotesPanel({
+  jobId,
+  markdown,
+  loadState,
+}: {
+  jobId: string;
+  markdown: string | null;
+  loadState: LoadState;
+}) {
+  const { t } = useI18n();
+  if (loadState === "idle" || loadState === "loading") {
+    return <StatusMessage>{t("common.loading")}</StatusMessage>;
+  }
+  if (loadState === "not_found") {
+    return <StatusMessage>{t("deliverables.notAvailable")}</StatusMessage>;
+  }
+  if (loadState === "error" || markdown === null) {
+    return <StatusMessage className="text-destructive">{t("deliverables.error")}</StatusMessage>;
+  }
+
+  const blocks = parseIllustratedNotes(markdown);
+  if (blocks.length === 0) {
+    return <StatusMessage>{t("deliverables.emptyPolished")}</StatusMessage>;
+  }
+
   return (
-    <div className="flex items-center justify-center h-40 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-      {message}
-    </div>
+    <article className="max-h-[640px] space-y-4 overflow-y-auto rounded-lg border border-border p-4">
+      {blocks.map((block, index) => {
+        if (block.kind === "frame") {
+          const artifactPath = frameNameToArtifactPath(block.name);
+          const imageUrl = `/api/jobs/${jobId}/artifacts/download/${encodeArtifactPath(artifactPath)}`;
+          return (
+            <figure key={`${block.name}-${index}`} className="overflow-hidden rounded-lg border border-primary/20 bg-primary/5">
+              <Image
+                src={imageUrl}
+                alt={block.name}
+                width={1280}
+                height={720}
+                unoptimized
+                className="aspect-video w-full object-contain"
+              />
+            </figure>
+          );
+        }
+        if (block.kind === "heading") {
+          const headingClass = block.level === 1 ? "text-xl" : block.level === 2 ? "text-lg" : "text-base";
+          return (
+            <h3 key={`heading-${index}`} className={cn("font-semibold tracking-tight", headingClass)}>
+              {block.text}
+            </h3>
+          );
+        }
+        return (
+          <p key={`paragraph-${index}`} className="whitespace-pre-wrap text-sm leading-relaxed">
+            {block.text}
+          </p>
+        );
+      })}
+    </article>
   );
 }
+
+// ── Tab 2: Model summary ──────────────────────────────────────────────────────
 
 function SummaryPanel({
   summary,

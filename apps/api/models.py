@@ -86,7 +86,7 @@ class SystemSettingsResponse(ApiModel):
 
     guest_mode_enabled: bool
     guest_allow_cookie_input: bool
-    # ASR routing. Credentials remain in the worker environment.
+    # ASR routing. Credentials are write-only and encrypted at rest.
     asr_provider: str
     asr_endpoint: str
     asr_language: str
@@ -104,7 +104,7 @@ class SystemSettingsResponse(ApiModel):
     # VLM prompt defaults (read-only, always reflects code constants)
     vlm_frame_prompt_zh_default: str
     vlm_frame_prompt_en_default: str
-    # Overall summary LLM configuration. Credentials stay in SUMMARY_API_KEY.
+    # Overall summary LLM configuration. Credentials are never returned.
     summary_base_url: str
     summary_model: str
     summary_prompt_zh: str

@@ -122,6 +122,14 @@ export type MessageKey =
   | "ingest.audio"
   | "ingest.auto"
   | "ingest.duplicate"
+  | "ingest.networkVideo"
+  | "ingest.localUpload"
+  | "ingest.chooseVideo"
+  | "ingest.selectedFile"
+  | "ingest.context"
+  | "ingest.optional"
+  | "ingest.contextPlaceholder"
+  | "ingest.contextHint"
   | "job.status"
   | "job.live"
   | "job.offline"
@@ -333,6 +341,14 @@ export const messages: Record<Locale, MessageMap> = {
     "ingest.audio": "音频",
     "ingest.auto": "自动",
     "ingest.duplicate": "分析与成品配置相同，将复用下载。",
+    "ingest.networkVideo": "网络视频",
+    "ingest.localUpload": "本地上传",
+    "ingest.chooseVideo": "选择视频文件",
+    "ingest.selectedFile": "已选择",
+    "ingest.context": "背景信息",
+    "ingest.optional": "（可选）",
+    "ingest.contextPlaceholder": "粘贴视频简介、评论或其他背景资料...",
+    "ingest.contextHint": "用于补充本地视频无法自动获取的简介、评论等上下文信息。",
     "job.status": "状态",
     "job.live": "实时",
     "job.offline": "离线（轮询）",
@@ -541,6 +557,14 @@ export const messages: Record<Locale, MessageMap> = {
     "ingest.audio": "Audio",
     "ingest.auto": "Auto",
     "ingest.duplicate": "Analysis and quality assets have identical configuration — the download will be reused.",
+    "ingest.networkVideo": "Online Video",
+    "ingest.localUpload": "Local Upload",
+    "ingest.chooseVideo": "Choose Video File",
+    "ingest.selectedFile": "Selected",
+    "ingest.context": "Background Context",
+    "ingest.optional": "(optional)",
+    "ingest.contextPlaceholder": "Paste a video description, comments, or other background material...",
+    "ingest.contextHint": "Adds context that cannot be fetched automatically for a local video, such as its description or comments.",
     "job.status": "Status",
     "job.live": "Live",
     "job.offline": "Offline (Polling)",

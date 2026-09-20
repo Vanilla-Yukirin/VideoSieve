@@ -3,39 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, KeyRound, Settings } from "lucide-react";
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ToastProvider } from "@/lib/toast/ToastProvider";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { getSessionToken, SESSION_CHANGED_EVENT } from "@/lib/auth/session";
+import { useSessionToken } from "@/lib/hooks/useSessionToken";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-
-function subscribeToSession(listener: () => void): () => void {
-  window.addEventListener(SESSION_CHANGED_EVENT, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(SESSION_CHANGED_EVENT, listener);
-    window.removeEventListener("storage", listener);
-  };
-}
-
-function getSessionSnapshot(): boolean {
-  return Boolean(getSessionToken());
-}
-
-function getServerSessionSnapshot(): boolean {
-  return false;
-}
 
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { t } = useI18n();
-  const hasToken = useSyncExternalStore(
-    subscribeToSession,
-    getSessionSnapshot,
-    getServerSessionSnapshot,
-  );
+  const hasToken = Boolean(useSessionToken());
 
   const isCompactPage = pathname.startsWith("/login") || pathname.startsWith("/setup");
 

@@ -20,9 +20,9 @@ import {
 } from "@/lib/auth/helpers";
 import {
   getGuestAllowCookieInputCached,
-  getSessionToken,
   setGuestAllowCookieInputCached,
 } from "@/lib/auth/session";
+import { useSessionToken } from "@/lib/hooks/useSessionToken";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 export default function ProjectDetail() {
@@ -41,11 +41,9 @@ export default function ProjectDetail() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
-  const [guestAllowCookieInput, setGuestAllowCookieInput] = useState<boolean>(
-    getGuestAllowCookieInputCached(),
-  );
+  const [guestAllowCookieInput, setGuestAllowCookieInput] = useState(false);
 
-  const sessionToken = getSessionToken();
+  const sessionToken = useSessionToken();
   const isGuest = !sessionToken;
   const guestCookieDisabled = isGuestCookieInputDisabled(isGuest, guestAllowCookieInput);
 
@@ -373,12 +371,12 @@ export default function ProjectDetail() {
                     {t("project.cookieNeedLogin")}
                   </p>
                   {guestCookieDisabled ? (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-amber-300">
                       {t("project.cookieDisabled")}
                     </p>
                   ) : null}
                   {cookiesError ? (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-amber-300">
                       {t("project.cookieUnavailable")}
                     </p>
                   ) : null}

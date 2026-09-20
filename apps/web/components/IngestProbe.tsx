@@ -283,7 +283,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
           className="flex-1"
         >
           <Link2 className="mr-2 h-4 w-4" />
-          网络视频
+          {t("ingest.networkVideo")}
         </Button>
         <Button
           variant={mode === "upload" ? "primary" : "outline"}
@@ -299,7 +299,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
           className="flex-1"
         >
           <Upload className="mr-2 h-4 w-4" />
-          本地上传
+          {t("ingest.localUpload")}
         </Button>
       </div>
 
@@ -328,7 +328,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
             </Button>
           </div>
           {!cookieId?.trim() ? (
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-amber-300">
               {t("ingest.noCookieHint")}
             </p>
           ) : null}
@@ -341,7 +341,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="file-input">
-              选择视频文件
+              {t("ingest.chooseVideo")}
             </label>
             <input
               id="file-input"
@@ -353,22 +353,22 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
             />
             {selectedFile && (
               <p className="text-xs text-muted-foreground">
-                已选择: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                {t("ingest.selectedFile")}: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
               </p>
             )}
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="context-input">
-              背景信息
+              {t("ingest.context")}
               <span className="ml-1 text-xs font-normal text-muted-foreground">
-                (可选)
+                {t("ingest.optional")}
               </span>
             </label>
             <textarea
               id="context-input"
               className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="粘贴视频简介、评论或其他背景资料..."
+              placeholder={t("ingest.contextPlaceholder")}
               value={uploadContext}
               onChange={(e) => {
                 setUploadContext(e.target.value);
@@ -379,7 +379,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
               disabled={disabled}
             />
             <p className="text-xs text-muted-foreground">
-              用于弥补本地视频无法自动获取的简介/评论等上下文信息
+              {t("ingest.contextHint")}
             </p>
           </div>
         </div>
@@ -474,7 +474,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
 
       {/* Dedupe hint */}
       {duplicateConfig && (
-        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
+        <div className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200">
           {t("ingest.duplicate")}
         </div>
       )}

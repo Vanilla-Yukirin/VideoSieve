@@ -52,6 +52,9 @@ API 最低启动配置包括：
 - workspace 根目录；
 - Web origin / cookie / session 安全策略。
 
+当前管理会话仍是浏览器 `localStorage` 中的 Bearer token；其适用边界和迁移条件见
+[Security and Secrets](security-and-secrets.md#browser-session-token-tradeoff)。
+
 worker 最低启动配置包括：
 
 - 同一 SQLite 路径和 workspace 根目录；

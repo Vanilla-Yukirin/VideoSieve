@@ -31,7 +31,8 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 
 - **[已实现]** 打开 `/` 后先请求 `GET /auth/bootstrap-status`。
 - **[已实现]** `bootstrap_required=true` 时跳转 `/setup`。
-- **[已实现]** 已初始化后，前端使用本地 token 调 `GET /auth/me`：
+- **[已实现]** 已初始化后，前端从 `localStorage` 读取 token，并以 Bearer token 调
+  `GET /auth/me`：
   - token 有效 -> 进入主界面
   - token 无效或缺失 -> 跳转 `/login`
 - **[已实现]** 游客会话只能由 `/login` 页面主动进入。
@@ -74,6 +75,17 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 HTTP 保留给认证、设置、项目/任务 CRUD、上传、播放/下载和健康检查。视频与产物
 本体不通过 WebSocket 传输。
 
+## Results Preview
+
+- **[已实现]** 原始转录页签读取 transcript / keyframe JSONL，并按时间交错展示；
+- **[已实现]** 运行中画面摘要使用 HTTP byte range 读取新增内容；若服务端不支持 range，
+  客户端安全回退到全量读取；单行损坏不会让整个 JSONL 进入错误态；
+- **[已实现]** 润色稿页签读取已发布的 `outputs/illustrated_notes.md`，严格解析
+  `[[frame:...]]` 引用并展示对应 workspace 图片；不把 Markdown 当 HTML 注入页面；
+- **[已实现]** 摘要页签读取带 provider/model 信息的 `outputs/summary.json`；未生成时
+  明确显示尚不可用，不以拼接文本伪装模型摘要；
+- **[已实现]** 日志仅在用户停留于底部时跟随新增内容，向上阅读历史时保持当前位置。
+
 ## i18n
 
 - **[已实现]** 全局底部语言切换：`中文 / English`。
@@ -88,3 +100,5 @@ HTTP 保留给认证、设置、项目/任务 CRUD、上传、播放/下载和�
 - **[已实现]** `guest_cookie_key_required`：系统设置页显示可理解错误信息。
 - **[已实现]** `auth_required`：需要登录的页面统一回退 `/login`。
 - **[已实现]** 网络失败场景保留页面级错误提示，不静默吞错。
+- **[已实现]** 删除等破坏性操作使用应用内可访问确认对话框；操作反馈统一使用 Toast
+  或页面内错误信息，不调用浏览器原生 `alert()` / `confirm()`。

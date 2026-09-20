@@ -1,28 +1,31 @@
-"""Factory helpers for selecting ASR provider from environment."""
+"""Factory helpers for selecting external ASR providers."""
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
-from .funasr_local import FunASRLocalProvider
-from .interfaces import ASRProvider
+from .interfaces import ASRProvider, ASRProviderError
+
+
+def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider:
+    """Create an ASR adapter from a job snapshot without persisting credentials."""
+
+    provider = str(config.get("provider") or "").strip().lower()
+    if provider in {"", "unconfigured"}:
+        raise ASRProviderError(
+            "ASR_PROVIDER_UNCONFIGURED",
+            "ASR provider is not configured; select an external provider in system settings",
+        )
+    raise ASRProviderError(
+        "ASR_PROVIDER_UNSUPPORTED",
+        f"unsupported ASR provider: {provider}",
+    )
 
 
 def create_asr_provider_from_env() -> ASRProvider:
-    provider = os.getenv("VIDEOSIEVE_ASR_PROVIDER", "funasr_local").strip().lower()
-    if provider == "funasr_local":
-        model = os.getenv("VIDEOSIEVE_ASR_MODEL", "FunAudioLLM/Fun-ASR-Nano-2512").strip()
-        hub = os.getenv("VIDEOSIEVE_ASR_HUB", "ms").strip().lower()
-        device = os.getenv("VIDEOSIEVE_ASR_DEVICE", "auto").strip().lower()
-        language = os.getenv("VIDEOSIEVE_ASR_LANGUAGE")
-        return FunASRLocalProvider(
-            model=model,
-            hub=hub,
-            device=device,
-            language=language.strip() if isinstance(language, str) and language.strip() else None,
-        )
-    raise ValueError(
-        "unsupported VIDEOSIEVE_ASR_PROVIDER: "
-        f"{provider or '<empty>'}; configure 'funasr_local'. "
-        "mock and baseline providers are not available to production jobs."
+    """Compatibility entry point for deployments that still select via env."""
+
+    return create_asr_provider_from_config(
+        {"provider": os.getenv("VIDEOSIEVE_ASR_PROVIDER", "unconfigured")}
     )

@@ -25,6 +25,21 @@ function mockResponse(
   } as unknown as Response;
 }
 
+function mockByteResponse(
+  bytes: Uint8Array,
+  status: number,
+  headers: Record<string, string> = {},
+): Response {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: {
+      get: (name: string) => headers[name.toLowerCase()] ?? null,
+    },
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  } as unknown as Response;
+}
+
 describe("JSONL artifact loading", () => {
   it("keeps valid rows when a neighboring line is malformed", () => {
     const result = parseJsonlText<{ id: number }>(
@@ -65,6 +80,39 @@ describe("JSONL artifact loading", () => {
 
     expect(result?.records).toEqual([]);
     expect(result?.cursor).toBe(cursor);
+  });
+
+  it("preserves a UTF-8 character split across byte-range responses", async () => {
+    const bytes = new TextEncoder().encode('{"text":"中文"}\n');
+    const firstChineseByte = bytes.findIndex((value) => value >= 0x80);
+    const split = firstChineseByte + 1;
+    (global as unknown as { fetch: jest.Mock }).fetch = jest
+      .fn()
+      .mockResolvedValueOnce(mockByteResponse(bytes.slice(0, split), 200))
+      .mockResolvedValueOnce(mockByteResponse(bytes.slice(split), 206));
+
+    const first = await fetchJsonlDelta<{ text: string }>("/artifact", EMPTY_JSONL_CURSOR);
+    const second = await fetchJsonlDelta<{ text: string }>("/artifact", first!.cursor);
+
+    expect(first?.records).toEqual([]);
+    expect(second?.records).toEqual([{ text: "中文" }]);
+    expect(second?.malformedLines).toBe(0);
+  });
+
+  it("flushes a final JSON line when EOF returns 416 after completion", async () => {
+    (global as unknown as { fetch: jest.Mock }).fetch = jest
+      .fn()
+      .mockResolvedValueOnce(mockResponse('{"id":1}', 200))
+      .mockResolvedValueOnce(mockResponse("", 416, { "content-range": "bytes */8" }));
+
+    const first = await fetchJsonlDelta<{ id: number }>("/artifact", EMPTY_JSONL_CURSOR);
+    const completed = await fetchJsonlDelta<{ id: number }>("/artifact", first!.cursor, {
+      complete: true,
+    });
+
+    expect(first?.records).toEqual([]);
+    expect(completed?.records).toEqual([{ id: 1 }]);
+    expect(completed?.cursor.remainder).toBe("");
   });
 });
 

@@ -14,6 +14,10 @@ import {
   frameNameToArtifactPath,
   parseIllustratedNotes,
 } from "@/lib/artifacts/illustratedNotes";
+import {
+  shouldArmCompletionRetry,
+  shouldConsumeCompletionRetry,
+} from "@/lib/artifacts/completionRetry";
 
 // ── Raw data types (from JSONL files) ────────────────────────────────────────
 
@@ -149,6 +153,12 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   const [summaryLoadState, setSummaryLoadState] = useState<LoadState>("idle");
   const frameCursorRef = useRef<JsonlCursor>(EMPTY_JSONL_CURSOR);
   const frameFetchInFlightRef = useRef(false);
+  const previousJobStatusRef = useRef(jobStatus);
+  const completionRetryRef = useRef({
+    timeline: false,
+    polished: false,
+    summary: false,
+  });
 
   const refreshFrameSummaries = useCallback(async (complete: boolean) => {
     if (frameFetchInFlightRef.current) return;
@@ -181,13 +191,38 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     }
   }, [jobId]);
 
-  // When the job transitions to succeeded, reset so Tab 0 re-fetches
+  // Arm one final artifact retry only on the transition into succeeded.
   useEffect(() => {
-    if (jobStatus === "succeeded" && (loadState === "not_found" || loadState === "error")) {
-      const timer = window.setTimeout(() => setLoadState("idle"), 0);
-      return () => window.clearTimeout(timer);
+    const previousJobStatus = previousJobStatusRef.current;
+    if (previousJobStatus === jobStatus) return;
+
+    completionRetryRef.current = {
+      timeline: shouldArmCompletionRetry(previousJobStatus, jobStatus, loadState),
+      polished: shouldArmCompletionRetry(previousJobStatus, jobStatus, polishedLoadState),
+      summary: shouldArmCompletionRetry(previousJobStatus, jobStatus, summaryLoadState),
+    };
+    previousJobStatusRef.current = jobStatus;
+  }, [jobStatus, loadState, polishedLoadState, summaryLoadState]);
+
+  useEffect(() => {
+    const timers: number[] = [];
+    const retry = completionRetryRef.current;
+
+    if (shouldConsumeCompletionRetry(jobStatus, retry.timeline, loadState)) {
+      retry.timeline = false;
+      timers.push(window.setTimeout(() => setLoadState("idle"), 0));
     }
-  }, [jobStatus, loadState]);
+    if (shouldConsumeCompletionRetry(jobStatus, retry.polished, polishedLoadState)) {
+      retry.polished = false;
+      timers.push(window.setTimeout(() => setPolishedLoadState("idle"), 0));
+    }
+    if (shouldConsumeCompletionRetry(jobStatus, retry.summary, summaryLoadState)) {
+      retry.summary = false;
+      timers.push(window.setTimeout(() => setSummaryLoadState("idle"), 0));
+    }
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [jobStatus, loadState, polishedLoadState, summaryLoadState]);
 
   // While job is running and transcript not yet available, retry every 5 s
   useEffect(() => {
@@ -269,16 +304,6 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
   }, [activeTab, jobId, polishedLoadState]);
 
   useEffect(() => {
-    if (
-      jobStatus === "succeeded" &&
-      (polishedLoadState === "not_found" || polishedLoadState === "error")
-    ) {
-      const timer = window.setTimeout(() => setPolishedLoadState("idle"), 0);
-      return () => window.clearTimeout(timer);
-    }
-  }, [jobStatus, polishedLoadState]);
-
-  useEffect(() => {
     if (activeTab !== 2 || summaryLoadState !== "idle") return;
     const loadSummary = async () => {
       setSummaryLoadState("loading");
@@ -301,13 +326,6 @@ export function DeliverablesTabs({ jobId, jobStatus }: DeliverableTabsProps) {
     };
     void loadSummary();
   }, [activeTab, jobId, summaryLoadState]);
-
-  useEffect(() => {
-    if (jobStatus === "succeeded" && summaryLoadState === "not_found") {
-      const timer = window.setTimeout(() => setSummaryLoadState("idle"), 0);
-      return () => window.clearTimeout(timer);
-    }
-  }, [jobStatus, summaryLoadState]);
 
   const tabs: string[] = [
     t("deliverables.tabRaw"),

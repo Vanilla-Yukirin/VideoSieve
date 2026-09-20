@@ -218,8 +218,6 @@ export type MessageKey =
   | "deliverables.error"
   | "deliverables.emptyTimeline"
   | "deliverables.emptyPolished"
-  | "deliverables.polishedPlaceholder"
-  | "deliverables.summaryPlaceholder"
   | "deliverables.frameNoDesc";
 
 type MessageMap = Record<MessageKey, string>;
@@ -443,8 +441,6 @@ export const messages: Record<Locale, MessageMap> = {
     "deliverables.error": "加载失败，请刷新页面重试",
     "deliverables.emptyTimeline": "时间线为空",
     "deliverables.emptyPolished": "润色稿为空",
-    "deliverables.polishedPlaceholder": "润色稿需要配置 LLM API，敬请期待。",
-    "deliverables.summaryPlaceholder": "摘要需要配置 LLM API，敬请期待。",
     "deliverables.frameNoDesc": "（暂无图片描述，待 VLM 接入后生成）"
   },
   en: {
@@ -665,8 +661,6 @@ export const messages: Record<Locale, MessageMap> = {
     "deliverables.error": "Failed to load, please refresh and retry",
     "deliverables.emptyTimeline": "Timeline is empty",
     "deliverables.emptyPolished": "Polished notes are empty",
-    "deliverables.polishedPlaceholder": "Polished notes require LLM API configuration.",
-    "deliverables.summaryPlaceholder": "Summary requires LLM API configuration.",
     "deliverables.frameNoDesc": "(No description yet — will be generated once VLM is connected)"
   }
 };

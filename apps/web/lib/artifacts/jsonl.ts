@@ -1,6 +1,7 @@
 export interface JsonlCursor {
   byteOffset: number;
   remainder: string;
+  decoder?: TextDecoder;
 }
 
 export interface JsonlParseResult<T> {
@@ -65,6 +66,15 @@ export async function fetchJsonlDelta<T>(
   if (response.status === 416 && cursor.byteOffset > 0) {
     const size = contentRangeSize(response);
     if (size === cursor.byteOffset) {
+      if (options.complete) {
+        const decodedTail = cursor.decoder?.decode() ?? "";
+        const parsed = parseJsonlText<T>(cursor.remainder + decodedTail, true);
+        return {
+          ...parsed,
+          cursor: { byteOffset: cursor.byteOffset, remainder: "" },
+          reset: false,
+        };
+      }
       return {
         records: [],
         remainder: cursor.remainder,
@@ -81,13 +91,19 @@ export async function fetchJsonlDelta<T>(
   const bytes = await response.arrayBuffer();
   const reset = response.status !== 206 || cursor.byteOffset === 0;
   const prefix = reset ? "" : cursor.remainder;
-  const text = prefix + new TextDecoder().decode(bytes);
-  const parsed = parseJsonlText<T>(text, options.complete ?? false);
+  const decoder = reset ? new TextDecoder() : (cursor.decoder ?? new TextDecoder());
+  const complete = options.complete ?? false;
+  const text = prefix + decoder.decode(bytes, { stream: !complete });
+  const parsed = parseJsonlText<T>(text, complete);
   const byteOffset = (reset ? 0 : cursor.byteOffset) + bytes.byteLength;
 
   return {
     ...parsed,
-    cursor: { byteOffset, remainder: parsed.remainder },
+    cursor: {
+      byteOffset,
+      remainder: parsed.remainder,
+      ...(complete ? {} : { decoder }),
+    },
     reset,
   };
 }

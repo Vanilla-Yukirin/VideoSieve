@@ -60,7 +60,11 @@ worker 最低启动配置包括：
 - 同一 SQLite 路径和 workspace 根目录；
 - worker identity、轮询和心跳参数；
 - FFmpeg/ffprobe 等外部工具路径；
-- job snapshot 中 provider 所引用的真实凭据或本地模型路径。
+- job snapshot 中 provider 所引用的真实凭据和外部服务地址。
+
+ASR worker 使用 CapsWriter 官方 WebSocket 协议。`CAPSWRITER_TOKEN` 为选填环境变量；
+上游原版服务不要求它，自建网关启用鉴权时才配置。Token 不进入 SQLite 或 job snapshot。
+worker 主机必须安装 FFmpeg，用于把输入转换为 16 kHz、单声道、float32 音频流。
 
 模型 key、cookie 和 token 不使用 `NEXT_PUBLIC_*`，不写入普通 job snapshot。前端公开
 配置只包含公开 origin、版本或 UI feature hint。

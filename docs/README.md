@@ -70,6 +70,7 @@
 - [ADR-0003: workspace lifecycle](adr/ADR-0003-workspace-lifecycle.md)
 - [ADR-0004: Redis event bus](adr/ADR-0004-redis-event-bus.md)（Superseded，未实施）
 - [ADR-0005: single-host SQLite queue and worker](adr/ADR-0005-single-host-sqlite-worker.md)（Accepted，已实现；真实模型验收待执行）
+- [ADR-0006: external ASR through CapsWriter WebSocket](adr/ADR-0006-external-asr-capswriter-websocket.md)（Accepted，已实现；真实服务验收待执行）
 
 ## Archive
 

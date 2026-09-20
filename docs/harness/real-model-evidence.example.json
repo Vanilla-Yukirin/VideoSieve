@@ -10,8 +10,8 @@
     "duration_seconds": 600.0
   },
   "asr": {
-    "provider": "funasr_local",
-    "model": "FunAudioLLM/Fun-ASR-Nano-2512",
+    "provider": "capswriter",
+    "model": "server-managed",
     "run_id": "acceptance-20260920-001",
     "artifact": "D:\\evidence\\transcript.jsonl",
     "sha256": "replace-with-64-hex-sha256",

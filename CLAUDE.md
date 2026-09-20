@@ -42,9 +42,11 @@ npm --prefix apps/web run dev
 
 Copy `.env.example` → `.env.local`. Minimum required env vars: `APP_SECRET_KEY`, `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000`.
 
-For local ASR: `uv sync --extra dev` and set `VIDEOSIEVE_ASR_PROVIDER=funasr_local`.
-FunASR/PyTorch are currently main dependencies; `asr_local` is an empty extra.
-Models load on first transcription, not during API startup.
+ASR is external and unconfigured by default. Select `capswriter` in system settings or seed
+`VIDEOSIEVE_ASR_PROVIDER=capswriter` and `VIDEOSIEVE_ASR_ENDPOINT=ws://host:6016` before
+the first API start. The adapter uses CapsWriter's official WebSocket protocol. The optional
+`CAPSWRITER_TOKEN` stays in the worker environment. The base install contains no ASR model
+runtime and never downloads a speech model.
 
 For VLM (frame summaries): set `QWEN_API_KEY` in `.env.local`. Base URL / model / prompts / concurrency are stored in SQLite and editable via `/settings/system`.
 

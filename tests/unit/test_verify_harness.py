@@ -36,8 +36,8 @@ def _write_evidence(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
             "duration_seconds": 100.0,
         },
         "asr": {
-            "provider": "funasr-local",
-            "model": "fun-asr-nano-2512",
+            "provider": "capswriter",
+            "model": "server-managed",
             "run_id": run_id,
             "artifact": str(artifacts["asr"]),
             "sha256": _sha256(artifacts["asr"]),

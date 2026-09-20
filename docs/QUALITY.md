@@ -22,9 +22,8 @@ uv run python scripts/verify.py --profile integration
 裸 `uv run pytest` 会执行 unit、contract 和 integration Python 测试，但不会执行前端、
 静态检查或真实模型验收，因此不能代替 harness。
 
-Ruff 排除 `packages/asr/vendor` 和 `tests/funasr_bug_validation`：两处是上游派生代码或
-需要真实 GPU/音频的手工复现脚本，不属于维护中的应用与自动测试 gate。普通 unit、
-contract 和 integration 套件仍全部进入 Ruff 与 pytest。
+Ruff、mypy 和 pytest 覆盖维护中的 ASR adapter。仓库不再携带 FunASR 上游派生代码或
+依赖真实 GPU 的手工修补脚本；外部服务的内容质量仍由真实媒体证据门禁验证。
 
 准备发布时必须保证所有 tracked 文件与 `HEAD` 一致，并提供与当前 Git revision 一致的
 真实模型验收记录：

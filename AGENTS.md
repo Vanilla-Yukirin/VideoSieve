@@ -8,8 +8,10 @@
   `workers/runtime.py` is the thin execution adapter. Celery and Redis are not used.
 - SQLite persists queue ownership, attempts, progress, control versions and cursor events.
   `InMemoryEventBus` is an explicit test/embedding adapter, never the default runtime bus.
-- Production ASR defaults to real local FunASR. Frame-summary and overall-summary failures
-  are explicit; test doubles live under `tests/`. Final deliverables publish a hashed
+- Production ASR is unconfigured by default and uses external adapters. CapsWriter's
+  upstream WebSocket protocol is implemented and authentication is optional.
+  Frame-summary and overall-summary failures are explicit;
+  test doubles live under `tests/`. Final deliverables publish a hashed
   readiness manifest only after the complete generation is ready.
 - Target scope confirmed by the user: one computer/server, one or a few users. The
   SQLite plus separate Python worker architecture is implemented; real video/provider
@@ -48,8 +50,8 @@ npm --prefix apps/web test -- --runInBand
 ```
 
 Bare `uv run pytest` discovers unit, contract and integration Python suites. The harness
-also runs frontend and static checks. FunASR/PyTorch are currently main dependencies;
-`asr_local` is an empty extra. See `how_to_run.md` for startup and configuration. Start
+also runs frontend and static checks. The base install contains no FunASR, PyTorch,
+Torchaudio or Transformers runtime. See `how_to_run.md` for external ASR configuration. Start
 the independent worker with `uv run python -m workers.single_host --data-dir runtime/api`.
 Do not prescribe Redis/Celery startup.
 

@@ -46,8 +46,9 @@
 
 当前提交已移除 API 默认后台线程执行，接入 SQLite 原子领取、attempt/心跳/显式恢复、
 持久事件游标、独立 worker 和任务页 WebSocket 控制，并让三类模型漏配或失败显式暴露。
-跨进程领取与恢复、WebSocket 重连和 provider 失败已有自动测试。真实视频、真实
-FunASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md) 与
+跨进程领取与恢复、WebSocket 重连和 provider 失败已有自动测试。ASR 已改为外部
+CapsWriter 官方 WebSocket adapter，并删除内置模型运行时。真实视频、真实
+ASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md) 与
 [harness](harness/README.md) 验收。
 
 ## 3. 目标组件
@@ -65,7 +66,7 @@ FunASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md
                │
       独立 Python worker
                │
-    FFmpeg / ASR / VLM / LLM
+    FFmpeg / 外部 ASR / VLM / LLM
                │
        workspace（本地文件系统）
 ```

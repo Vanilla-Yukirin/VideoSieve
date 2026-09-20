@@ -15,8 +15,10 @@
 任务状态与游标事件保存在 SQLite，前端任务状态和控制通过 WebSocket 传输。Celery 与
 Redis 只保留在历史设计中，不是运行依赖。
 
-生产 ASR 默认使用真实 FunASR；画面描述和最终摘要使用真实兼容模型接口。漏配、网络
-错误和空响应会让任务明确失败，不会生成 mock 或占位成功。自动化验证已经覆盖队列、
+VideoSieve 不内置或下载 ASR 模型。ASR 默认未配置，可在系统设置中选择外部
+CapsWriter 服务端并使用官方 WebSocket 协议，Token 为选填项。画面描述和最终摘要
+使用真实兼容模型接口。漏配、网络错误和空响应会让任务
+明确失败，不会生成 mock 或占位成功。自动化验证已经覆盖队列、
 控制、恢复、事件重连和 provider 失败；真实视频与真实模型的内容验收仍需按
 `docs/harness/README.md` 留存证据，不能用单元测试代替。
 
@@ -42,15 +44,17 @@ uv run mypy apps packages workers
 `pyproject.toml` 让裸 `uv run pytest` 覆盖 unit、contract 和 integration Python 测试；
 它仍不包含前端、静态检查和真实模型验收。日常完整检查使用上面的 harness 入口。
 
-当前 FunASR / PyTorch 已在主依赖中，`asr_local` extra 为空，无需额外安装该 extra。
-真实转写的生产默认 provider 为：
+基础依赖不包含 FunASR、PyTorch、Torchaudio、Transformers 或模型下载器。外部
+CapsWriter 可先在系统设置中配置，也可在首次初始化 SQLite 设置前用环境变量提供默认值：
 
 ```env
-VIDEOSIEVE_ASR_PROVIDER=funasr_local
+VIDEOSIEVE_ASR_PROVIDER=capswriter
+VIDEOSIEVE_ASR_ENDPOINT=ws://capswriter-host:6016
+# CAPSWRITER_TOKEN=only-if-your-server-requires-it
 ```
 
-模型首次使用时加载，可能触发下载。完整启动与验证命令见 `how_to_run.md` 和
-`docs/QUALITY.md`。
+worker 只连接外部服务，音频规范化仍依赖 FFmpeg。完整启动与验证命令见
+`how_to_run.md` 和 `docs/QUALITY.md`。
 
 ## 历史版本
 

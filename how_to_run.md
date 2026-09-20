@@ -39,6 +39,9 @@ VLM_TIMEOUT_SECONDS=60
 SUMMARY_API_KEY=your-summary-key
 SUMMARY_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 SUMMARY_MODEL=qwen-plus
+VIDEOSIEVE_ASR_PROVIDER=capswriter
+VIDEOSIEVE_ASR_ENDPOINT=ws://capswriter-host:6016
+# CAPSWRITER_TOKEN=only-if-your-server-requires-it
 ```
 
 VLM（画面描述 + 文字提取）建议至少配置：
@@ -59,21 +62,26 @@ uv venv --python 3.12
 uv sync --extra dev
 ```
 
-版本与当前 `.python-version` 对齐。已有环境应先检查，不要直接重建。
-FunASR / PyTorch 目前属于主依赖；`asr_local` extra 为空。
-启用真实本地 ASR 时，在启动后端前设置（可写入 `.env.local`）：
+版本与当前 `.python-version` 对齐。已有环境应先检查，不要直接重建。基础安装不包含
+FunASR、PyTorch、Torchaudio 或 Transformers，也不会下载 ASR 模型。
+
+ASR 默认是 `unconfigured`。首次启动前可在 `.env.local` 为 SQLite 系统设置提供默认值：
 
 ```env
-VIDEOSIEVE_ASR_PROVIDER=funasr_local
-VIDEOSIEVE_ASR_MODEL=FunAudioLLM/Fun-ASR-Nano-2512
-VIDEOSIEVE_ASR_HUB=ms
-VIDEOSIEVE_ASR_DEVICE=auto
+VIDEOSIEVE_ASR_PROVIDER=capswriter
+VIDEOSIEVE_ASR_ENDPOINT=ws://capswriter-host:6016
+VIDEOSIEVE_ASR_LANGUAGE=auto
+VIDEOSIEVE_ASR_TIMEOUT_SECONDS=900
+# CAPSWRITER_TOKEN=only-if-your-server-requires-it
 ```
 
-模型在首次转写时加载，可能下载文件。真实媒体处理还需核对 FFmpeg/ffprobe 等
-外部工具的可用性，具体由下载格式、合并和音频解码路径决定。
-未设置 ASR provider 时默认使用真实 `funasr_local`。空值、未知值或 `baseline` 会明确
-失败。VLM／摘要缺密钥、调用失败或返回空内容时任务失败，不生成占位结果。启动成功
+也可在 Web 的“系统设置”中选择“CapsWriter 服务端”。适配器使用上游原版的根
+WebSocket 协议。原版 CapsWriter 不要求 Token，只有自建服务启用鉴权时才设置
+`CAPSWRITER_TOKEN`。该值只由 worker 环境读取，不进入 SQLite、任务快照或浏览器。
+
+WebSocket 适配器使用 FFmpeg 把输入转为 16 kHz、单声道、float32 音频流，因此 worker
+主机仍必须可执行 FFmpeg/ffprobe。未配置、未知 provider、连接失败或空响应都会明确
+失败。VLM／摘要缺密钥、调用失败或返回空内容时同样失败，不生成占位结果。启动成功
 仍不能视为模型内容验收通过。
 
 ## 3. 启动后端（终端 1）
@@ -126,6 +134,8 @@ npm --prefix apps/web run dev
   - 可选：`ENABLE_GUEST_MODE`、`GUEST_ALLOW_COOKIE_INPUT`、`GUEST_JOB_COOLDOWN_SECONDS`、`GUEST_COOKIE_KEY`
   - VLM：`QWEN_API_KEY`、`QWEN_BASE_URL`、`VLM_MODEL`、`VLM_TIMEOUT_SECONDS`
   - 最终摘要：`SUMMARY_API_KEY`、`SUMMARY_BASE_URL`、`SUMMARY_MODEL`
+  - ASR 非敏感默认值：`VIDEOSIEVE_ASR_PROVIDER`、`VIDEOSIEVE_ASR_ENDPOINT`
+  - ASR 选填密钥：`CAPSWRITER_TOKEN`
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
 
 ## 常见问题（Windows）

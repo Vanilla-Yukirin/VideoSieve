@@ -42,7 +42,7 @@ harness profile 为准。
 
 | 编号 | 契约 | 自动证据 |
 | --- | --- | --- |
-| VS-Q001 | 未设置 ASR provider 时选择真实 `funasr_local`；空值、未知值、`baseline`/`mock` 显式失败 | `tests/unit/test_asr_provider_factory.py` |
+| VS-Q001 | 未设置 ASR provider 时明确失败；只有已实现的外部 `capswriter` 可选，未知值、`baseline`/`mock` 显式失败 | `tests/unit/test_asr_provider_factory.py` |
 | VS-Q002 | VLM 缺密钥、超时、HTTP/网络错误、畸形或空响应均失败，不返回占位成功；批次仅在全部成功后原子发布 | `tests/contract/test_provider_failure_contracts.py` 与 frame-summary 单元测试 |
 | VS-Q003 | 两个线程或进程不能领取同一 SQLite 任务 | `tests/contract/test_sqlite_worker_contracts.py`、`tests/integration/test_sqlite_worker_processes.py` |
 | VS-Q004 | 控制请求与 worker 确认使用独立 version；请求 pause 不得直接宣称已经暂停 | `tests/contract/test_sqlite_worker_contracts.py` |

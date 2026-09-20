@@ -130,24 +130,21 @@
 
 ---
 
-### 本地 ASR（FunASR 官方模型）接入准备
-**状态**: 🟡 准备中
+### 外部 ASR（CapsWriter 官方 WebSocket）
+**状态**: 🟡 代码与自动测试完成，真实服务验收待执行
 
 **文件**: `packages/asr/*`, `apps/api/service.py`, `apps/web/app/settings/*`, `scripts/*`
 
-**问题**:
-- 云 ASR 方案对公网可访问 URL / OSS 有前置依赖，不适合所有用户环境。
-- 当前尚未确认 FunASR 官方 demo 与 README 的具体实现细节，直接动手风险高。
+**已实现**:
+- 删除 FunASR、PyTorch、Torchaudio、Transformers、本地模型下载和上游派生代码
+- ASR 默认 `unconfigured`，漏配与未知 provider 明确失败
+- `capswriter` 使用上游官方根 WebSocket 协议发送 16 kHz 单声道 float32 音频流
+- `CAPSWRITER_TOKEN` 为选填握手头，不写入 SQLite、任务快照或浏览器
+- 系统设置、不可变 job snapshot、独立 worker、协议解析和失败语义已有自动测试
 
-**前置要求（开始编码前）**:
-- 由用户提供 FunASR 官方 demo 代码（可运行最小示例）
-- 由用户提供官方 GitHub README 页面（或链接/截图）用于参数与调用方式对齐
-
-**期望行为**:
-- ASR 默认走本地 FunASR 官方模型
-- 首次尝试时自动下载模型（优先使用官方默认缓存目录）
-- 后端启动时执行模型加载（若未下载则先下载）
-- 推理设备策略为 GPU 优先、CPU 回退（兼容 Linux 服务器部署）
+**待验收**:
+- 使用真实视频连接目标 CapsWriter 服务，核对全文、时间戳、长视频和断线失败表现
+- 为目标部署补 systemd 服务、网络访问和真实媒体 evidence
 
 ---
 

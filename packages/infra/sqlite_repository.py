@@ -264,6 +264,25 @@ class SQLiteJobRepository(JobRepository):
             updated_at=row["updated_at"],
         )
 
+    def list_projects(self) -> list[ProjectRecord]:
+        rows = self._conn.execute(
+            """
+            SELECT project_id, title, status, created_at, updated_at
+            FROM projects
+            ORDER BY created_at DESC, project_id DESC
+            """
+        ).fetchall()
+        return [
+            ProjectRecord(
+                project_id=row["project_id"],
+                title=row["title"],
+                status=row["status"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
+
     def update_project_status(self, project_id: str, status: str) -> None:
         self._conn.execute(
             """
@@ -431,7 +450,7 @@ class SQLiteJobRepository(JobRepository):
               updated_at
             FROM jobs
             WHERE project_id = ?
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, rowid ASC
             """,
             (project_id,),
         ).fetchall()
@@ -1049,7 +1068,7 @@ class SQLiteJobRepository(JobRepository):
               updated_at
             FROM user_cookies
             WHERE user_id = ?
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, rowid ASC
             """,
             (user_id,),
         ).fetchall()

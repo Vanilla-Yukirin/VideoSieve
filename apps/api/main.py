@@ -42,6 +42,7 @@ from .rest import (
     list_job_artifacts,
     list_me_cookies,
     list_project_jobs,
+    list_projects,
     patch_me_cookie,
     patch_system_settings,
     post_auth_bootstrap,
@@ -90,6 +91,13 @@ def _read_bool_env(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _web_origins() -> list[str]:
+    raw = os.getenv("VIDEOSIEVE_WEB_ORIGINS", "")
+    if raw.strip():
+        return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+    return ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 def _validation_details(exc: ValidationError | RequestValidationError) -> list[dict[str, Any]]:
@@ -156,7 +164,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
     app = FastAPI(title="VideoSieve API", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=_web_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -298,6 +306,10 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
     @app.post("/projects")
     async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
         return create_project(_control_plane(request), payload)
+
+    @app.get("/projects")
+    async def get_project_list(request: Request) -> list[dict[str, str | None]]:
+        return list_projects(_control_plane(request))
 
     @app.get("/projects/{project_id}")
     async def get_projects(project_id: str, request: Request) -> dict[str, str | None]:

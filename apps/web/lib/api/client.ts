@@ -113,6 +113,8 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  listProjects: () => fetchJson<Project[]>("/projects"),
+
   getProject: (projectId: string) => fetchJson<Project>(`/projects/${projectId}`),
 
   deleteProject: (projectId: string, forceCancelActive = false) =>

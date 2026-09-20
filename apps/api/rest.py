@@ -30,6 +30,7 @@ REST_ROUTES: tuple[str, ...] = (
     "PATCH /settings/system",
     "GET /guest/cooldown",
     "POST /projects",
+    "GET /projects",
     "GET /projects/{project_id}",
     "DELETE /projects/{project_id}",
     "POST /jobs",
@@ -55,6 +56,12 @@ def create_project(control_plane: ApiControlPlane, payload: dict[str, Any]) -> d
 
     project_id = control_plane.create_project(ProjectCreateRequest.model_validate(payload))
     return {"project_id": project_id}
+
+
+def list_projects(control_plane: ApiControlPlane) -> list[dict[str, str | None]]:
+    """GET /projects"""
+
+    return control_plane.list_projects()
 
 
 def get_project(control_plane: ApiControlPlane, project_id: str) -> dict[str, str | None]:

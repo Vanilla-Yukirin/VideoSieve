@@ -75,6 +75,10 @@ class JobRepository(ABC):
         """Fetch one project row by id."""
 
     @abstractmethod
+    def list_projects(self) -> list[ProjectRecord]:
+        """List projects in stable newest-first creation order."""
+
+    @abstractmethod
     def update_project_status(self, project_id: str, status: str) -> None:
         """Update project status."""
 

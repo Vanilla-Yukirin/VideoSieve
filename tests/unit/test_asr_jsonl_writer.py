@@ -5,8 +5,7 @@ from pathlib import Path
 
 from tests.support import StubASRProvider
 
-from asr import write_transcript_jsonl
-from contracts.models import SCHEMA_VERSION
+from asr import TRANSCRIPT_SCHEMA_VERSION, write_transcript_jsonl
 
 
 def test_write_transcript_jsonl_matches_contract_fields(tmp_path: Path) -> None:
@@ -43,7 +42,7 @@ def test_write_transcript_jsonl_matches_contract_fields(tmp_path: Path) -> None:
     }
     for row in rows:
         assert set(row.keys()) == required_fields
-        assert row["schema_version"] == SCHEMA_VERSION
+        assert row["schema_version"] == TRANSCRIPT_SCHEMA_VERSION
         assert isinstance(row["start"], float)
         assert isinstance(row["end"], float)
         assert row["end"] > row["start"]

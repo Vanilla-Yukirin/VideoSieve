@@ -24,6 +24,16 @@ def _config_positive_int(config: Mapping[str, object], key: str, default: int) -
         return default
 
 
+def _config_nonnegative_float(config: Mapping[str, object], key: str, default: float) -> float:
+    value = config.get(key)
+    if isinstance(value, bool):
+        return default
+    try:
+        return max(0.0, float(str(value))) if value is not None else default
+    except ValueError:
+        return default
+
+
 def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider:
     """Create an ASR adapter from a job snapshot without persisting credentials."""
 
@@ -60,6 +70,11 @@ def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider
             context=context,
             timeout_seconds=timeout_seconds,
             ffmpeg_executable=_config_str(config, "ffmpeg_executable", "ffmpeg"),
+            segment_seconds=max(
+                1.0,
+                _config_nonnegative_float(config, "segment_seconds", 60.0),
+            ),
+            overlap_seconds=_config_nonnegative_float(config, "overlap_seconds", 4.0),
         )
     raise ASRProviderError(
         "ASR_PROVIDER_UNSUPPORTED",

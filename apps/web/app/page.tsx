@@ -22,7 +22,7 @@ export default function Home() {
   const { t } = useI18n();
   const { pushToast } = useToast();
   const router = useRouter();
-  const { projectIds, addProject, removeProject, isLoaded } = useProjectIndex();
+  const { projectIds, addProject, removeProject, isLoaded, loadError } = useProjectIndex();
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
@@ -145,6 +145,12 @@ export default function Home() {
       <div className="rounded-md border bg-muted/20 p-3 text-sm">
         {t("home.cookieHint")}
       </div>
+
+      {loadError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+          {t("home.projectListLoadFailed")}
+        </div>
+      ) : null}
 
       {projectIds.length === 0 ? (
         <div className="text-center py-20 border-2 border-dashed rounded-lg">

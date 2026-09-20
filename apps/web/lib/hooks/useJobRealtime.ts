@@ -2,7 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { ControlAck, ControlCommandType, JobSnapshot } from "../api/types";
 import { jobReducer, initialState } from "../state/jobReducer";
 
-const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8040").replace(/\/+$/, "");
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8000").replace(/\/+$/, "");
 const COMMAND_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAY_MS = 2_000;
 

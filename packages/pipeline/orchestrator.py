@@ -523,7 +523,8 @@ class PipelineOrchestrator:
             if not cv2_available:
                 raise KeyframeStageError(
                     "KEYFRAME_DECODER_UNAVAILABLE",
-                    "opencv-python is required for keyframe selection and image extraction",
+                    "opencv-python-headless is required for keyframe selection "
+                    "and image extraction",
                     hint="Install the pinned video dependencies and retry this stage.",
                 )
             try:

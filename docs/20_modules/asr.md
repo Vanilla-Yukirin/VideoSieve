@@ -32,7 +32,9 @@ provider adapter 和选项，不改变 CapsWriter 的协议。
 ## Params
 
 - WebSocket endpoint、language、context 和 timeout；
-- WebSocket 分块与重叠参数遵循 CapsWriter 文件转写协议；
+- `seg_duration` / `seg_overlap` 默认采用上游文件转录客户端的 `60 / 4` 秒；协议
+  dataclass 的 fallback 是 `15 / 2` 秒。adapter 和不可变 job snapshot 保留显式参数，
+  后续调优不会改变已创建任务；
 - ffmpeg executable；
 - retry policy。
 
@@ -46,6 +48,6 @@ provider adapter 和选项，不改变 CapsWriter 的协议。
 
 - 未配置、FFmpeg 解码、连接、超时或 provider 输出错误会使 ASR stage 失败；
 - 不生成模拟 transcript，不把缺配置解释为成功；
-- CapsWriter 不提供置信度时，canonical segment 的 `conf` 写为 `0.0`，同时 metadata 明确
-  标记 `confidence_available=false`，不能把该值解释为模型给出的低置信度；
+- CapsWriter 不提供置信度时，canonical segment 省略可选的 `conf`，同时 metadata 明确
+  标记 `confidence_available=false`；前端不会显示虚假的 `0%`；
 - 真实转写质量、时间戳和热词效果需要 real-model evidence 及人工复核。

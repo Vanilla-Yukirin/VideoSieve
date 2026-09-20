@@ -247,6 +247,20 @@ class ApiControlPlane:
             "updated_at": project.updated_at,
         }
 
+    def list_projects(self) -> list[dict[str, str | None]]:
+        """List persisted projects in repository-defined order."""
+
+        return [
+            {
+                "project_id": project.project_id,
+                "title": project.title,
+                "status": project.status,
+                "created_at": project.created_at,
+                "updated_at": project.updated_at,
+            }
+            for project in self._repository.list_projects()
+        ]
+
     def delete_project(
         self, project_id: str, *, force_cancel_active: bool = False
     ) -> dict[str, object]:
@@ -850,6 +864,8 @@ class ApiControlPlane:
         secret = os.getenv("APP_SECRET_KEY", "").strip()
         if not secret:
             raise ApiConfigError("APP_SECRET_KEY is required for API startup")
+        if secret == "change-me-in-local-or-production":
+            raise ApiConfigError("APP_SECRET_KEY must be changed from the example value")
 
     def _read_bool_env(self, name: str, *, default: bool) -> bool:
         raw = os.getenv(name)
@@ -1160,6 +1176,8 @@ class ApiControlPlane:
                 "context": runtime_settings[SETTING_ASR_CONTEXT],
                 "timeout_seconds": runtime_settings[SETTING_ASR_TIMEOUT_SECONDS],
                 "token_env": "CAPSWRITER_TOKEN",
+                "segment_seconds": 60.0,
+                "overlap_seconds": 4.0,
             }
             config["frame_summary"] = {
                 "base_url": runtime_settings[SETTING_VLM_BASE_URL],

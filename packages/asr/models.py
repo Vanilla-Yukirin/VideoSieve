@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from contracts.models import SCHEMA_VERSION
+TRANSCRIPT_SCHEMA_VERSION = "1.1"
 
 
 @dataclass(slots=True)
@@ -27,20 +27,22 @@ class ASRSegment:
     end: float
     text: str
     lang: str
-    conf: float
+    conf: float | None = None
 
     def to_contract_dict(self) -> dict[str, Any]:
         """Serialize into one canonical transcript JSONL record."""
 
-        return {
-            "schema_version": SCHEMA_VERSION,
+        record: dict[str, Any] = {
+            "schema_version": TRANSCRIPT_SCHEMA_VERSION,
             "segment_id": self.segment_id,
             "start": self.start,
             "end": self.end,
             "text": self.text,
             "lang": self.lang,
-            "conf": self.conf,
         }
+        if self.conf is not None:
+            record["conf"] = self.conf
+        return record
 
 
 @dataclass(slots=True)

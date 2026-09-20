@@ -34,7 +34,7 @@ function loadRootEnvFile() {
 
 loadRootEnvFile();
 
-const apiOrigin = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8040").replace(/\/+$/, "");
+const apiOrigin = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 const nextConfig = {
   async rewrites() {

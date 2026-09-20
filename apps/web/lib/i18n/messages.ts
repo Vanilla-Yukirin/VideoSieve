@@ -14,6 +14,7 @@ export type MessageKey =
   | "home.leaveGuest"
   | "home.cookieHint"
   | "home.empty"
+  | "home.projectListLoadFailed"
   | "home.createFirst"
   | "home.newProjectTitlePrefix"
   | "setup.title"
@@ -243,7 +244,7 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.en": "English",
     "home.title": "项目",
     "shell.controlPlane": "控制台",
-    "home.subtitle.user": "你的 VideoSieve 项目本地索引。",
+    "home.subtitle.user": "SQLite 中保存的 VideoSieve 项目。",
     "home.subtitle.guest": "游客会话（全服共享冷却生效）。",
     "home.newProject": "新建项目",
     "home.systemSettings": "系统设置",
@@ -251,7 +252,8 @@ export const messages: Record<Locale, MessageMap> = {
     "home.logout": "退出登录",
     "home.leaveGuest": "退出游客",
     "home.cookieHint": "私有视频需要登录 Cookie。登录后可在 Cookie Vault 管理。",
-    "home.empty": "本地索引中还没有项目。",
+    "home.empty": "还没有项目。",
+    "home.projectListLoadFailed": "无法从服务端加载项目；当前显示浏览器中的旧缓存。",
     "home.createFirst": "创建第一个项目",
     "home.newProjectTitlePrefix": "新项目",
     "setup.title": "首次初始化",
@@ -478,7 +480,7 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.en": "English",
     "home.title": "Projects",
     "shell.controlPlane": "Control Plane",
-    "home.subtitle.user": "Local index of your VideoSieve projects.",
+    "home.subtitle.user": "VideoSieve projects saved in SQLite.",
     "home.subtitle.guest": "Guest session (shared global cooldown applies).",
     "home.newProject": "New Project",
     "home.systemSettings": "System Settings",
@@ -486,7 +488,8 @@ export const messages: Record<Locale, MessageMap> = {
     "home.logout": "Logout",
     "home.leaveGuest": "Leave Guest",
     "home.cookieHint": "Private videos may require login cookies. Manage them in Cookie Vault when signed in.",
-    "home.empty": "No projects found in local index.",
+    "home.empty": "No projects yet.",
+    "home.projectListLoadFailed": "Could not load projects from the server; showing the old browser cache.",
     "home.createFirst": "Create your first project",
     "home.newProjectTitlePrefix": "New Project",
     "setup.title": "Initial Setup",

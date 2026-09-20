@@ -3,7 +3,7 @@
 from .capswriter import CapsWriterWebSocketProvider
 from .factory import create_asr_provider_from_config, create_asr_provider_from_env
 from .interfaces import ASRProvider, ASRProviderError
-from .models import ASRRequest, ASRResult, ASRSegment
+from .models import TRANSCRIPT_SCHEMA_VERSION, ASRRequest, ASRResult, ASRSegment
 from .service import write_transcript_jsonl
 
 __all__ = [
@@ -12,6 +12,7 @@ __all__ = [
     "ASRRequest",
     "ASRResult",
     "ASRSegment",
+    "TRANSCRIPT_SCHEMA_VERSION",
     "CapsWriterWebSocketProvider",
     "create_asr_provider_from_config",
     "create_asr_provider_from_env",

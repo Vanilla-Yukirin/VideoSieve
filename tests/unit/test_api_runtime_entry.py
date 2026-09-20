@@ -78,6 +78,25 @@ def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
         assert fetched_job.json()["project_id"] == project_id
 
 
+def test_runtime_lists_projects_from_sqlite(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        first = client.post("/projects", json={"title": "first"}).json()["project_id"]
+        second = client.post("/projects", json={"title": "second"}).json()["project_id"]
+
+        response = client.get("/projects")
+
+        assert response.status_code == 200
+        projects = response.json()
+        assert [project["project_id"] for project in projects] == [second, first]
+        assert set(projects[0]) == {
+            "project_id",
+            "title",
+            "status",
+            "created_at",
+            "updated_at",
+        }
+
+
 def test_runtime_upload_is_staged_inside_project_workspace_with_safe_name(
     tmp_path: Path,
 ) -> None:
@@ -397,6 +416,35 @@ def test_runtime_startup_fails_when_app_secret_missing(
     with pytest.raises(ApiConfigError, match="APP_SECRET_KEY is required"):
         with TestClient(app):
             pass
+
+
+def test_runtime_startup_rejects_example_app_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("APP_SECRET_KEY", "change-me-in-local-or-production")
+    pytest.importorskip("fastapi")
+    from apps.api.main import create_app
+    from apps.api.service import ApiConfigError
+    from fastapi.testclient import TestClient
+
+    app = create_app(data_dir=tmp_path / "runtime", event_bus_in_memory=True)
+    with pytest.raises(ApiConfigError, match="must be changed"):
+        with TestClient(app):
+            pass
+
+
+def test_runtime_cors_accepts_both_localhost_spellings(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        for origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+            response = client.options(
+                "/healthz",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == origin
 
 
 def test_runtime_probe_returns_not_found_for_unknown_cookie_id(tmp_path: Path) -> None:

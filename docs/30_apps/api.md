@@ -42,6 +42,7 @@ Key REST endpoints:
 - `implemented` `GET /public/access-flags`: public bootstrap hint (`guest_mode_enabled` only).
 - `implemented` `GET /auth/bootstrap-status`, `POST /auth/bootstrap`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`.
 - `implemented` `GET /settings/system`, `PATCH /settings/system`.
+- `implemented` `GET /projects`: list SQLite-backed projects in stable newest-first creation order.
 - `implemented` `GET /guest/cooldown`: global cooldown state (`active`, `remaining_seconds`, `cooldown_seconds`).
 - `implemented` `POST /ingest/probe`: URL format probe only (no download).
 - `implemented` `POST /jobs`: create a job snapshot and persist a queued job in the audited REST path.

@@ -79,7 +79,7 @@ export function ProjectCard({ projectId, onRemove }: ProjectCardProps) {
     <Card className="transition-colors hover:border-primary/35 hover:bg-card">
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start gap-2">
-            <CardTitle className="text-lg line-clamp-2" title={project.title}>
+            <CardTitle className="text-lg line-clamp-2" title={project.title ?? undefined}>
               {project.title || t("projectCard.untitled")}
             </CardTitle>
             <Badge variant={project.status === "running" ? "default" : "secondary"}>

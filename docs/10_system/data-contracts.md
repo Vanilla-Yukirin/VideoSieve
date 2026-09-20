@@ -110,14 +110,18 @@ a versioned migration; this document does not make that planned name available t
 
 ## 3. Media and Processing Artifacts
 
-### 3.1 TranscriptSegment (`asr/transcript.jsonl`) [已有代码结构]
+### 3.1 TranscriptSegment (`asr/transcript.jsonl`) [schema 1.1]
 
-- Required: `schema_version`, `segment_id`, `start`, `end`, `text`, `lang`, `conf`
+- Required: `schema_version`, `segment_id`, `start`, `end`, `text`, `lang`
+- Optional: `conf`（仅在 provider 实际返回置信度时写入）
 
 Example JSONL line:
 ```json
-{"schema_version":"1.0","segment_id":"seg_00001","start":0.2,"end":4.8,"text":"今天我们来讲线性变换。","lang":"zh","conf":0.93}
+{"schema_version":"1.1","segment_id":"seg_00001","start":0.2,"end":4.8,"text":"今天我们来讲线性变换。","lang":"zh","conf":0.93}
 ```
+
+Migration note：旧 `1.0` 行要求 `conf`；`1.1` 将其改为可选，CapsWriter 未提供置信度时
+省略该字段。读取方须同时接受 `1.0` 与 `1.1`；已有 job 产物不做原地改写。
 
 ### 3.2 Keyframe (`frames/keyframes.jsonl`) [已有代码结构]
 

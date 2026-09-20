@@ -57,6 +57,8 @@ def test_create_job_with_ingest_params(tmp_path: Path) -> None:
     assert data["ingest"]["source_url"] == "https://test.com/video"
     assert data["ingest"]["analysis_asset"] == {"video_format_id": "1080p", "audio_format_id": "hq"}
     assert data["ingest"]["quality_asset"] == {"video_format_id": "1080p", "audio_format_id": "hq"}
+    assert data["asr"]["segment_seconds"] == 60.0
+    assert data["asr"]["overlap_seconds"] == 4.0
 
 
 def test_create_job_backward_compatibility_without_ingest(tmp_path: Path) -> None:

@@ -13,6 +13,8 @@ from datetime import UTC, datetime, timedelta
 from io import BufferedRandom
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from asr import create_asr_provider_from_config
 from contracts import JobStatus, StageName
 from infra import (
@@ -445,9 +447,14 @@ def _positive_float(value: object, *, default: float) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the VideoSieve single-host worker")
     parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path(".env.local"),
+        help="Load worker credentials and defaults from this file when it exists",
+    )
+    parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path(os.getenv("VIDEOSIEVE_API_DATA_DIR", "runtime/api")),
     )
     parser.add_argument("--worker-id")
     parser.add_argument("--poll-interval", type=float, default=1.0)
@@ -455,11 +462,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stale-after", type=float, default=30.0)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
+    if args.env_file.is_file():
+        load_dotenv(args.env_file, override=False)
+    data_dir = args.data_dir or Path(os.getenv("VIDEOSIEVE_API_DATA_DIR", "runtime/api"))
 
     try:
-        with _SingleInstanceLock(args.data_dir / "worker.lock"):
+        with _SingleInstanceLock(data_dir / "worker.lock"):
             worker = SingleHostWorker(
-                args.data_dir,
+                data_dir,
                 worker_id=args.worker_id,
                 poll_interval_seconds=args.poll_interval,
                 heartbeat_interval_seconds=args.heartbeat_interval,

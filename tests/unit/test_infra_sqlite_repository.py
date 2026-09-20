@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from infra import InfraEvent, SQLiteJobRepository
@@ -262,7 +262,8 @@ def test_worker_attempt_fences_progress_and_terminal_state(tmp_path: Path) -> No
         expected_worker_id="worker-old",
         expected_attempt=first.attempt,
     )
-    assert repo.mark_stale_jobs_interrupted(datetime.now(UTC)) == ["j-fence"]
+    stale_before = datetime.now(UTC) + timedelta(microseconds=1)
+    assert repo.mark_stale_jobs_interrupted(stale_before) == ["j-fence"]
     assert repo.recover_interrupted_job("j-fence")
     second = repo.claim_next_job("worker-new")
     assert second is not None

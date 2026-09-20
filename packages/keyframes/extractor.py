@@ -14,7 +14,7 @@ def _require_cv2():
         import cv2
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(
-            "opencv-python is required for real video extraction. "
+            "opencv-python-headless is required for real video extraction. "
             "Install it in your environment, then retry."
         ) from exc
     return cv2

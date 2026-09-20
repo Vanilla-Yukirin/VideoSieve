@@ -6,6 +6,7 @@ import base64
 import json
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 from collections.abc import Iterator, Mapping
@@ -69,50 +70,52 @@ def _iter_float32_chunks(
             hint="Retry ingest and verify the workspace media files.",
         )
 
-    process = subprocess.Popen(
-        [
-            executable,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(media_path),
-            "-f",
-            "f32le",
-            "-acodec",
-            "pcm_f32le",
-            "-ac",
-            "1",
-            "-ar",
-            str(_AUDIO_RATE),
-            "pipe:1",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    chunk_size = _AUDIO_RATE * _AUDIO_SAMPLE_BYTES * chunk_seconds
-    try:
-        if process.stdout is None or process.stderr is None:
-            raise ASRProviderError("ASR_FFMPEG_FAILED", "ffmpeg pipes were not created")
-        while block := process.stdout.read(chunk_size):
-            yield block
-        stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
-        return_code = process.wait()
-        if return_code != 0:
-            raise ASRProviderError(
-                "ASR_FFMPEG_FAILED",
-                f"ffmpeg could not decode ASR input: {stderr or f'exit {return_code}'}",
-                hint="Verify that ffmpeg can decode the uploaded media.",
-            )
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+    with tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen(
+            [
+                executable,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(media_path),
+                "-f",
+                "f32le",
+                "-acodec",
+                "pcm_f32le",
+                "-ac",
+                "1",
+                "-ar",
+                str(_AUDIO_RATE),
+                "pipe:1",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+        )
+        chunk_size = _AUDIO_RATE * _AUDIO_SAMPLE_BYTES * chunk_seconds
+        try:
+            if process.stdout is None:
+                raise ASRProviderError("ASR_FFMPEG_FAILED", "ffmpeg stdout pipe was not created")
+            while block := process.stdout.read(chunk_size):
+                yield block
+            return_code = process.wait()
+            if return_code != 0:
+                stderr_file.seek(0)
+                stderr = stderr_file.read().decode("utf-8", errors="replace").strip()
+                raise ASRProviderError(
+                    "ASR_FFMPEG_FAILED",
+                    f"ffmpeg could not decode ASR input: {stderr or f'exit {return_code}'}",
+                    hint="Verify that ffmpeg can decode the uploaded media.",
+                )
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
 
 
 def _segments_from_tokens(
@@ -155,7 +158,6 @@ def _segments_from_tokens(
                         end=group_end,
                         text=text,
                         lang=language,
-                        conf=0.0,
                     )
                 )
             group_tokens = []
@@ -178,7 +180,6 @@ def _segments_from_tokens(
             end=max(0.0, duration),
             text=text,
             lang=language,
-            conf=0.0,
         )
     ]
 
@@ -214,6 +215,8 @@ class CapsWriterWebSocketProvider(ASRProvider):
         context: str = "",
         timeout_seconds: int = 900,
         ffmpeg_executable: str = "ffmpeg",
+        segment_seconds: float = _DEFAULT_SEGMENT_SECONDS,
+        overlap_seconds: float = _DEFAULT_OVERLAP_SECONDS,
     ) -> None:
         self._endpoint = _normalise_websocket_url(endpoint)
         self._token = token.strip() if token and token.strip() else None
@@ -221,6 +224,8 @@ class CapsWriterWebSocketProvider(ASRProvider):
         self._context = context
         self._timeout_seconds = max(1, timeout_seconds)
         self._ffmpeg_executable = ffmpeg_executable
+        self._segment_seconds = max(1.0, segment_seconds)
+        self._overlap_seconds = max(0.0, min(overlap_seconds, self._segment_seconds))
 
     @property
     def adapter_name(self) -> str:
@@ -254,8 +259,8 @@ class CapsWriterWebSocketProvider(ASRProvider):
                                 "data": base64.b64encode(chunk).decode("ascii"),
                                 "is_final": False,
                                 "time_start": time.time(),
-                                "seg_duration": _DEFAULT_SEGMENT_SECONDS,
-                                "seg_overlap": _DEFAULT_OVERLAP_SECONDS,
+                                "seg_duration": self._segment_seconds,
+                                "seg_overlap": self._overlap_seconds,
                                 "context": context,
                                 "language": language,
                             },
@@ -270,8 +275,8 @@ class CapsWriterWebSocketProvider(ASRProvider):
                             "data": "",
                             "is_final": True,
                             "time_start": time.time(),
-                            "seg_duration": _DEFAULT_SEGMENT_SECONDS,
-                            "seg_overlap": _DEFAULT_OVERLAP_SECONDS,
+                            "seg_duration": self._segment_seconds,
+                            "seg_overlap": self._overlap_seconds,
                             "context": context,
                             "language": language,
                         },

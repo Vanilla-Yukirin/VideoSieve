@@ -1,11 +1,9 @@
 export interface Project {
   project_id: string;
-  source_type: string;
-  source_ref: string;
-  title: string;
+  title: string | null;
   status: string;
   created_at: string;
-  updated_at?: string;
+  updated_at: string;
 }
 
 export interface Job {

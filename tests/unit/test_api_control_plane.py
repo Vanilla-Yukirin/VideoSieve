@@ -749,10 +749,12 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
         "transport": "websocket",
         "endpoint": "",
         "language": "auto",
-        "context": "",
-        "timeout_seconds": 900,
-        "token_env": "CAPSWRITER_TOKEN",
-    }
+            "context": "",
+            "timeout_seconds": 900,
+            "token_env": "CAPSWRITER_TOKEN",
+            "segment_seconds": 60.0,
+            "overlap_seconds": 4.0,
+        }
     assert payload["dedupe_applied_estimate"] is False
     assert ingest["source_url"] == "https://www.bilibili.com/video/BV1demo"
     assert ingest["analysis_asset"] == {"video_format_id": "30032", "audio_format_id": "30280"}

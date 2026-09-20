@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from asr import (
     ASRRequest,
     CapsWriterWebSocketProvider,
 )
+from asr.capswriter import _iter_float32_chunks
 
 
 class _FakeWebSocket:
@@ -79,6 +81,8 @@ def test_websocket_provider_uses_upstream_protocol_without_required_token(
     assert [segment.text for segment in result.segments] == ["你好。", "世界！"]
     assert result.metadata["transport"] == "websocket"
     assert result.metadata["confidence_available"] is False
+    assert all(segment.conf is None for segment in result.segments)
+    assert all("conf" not in segment.to_contract_dict() for segment in result.segments)
 
 
 def test_websocket_provider_sends_optional_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,3 +111,35 @@ def test_websocket_provider_rejects_http_endpoint() -> None:
         CapsWriterWebSocketProvider(endpoint="http://localhost:6016")
 
     assert exc_info.value.code == "ASR_CONFIG_INVALID"
+
+
+def test_ffmpeg_errors_are_buffered_without_a_stderr_pipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media_path = tmp_path / "broken.mp4"
+    media_path.write_bytes(b"broken")
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdout = BytesIO(b"")
+
+        def wait(self, timeout: float | None = None) -> int:
+            assert timeout is None
+            return 1
+
+        def poll(self) -> int:
+            return 1
+
+    def fake_popen(*_args: object, **kwargs: Any) -> FakeProcess:
+        stderr = kwargs["stderr"]
+        assert stderr is not None
+        assert stderr != -1  # subprocess.PIPE
+        stderr.write(b"decode failed")
+        stderr.flush()
+        return FakeProcess()
+
+    monkeypatch.setattr("asr.capswriter.shutil.which", lambda _name: "ffmpeg")
+    monkeypatch.setattr("asr.capswriter.subprocess.Popen", fake_popen)
+
+    with pytest.raises(ASRProviderError, match="decode failed"):
+        list(_iter_float32_chunks(media_path, ffmpeg_executable="ffmpeg"))

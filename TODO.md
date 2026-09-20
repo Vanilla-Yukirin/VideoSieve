@@ -148,22 +148,21 @@
 
 ---
 
-### 接入 ASR / Frame Summary / Overall Summary API 并做脚本测试
-**状态**: ❌ 未完成
+### ASR / Frame Summary / Overall Summary 真实服务联调
+**状态**: 🟡 适配器与自动测试完成，真实服务验收待执行
 
 **文件**: `packages/asr/*`, `packages/frame_summary/*`, `packages/deliverables/*`, `scripts/*`, `apps/web/app/settings/*`
 
-**问题**: 目前链路未完成完整外部 API 接入与多路径验证。
+**问题**: 三类外部能力已接入并有自动测试，但尚缺目标部署上的真实视频 evidence。
 
 **关键区分**:
 - `Frame Summary API`: 必须是 VLM（支持视觉输入），用于图片级摘要
 - `Overall Summary API`: 可为 LLM 或 VLM，用于全局总结（与 frame summary 分离，不要求同一服务）
 
-**期望行为**:
-- 完成 ASR API 接入
-- 完成 Frame Summary API（VLM）接入
-- 完成 Overall Summary API 接入
-- 增加脚本测试覆盖不同开关组合与输入路径
+**待验收**:
+- 用目标 CapsWriter、VLM 和 LLM 跑通一段短视频；
+- 核对转写时间戳、关键帧引用、摘要内容和失败诊断；
+- 按 `docs/harness/README.md` 保存与当前 revision 对应的真实 evidence。
 
 ---
 
@@ -267,23 +266,10 @@
 
 ---
 
-### 实时日志更新触发页面强制滚动到底部
-**状态**: ❌ 未完成
-
-**文件**: `apps/web/components/LogViewer.tsx`, `apps/web/app/jobs/[id]/page.tsx`
-
-**问题**: 实时日志每新增一条时，页面会被强制滚动到最底部，打断用户在页面中部/上部查看内容。
-
-**期望行为**:
-- 仅在用户本来就位于日志底部附近时，新增日志自动跟随到底部
-- 用户手动滚离底部后，不应被实时日志更新强制拉回
-- 提供“回到底部/跟随日志”交互提示（可选）
-
----
-
 ## Completed
 
 - ~~Cookie 解密失败状态显示问题~~ ✅
 - ~~关键帧图片预览交互问题（lightbox/modal + 键盘切换）~~ ✅
+- ~~实时日志仅在用户位于底部附近时自动跟随~~ ✅
 
 ---

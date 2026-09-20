@@ -38,6 +38,7 @@ Thumbs.db
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+*.tsbuildinfo
 .codex-test-*/
 .pytest-tmp-*/
 harness-tmp/
@@ -45,13 +46,6 @@ harness-tmp/
 # Data
 *.db
 *.sqlite3
+runtime/
 workspaces/
 data/
-
-# Development/testing
-Fun-ASR/
-tests/funasr_bug_validation/*.json
-tests/funasr_bug_validation/*.jsonl
-
-# bench
-data/bench/Fun-ASR/

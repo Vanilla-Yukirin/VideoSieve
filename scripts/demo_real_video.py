@@ -1,8 +1,7 @@
 """Demo: real-video keyframe extraction + frame summary.
 
 Usage:
-  conda activate VideoSieve
-  python scripts/demo_real_video.py --video "D:/path/to/source.mp4"
+  uv run python scripts/demo_real_video.py --video "D:/path/to/source.mp4"
 """
 
 from __future__ import annotations

@@ -15,7 +15,6 @@ import random
 import secrets
 from pathlib import Path
 
-from frame_summary import FrameSummaryService, QwenFrameSummaryProvider
 from infra import FileSystemWorkspaceStore
 from keyframes import FrameFeature, KeyframeAlgorithmService
 
@@ -112,20 +111,15 @@ def main() -> int:
         fallback_gap_seconds=args.fallback_gap,
         k_max=args.k_max,
     )
-    frame_summary_service = FrameSummaryService(workspace, QwenFrameSummaryProvider())
-    frame_summary_rows = frame_summary_service.run(project_id, job_id, language_hint="zh")
-
     print("[demo] keyframe algorithm run complete")
     print(f"[demo] source: {source_label}")
     print(f"[demo] project_id: {project_id}")
     print(f"[demo] job_id: {job_id}")
     print(f"[demo] frames_in: {len(frames)}")
     print(f"[demo] keyframes_out: {len(records)}")
-    print(f"[demo] frame_summary_rows_out: {len(frame_summary_rows)}")
     print(f"[demo] keyframes_jsonl: {workspace.keyframes_file(project_id, job_id)}")
     metrics_path = workspace.job_path(project_id, job_id, "frames", "metrics", "diff_curve.csv")
     print(f"[demo] metrics_csv: {metrics_path}")
-    print(f"[demo] frame_summary_jsonl: {workspace.frame_summary_file(project_id, job_id)}")
     return 0
 
 

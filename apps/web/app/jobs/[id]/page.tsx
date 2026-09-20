@@ -122,9 +122,9 @@ export default function JobDetail() {
       const response = await fetch(keyframesZipUrl, { method: "HEAD" });
       if (!response.ok) {
         if (response.status === 404) {
-          alert(t("job.keyframesZipNotFound"));
+          pushToast({ level: "warning", message: t("job.keyframesZipNotFound") });
         } else {
-          alert(t("job.keyframesZipDownloadFailed"));
+          pushToast({ level: "error", message: t("job.keyframesZipDownloadFailed") });
         }
         return;
       }
@@ -135,7 +135,7 @@ export default function JobDetail() {
       anchor.click();
       anchor.remove();
     } catch {
-      alert(t("job.keyframesZipDownloadFailed"));
+      pushToast({ level: "error", message: t("job.keyframesZipDownloadFailed") });
     }
   };
 
@@ -443,7 +443,7 @@ export default function JobDetail() {
               type="button"
               className="absolute right-2 top-2 rounded bg-black/50 p-2 text-white"
               onClick={closePreview}
-              aria-label="Close preview"
+              aria-label={t("job.closePreview")}
             >
               <X className="h-5 w-5" />
             </button>
@@ -451,7 +451,7 @@ export default function JobDetail() {
               type="button"
               className="absolute left-2 top-1/2 -translate-y-1/2 rounded bg-black/50 p-2 text-white"
               onClick={showPrev}
-              aria-label="Previous image"
+              aria-label={t("job.previousImage")}
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -459,7 +459,7 @@ export default function JobDetail() {
               type="button"
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-black/50 p-2 text-white"
               onClick={showNext}
-              aria-label="Next image"
+              aria-label={t("job.nextImage")}
             >
               <ChevronRight className="h-5 w-5" />
             </button>
@@ -468,7 +468,7 @@ export default function JobDetail() {
               target="_blank"
               rel="noopener noreferrer"
               className="absolute bottom-2 right-2 rounded bg-black/50 p-2 text-white"
-              aria-label="Download image"
+              aria-label={t("job.downloadImage")}
             >
               <Download className="h-5 w-5" />
             </a>

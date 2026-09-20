@@ -16,9 +16,11 @@ import {
 import { resolveLandingRoute } from "@/lib/auth/helpers";
 import { ApiClientError } from "@/lib/api/client";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useToast } from "@/lib/toast/ToastProvider";
 
 export default function Home() {
   const { t } = useI18n();
+  const { pushToast } = useToast();
   const router = useRouter();
   const { projectIds, addProject, removeProject, isLoaded } = useProjectIndex();
   const [isCreating, setIsCreating] = useState(false);
@@ -84,7 +86,7 @@ export default function Home() {
       });
       addProject(project_id);
     } catch (e) {
-      alert(t("error.createProject"));
+      pushToast({ level: "error", message: t("error.createProject") });
       console.error(e);
     } finally {
       setIsCreating(false);

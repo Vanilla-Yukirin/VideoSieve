@@ -148,6 +148,10 @@ export type MessageKey =
   | "job.keyframesZipLabel"
   | "job.keyframesZipNotFound"
   | "job.keyframesZipDownloadFailed"
+  | "job.closePreview"
+  | "job.previousImage"
+  | "job.nextImage"
+  | "job.downloadImage"
   | "logs.empty"
   | "logs.level.info"
   | "logs.level.warning"
@@ -178,6 +182,7 @@ export type MessageKey =
   | "common.loading"
   | "common.save"
   | "common.cancel"
+  | "common.dismiss"
   | "error.createProject"
   | "error.loginFailed"
   | "error.setupFailed"
@@ -368,6 +373,10 @@ export const messages: Record<Locale, MessageMap> = {
     "job.keyframesZipLabel": "关键帧图片压缩包 ({count})",
     "job.keyframesZipNotFound": "该任务未生成关键帧压缩包（旧任务或流程未启用）。",
     "job.keyframesZipDownloadFailed": "下载失败，请稍后重试。",
+    "job.closePreview": "关闭预览",
+    "job.previousImage": "上一张图片",
+    "job.nextImage": "下一张图片",
+    "job.downloadImage": "下载图片",
     "logs.empty": "暂无日志...",
     "logs.level.info": "信息",
     "logs.level.warning": "警告",
@@ -398,6 +407,7 @@ export const messages: Record<Locale, MessageMap> = {
     "common.loading": "加载中...",
     "common.save": "保存",
     "common.cancel": "取消",
+    "common.dismiss": "关闭通知",
     "error.createProject": "创建项目失败",
     "error.loginFailed": "登录失败。",
     "error.setupFailed": "初始化失败。",
@@ -585,6 +595,10 @@ export const messages: Record<Locale, MessageMap> = {
     "job.keyframesZipLabel": "Keyframe images zip ({count})",
     "job.keyframesZipNotFound": "This job does not have a keyframe images zip (old job or feature not enabled).",
     "job.keyframesZipDownloadFailed": "Download failed. Please try again later.",
+    "job.closePreview": "Close preview",
+    "job.previousImage": "Previous image",
+    "job.nextImage": "Next image",
+    "job.downloadImage": "Download image",
     "logs.empty": "No logs available...",
     "logs.level.info": "Info",
     "logs.level.warning": "Warning",
@@ -615,6 +629,7 @@ export const messages: Record<Locale, MessageMap> = {
     "common.loading": "Loading...",
     "common.save": "Save",
     "common.cancel": "Cancel",
+    "common.dismiss": "Dismiss notification",
     "error.createProject": "Failed to create project",
     "error.loginFailed": "Login failed.",
     "error.setupFailed": "Bootstrap failed.",

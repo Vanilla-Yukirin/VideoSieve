@@ -24,6 +24,7 @@ import {
 } from "@/lib/auth/session";
 import { useSessionToken } from "@/lib/hooks/useSessionToken";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export default function ProjectDetail() {
   const { t } = useI18n();
@@ -40,6 +41,10 @@ export default function ProjectDetail() {
   const [uploadContext, setUploadContext] = useState<string>("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    forceCancelActive: boolean;
+    description: string;
+  } | null>(null);
   const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
   const [guestAllowCookieInput, setGuestAllowCookieInput] = useState(false);
 
@@ -234,12 +239,10 @@ export default function ProjectDetail() {
         !forceCancelActive
       ) {
         const activeJobCount = unknownError.details?.active_job_ids?.length ?? 0;
-        const confirmed = window.confirm(
-          t("project.confirmDeleteWithActive", { count: activeJobCount })
-        );
-        if (confirmed) {
-          await executeDeleteProject(true);
-        }
+        setDeleteConfirmation({
+          forceCancelActive: true,
+          description: t("project.confirmDeleteWithActive", { count: activeJobCount }),
+        });
         return;
       }
       if (
@@ -273,15 +276,14 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleDeleteProject = async () => {
+  const handleDeleteProject = () => {
     if (isDeletingProject) {
       return;
     }
-    const confirmed = window.confirm(t("project.confirmDelete"));
-    if (!confirmed) {
-      return;
-    }
-    await executeDeleteProject(false);
+    setDeleteConfirmation({
+      forceCancelActive: false,
+      description: t("project.confirmDelete"),
+    });
   };
 
   const effectiveGuestCooldown = isGuest ? guestCooldown : null;
@@ -318,7 +320,7 @@ export default function ProjectDetail() {
              <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => void handleDeleteProject()}
+                onClick={handleDeleteProject}
                 disabled={isDeletingProject}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -455,6 +457,20 @@ export default function ProjectDetail() {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={deleteConfirmation !== null}
+        title={t("project.delete")}
+        description={deleteConfirmation?.description ?? ""}
+        confirmLabel={t("project.delete")}
+        cancelLabel={t("common.cancel")}
+        busy={isDeletingProject}
+        onCancel={() => setDeleteConfirmation(null)}
+        onConfirm={() => {
+          const forceCancelActive = deleteConfirmation?.forceCancelActive ?? false;
+          setDeleteConfirmation(null);
+          void executeDeleteProject(forceCancelActive);
+        }}
+      />
     </div>
   );
 }

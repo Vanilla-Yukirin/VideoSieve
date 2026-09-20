@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 type ToastLevel = "success" | "info" | "warning" | "error";
 
@@ -30,18 +31,19 @@ const MAX_VISIBLE = 3;
 
 function levelClass(level: ToastLevel): string {
   if (level === "success") {
-    return "border-emerald-500/40 bg-emerald-50 text-emerald-900";
+    return "border-emerald-400/40 bg-emerald-950/95 text-emerald-100";
   }
   if (level === "warning") {
-    return "border-amber-500/40 bg-amber-50 text-amber-900";
+    return "border-amber-400/40 bg-amber-950/95 text-amber-100";
   }
   if (level === "error") {
-    return "border-red-500/40 bg-red-50 text-red-900";
+    return "border-red-400/40 bg-red-950/95 text-red-100";
   }
-  return "border-blue-500/40 bg-blue-50 text-blue-900";
+  return "border-sky-400/40 bg-sky-950/95 text-sky-100";
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const removeToast = useCallback((id: number) => {
@@ -88,7 +90,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 type="button"
                 className="rounded p-0.5 opacity-70 transition hover:opacity-100"
                 onClick={() => removeToast(toast.id)}
-                aria-label="dismiss"
+                aria-label={t("common.dismiss")}
               >
                 <X className="h-4 w-4" />
               </button>

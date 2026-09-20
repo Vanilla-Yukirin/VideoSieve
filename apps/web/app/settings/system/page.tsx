@@ -14,6 +14,9 @@ import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
+type AsrProvider = "unconfigured" | "capswriter";
+type AsrTransport = "websocket" | "http";
+
 export default function SystemSettingsPage() {
   const { t } = useI18n();
   const router = useRouter();
@@ -25,6 +28,15 @@ export default function SystemSettingsPage() {
   // Access control
   const [guestModeEnabled, setGuestModeEnabled] = useState(false);
   const [guestAllowCookieInput, setGuestAllowCookieInput] = useState(false);
+
+  // External ASR routing. The optional token stays in the server environment.
+  const [asrProvider, setAsrProvider] = useState<AsrProvider>("unconfigured");
+  const [asrTransport, setAsrTransport] = useState<AsrTransport>("websocket");
+  const [asrEndpoint, setAsrEndpoint] = useState("");
+  const [asrLanguage, setAsrLanguage] = useState("auto");
+  const [asrContext, setAsrContext] = useState("");
+  const [asrTimeoutSeconds, setAsrTimeoutSeconds] = useState(900);
+  const [asrTokenConfigured, setAsrTokenConfigured] = useState(false);
 
   // VLM config (mutable)
   const [vlmBaseUrl, setVlmBaseUrl] = useState("");
@@ -62,6 +74,13 @@ export default function SystemSettingsPage() {
           setGuestModeEnabled(settings.guest_mode_enabled);
           setGuestAllowCookieInput(settings.guest_allow_cookie_input);
           setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
+          setAsrProvider(settings.asr_provider);
+          setAsrTransport(settings.asr_transport);
+          setAsrEndpoint(settings.asr_endpoint);
+          setAsrLanguage(settings.asr_language);
+          setAsrContext(settings.asr_context);
+          setAsrTimeoutSeconds(settings.asr_timeout_seconds);
+          setAsrTokenConfigured(settings.asr_token_configured);
           setVlmBaseUrl(settings.vlm_base_url);
           setVlmModel(settings.vlm_model);
           setVlmConcurrency(settings.vlm_concurrency);
@@ -112,6 +131,12 @@ export default function SystemSettingsPage() {
       const settings = await api.patchSystemSettings(token, {
         guest_mode_enabled: guestModeEnabled,
         guest_allow_cookie_input: guestAllowCookieInput,
+        asr_provider: asrProvider,
+        asr_transport: asrTransport,
+        asr_endpoint: asrEndpoint,
+        asr_language: asrLanguage,
+        asr_context: asrContext,
+        asr_timeout_seconds: asrTimeoutSeconds,
         vlm_base_url: vlmBaseUrl,
         vlm_model: vlmModel,
         vlm_concurrency: vlmConcurrency,
@@ -127,6 +152,13 @@ export default function SystemSettingsPage() {
       setGuestModeEnabled(settings.guest_mode_enabled);
       setGuestAllowCookieInput(settings.guest_allow_cookie_input);
       setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
+      setAsrProvider(settings.asr_provider);
+      setAsrTransport(settings.asr_transport);
+      setAsrEndpoint(settings.asr_endpoint);
+      setAsrLanguage(settings.asr_language);
+      setAsrContext(settings.asr_context);
+      setAsrTimeoutSeconds(settings.asr_timeout_seconds);
+      setAsrTokenConfigured(settings.asr_token_configured);
       setVlmBaseUrl(settings.vlm_base_url);
       setVlmModel(settings.vlm_model);
       setVlmConcurrency(settings.vlm_concurrency);
@@ -151,6 +183,11 @@ export default function SystemSettingsPage() {
       }
       if (unknownError instanceof ApiClientError && unknownError.code === "guest_cookie_key_required") {
         setError(t("settings.guestCookieKeyRequired"));
+      } else if (
+        unknownError instanceof ApiClientError &&
+        unknownError.code === "asr_endpoint_required"
+      ) {
+        setError(t("settings.asrEndpointRequired"));
       } else {
         setError(unknownError instanceof Error ? unknownError.message : t("settings.save"));
       }
@@ -203,6 +240,109 @@ export default function SystemSettingsPage() {
               />
               {t("settings.guestCookie")}
             </label>
+          </CardContent>
+        </Card>
+
+        {/* External ASR */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("settings.asrSection")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">{t("settings.asrDescription")}</p>
+
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">{t("settings.asrProvider")}</label>
+              <select
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                value={asrProvider}
+                onChange={(event) => setAsrProvider(event.target.value as AsrProvider)}
+                disabled={saving}
+              >
+                <option value="unconfigured">{t("settings.asrProviderUnconfigured")}</option>
+                <option value="capswriter">{t("settings.asrProviderCapsWriter")}</option>
+              </select>
+            </div>
+
+            {asrProvider === "capswriter" ? (
+              <>
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">{t("settings.asrTransport")}</label>
+                  <select
+                    className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                    value={asrTransport}
+                    onChange={(event) => setAsrTransport(event.target.value as AsrTransport)}
+                    disabled={saving}
+                  >
+                    <option value="websocket">{t("settings.asrTransportWebSocket")}</option>
+                    <option value="http">{t("settings.asrTransportHttp")}</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">{t("settings.asrEndpoint")}</label>
+                  <input
+                    type="text"
+                    className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                    value={asrEndpoint}
+                    onChange={(event) => setAsrEndpoint(event.target.value)}
+                    placeholder={
+                      asrTransport === "websocket"
+                        ? "ws://capswriter:6016"
+                        : "http://capswriter:6018/v1/transcriptions"
+                    }
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="block text-sm font-medium">{t("settings.asrLanguage")}</label>
+                    <input
+                      type="text"
+                      className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                      value={asrLanguage}
+                      onChange={(event) => setAsrLanguage(event.target.value)}
+                      disabled={saving}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-sm font-medium">{t("settings.asrTimeout")}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+                      value={asrTimeoutSeconds}
+                      onChange={(event) =>
+                        setAsrTimeoutSeconds(Math.max(1, parseInt(event.target.value, 10) || 1))
+                      }
+                      disabled={saving}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium">{t("settings.asrContext")}</label>
+                  <textarea
+                    rows={3}
+                    maxLength={2000}
+                    className="w-full resize-y rounded border border-border bg-background px-3 py-1.5 text-sm"
+                    value={asrContext}
+                    onChange={(event) => setAsrContext(event.target.value)}
+                    disabled={saving}
+                  />
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.asrTokenHint")} {" "}
+                  {asrTokenConfigured
+                    ? t("settings.asrTokenConfigured")
+                    : t("settings.asrTokenNotConfigured")}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t("settings.asrUnconfiguredHint")}</p>
+            )}
           </CardContent>
         </Card>
 

@@ -104,6 +104,13 @@ export interface PublicAccessFlagsResponse {
 export interface SystemSettingsResponse {
   guest_mode_enabled: boolean;
   guest_allow_cookie_input: boolean;
+  asr_provider: "unconfigured" | "capswriter";
+  asr_transport: "websocket" | "http";
+  asr_endpoint: string;
+  asr_language: string;
+  asr_context: string;
+  asr_timeout_seconds: number;
+  asr_token_configured: boolean;
   vlm_base_url: string;
   vlm_model: string;
   vlm_frame_prompt_zh: string;
@@ -124,6 +131,12 @@ export interface SystemSettingsResponse {
 export interface SystemSettingsPatchRequest {
   guest_mode_enabled?: boolean;
   guest_allow_cookie_input?: boolean;
+  asr_provider?: "unconfigured" | "capswriter";
+  asr_transport?: "websocket" | "http";
+  asr_endpoint?: string;
+  asr_language?: string;
+  asr_context?: string;
+  asr_timeout_seconds?: number;
   vlm_base_url?: string;
   vlm_model?: string;
   vlm_frame_prompt_zh?: string;

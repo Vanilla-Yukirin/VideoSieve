@@ -46,6 +46,23 @@ export type MessageKey =
   | "settings.saved"
   | "settings.load"
   | "settings.guestCookieKeyRequired"
+  | "settings.asrSection"
+  | "settings.asrDescription"
+  | "settings.asrProvider"
+  | "settings.asrProviderUnconfigured"
+  | "settings.asrProviderCapsWriter"
+  | "settings.asrTransport"
+  | "settings.asrTransportWebSocket"
+  | "settings.asrTransportHttp"
+  | "settings.asrEndpoint"
+  | "settings.asrEndpointRequired"
+  | "settings.asrLanguage"
+  | "settings.asrTimeout"
+  | "settings.asrContext"
+  | "settings.asrTokenHint"
+  | "settings.asrTokenConfigured"
+  | "settings.asrTokenNotConfigured"
+  | "settings.asrUnconfiguredHint"
   | "settings.vlmSection"
   | "settings.vlmBaseUrl"
   | "settings.vlmModel"
@@ -260,7 +277,7 @@ export const messages: Record<Locale, MessageMap> = {
     "login.guestDisabled": "游客模式已关闭。",
     "login.guestEnterFail": "无法进入游客模式。",
     "settings.title": "系统设置",
-    "settings.desc": "配置当前部署的游客访问策略。",
+    "settings.desc": "配置当前部署的访问策略与外部处理服务。",
     "settings.back": "返回",
     "settings.access": "访问控制",
     "settings.guestMode": "启用游客模式",
@@ -269,6 +286,23 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.saved": "设置已保存。",
     "settings.load": "正在加载设置...",
     "settings.guestCookieKeyRequired": "无法开启游客 Cookie 输入：服务端必须配置 GUEST_COOKIE_KEY。",
+    "settings.asrSection": "语音识别（ASR）",
+    "settings.asrDescription": "VideoSieve 只负责适配外部 ASR 服务，不下载或运行语音模型。",
+    "settings.asrProvider": "服务提供方",
+    "settings.asrProviderUnconfigured": "未配置",
+    "settings.asrProviderCapsWriter": "CapsWriter 服务端",
+    "settings.asrTransport": "连接方式",
+    "settings.asrTransportWebSocket": "官方 WebSocket 协议（推荐）",
+    "settings.asrTransportHttp": "兼容 HTTP API（扩展）",
+    "settings.asrEndpoint": "服务地址",
+    "settings.asrEndpointRequired": "选择 CapsWriter 后必须填写服务地址。",
+    "settings.asrLanguage": "语言（auto 表示自动）",
+    "settings.asrTimeout": "超时时间（秒）",
+    "settings.asrContext": "识别上下文（选填）",
+    "settings.asrTokenHint": "Token 为选填项；如服务端要求鉴权，请在服务端 .env 设置 CAPSWRITER_TOKEN。",
+    "settings.asrTokenConfigured": "当前已配置 Token。",
+    "settings.asrTokenNotConfigured": "当前未配置 Token，原版 CapsWriter 可直接使用。",
+    "settings.asrUnconfiguredHint": "未配置时，任务会明确失败并提示先选择 ASR 服务。",
     "settings.vlmSection": "视觉语言模型（VLM）",
     "settings.vlmBaseUrl": "API 端点",
     "settings.vlmModel": "模型名称",
@@ -480,7 +514,7 @@ export const messages: Record<Locale, MessageMap> = {
     "login.guestDisabled": "Guest mode is disabled.",
     "login.guestEnterFail": "Unable to enter as guest.",
     "settings.title": "System Settings",
-    "settings.desc": "Configure guest access for this deployment.",
+    "settings.desc": "Configure access policies and external processing services.",
     "settings.back": "Back",
     "settings.access": "Access Controls",
     "settings.guestMode": "Enable guest mode",
@@ -489,6 +523,23 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.saved": "Settings saved.",
     "settings.load": "Loading settings...",
     "settings.guestCookieKeyRequired": "Cannot enable guest cookie input: GUEST_COOKIE_KEY is required on the server.",
+    "settings.asrSection": "Speech Recognition (ASR)",
+    "settings.asrDescription": "VideoSieve adapts external ASR services and does not download or run speech models.",
+    "settings.asrProvider": "Provider",
+    "settings.asrProviderUnconfigured": "Not configured",
+    "settings.asrProviderCapsWriter": "CapsWriter Server",
+    "settings.asrTransport": "Transport",
+    "settings.asrTransportWebSocket": "Official WebSocket protocol (recommended)",
+    "settings.asrTransportHttp": "Compatible HTTP API (extension)",
+    "settings.asrEndpoint": "Service endpoint",
+    "settings.asrEndpointRequired": "A service endpoint is required when CapsWriter is selected.",
+    "settings.asrLanguage": "Language (auto for detection)",
+    "settings.asrTimeout": "Timeout (seconds)",
+    "settings.asrContext": "Recognition context (optional)",
+    "settings.asrTokenHint": "The token is optional. Set CAPSWRITER_TOKEN in the server .env only when the service requires authentication.",
+    "settings.asrTokenConfigured": "A token is currently configured.",
+    "settings.asrTokenNotConfigured": "No token is configured; upstream CapsWriter works without one.",
+    "settings.asrUnconfiguredHint": "Jobs fail explicitly and ask for ASR configuration while no provider is selected.",
     "settings.vlmSection": "Vision Language Model (VLM)",
     "settings.vlmBaseUrl": "API Endpoint",
     "settings.vlmModel": "Model Name",

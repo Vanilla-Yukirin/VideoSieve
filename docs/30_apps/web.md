@@ -74,7 +74,8 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 - **[规划中]** 服务端重放后发送 snapshot 校正；cursor 过期时明确发送 `cursor_reset`；
 - **[规划中]** 状态更新按 `state_version` 防倒退，追加事件按 `event_id` 去重；
 - **[规划中]** 命令携带稳定 `request_id`，断线重发不会重复执行；
-- **[规划中]** UI 分别显示请求 accepted 与 worker applied，例如“正在暂停”与“已暂停”；
+- **[已实现]** 控制命令通过 WebSocket 返回 accepted/applied phase；UI 在 worker 确认前
+  保持原执行状态并显示等待提示，收到 `job_state_changed` 后再显示 paused/cancelled；
 - **[规划中]** 断线期间显示状态可能过期，不把本地缓存冒充实时结果。
 
 HTTP 在目标架构中保留给页面／初始会话、上传、播放／下载和健康检查。视频与产物

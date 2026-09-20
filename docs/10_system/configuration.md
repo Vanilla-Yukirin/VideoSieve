@@ -1,6 +1,6 @@
 # Configuration
 
-状态：本文件同时记录当前缺口与目标契约；目标行为尚未全部实现。
+状态：核心配置快照和三类 provider 失败语义已实现；真实 provider 端到端验收仍未执行。
 
 ## 1. 配置分层
 
@@ -68,19 +68,19 @@ worker 开始 attempt 时：
 - 把环境或运行期错误写成明确错误码；
 - 不因当前 system settings 改变而修改 job 行为。
 
-## 5. 重做审计基线缺口
+## 5. 重做审计基线与当前关闭情况
 
-截至 2026-09-20 的重做审计基线：
+2026-09-20 重做审计发现执行器读取可变 VLM 设置、ASR 默认 mock、画面描述占位降级、
+摘要仅拼接文本，以及独立 worker 未接线。当前代码已完成以下关闭：
 
-- 部分 system settings、环境初始化和 job 快照文件已经存在；
-- 执行器仍会在 frame summary 阶段读取可变设置，尚未完全遵守快照；
-- ASR 默认／未知 provider 仍可能选择 mock；
-- frame summary 仍可能把失败转成占位文本；
-- overall summary 尚无独立真实模型配置和完整调用链；
-- 独立 worker、队列及 attempt 运行参数尚未接线。
+- 创建 job 时冻结 frame summary 和 overall summary 的非敏感配置，worker 只读快照；
+- ASR 生产默认选择 `funasr_local`，空值、未知值和 baseline 配置明确失败；
+- frame summary 缺 key、传输失败、畸形或空响应明确失败，并删除旧／半写产物；
+- overall summary 使用独立 `SUMMARY_API_KEY` 与兼容接口，对长材料分段归约后再总结；
+- SQLite 保存领取、attempt、心跳、控制版本和游标事件，独立 worker 负责执行。
 
-后续提交可逐项关闭这些缺陷，但必须由对应测试和验收记录证明。这些缺陷不得用
-“配置可选”解释为预期降级。
+这些关闭项由自动测试约束。模型内容质量、真实凭据和完整媒体覆盖必须另附真实验收
+证据；配置完成或 mock 测试通过不等于真实链路通过。
 
 ## 6. Guest 与 Cookie 约束
 

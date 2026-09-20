@@ -11,8 +11,9 @@
 - 独立 Python worker；
 - 同一主机上的 SQLite 数据库和 workspace 本地磁盘。
 
-不启动 Redis、Celery worker 或 broker。`workers/celery_app.py` 的历史文件名不代表
-Celery 已被采用，迁移时应提供清楚的独立 worker 启动入口。
+不启动 Redis、Celery worker 或 broker。独立 worker 入口为
+`python -m workers.single_host`；`workers/celery_app.py` 的历史文件名不代表 Celery
+已被采用。
 
 可以先用本机进程运行，也可以分别容器化 API/Web/worker。无论采用哪种方式，SQLite
 文件与 workspace 必须位于同一主机的可靠本地文件系统。
@@ -26,8 +27,8 @@ Celery 已被采用，迁移时应提供清楚的独立 worker 启动入口。
 - API 与 worker 必须解析到同一个 canonical workspace root；
 - 不把 SQLite 数据库放在 NFS/SMB 等网络共享上供多主机访问。
 
-Windows 可使用受管理后台服务／进程；Linux 可使用 systemd 或等价服务管理器。具体启动
-命令只有在代码入口实现并实际验证后才写入 `how_to_run.md`。
+Windows 可使用受管理后台服务／进程；Linux 可使用 systemd 或等价服务管理器。当前
+开发启动命令见 `how_to_run.md`；正式服务托管仍需在目标环境验证退出、重启和日志行为。
 
 ## 3. Storage
 

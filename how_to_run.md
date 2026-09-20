@@ -1,8 +1,8 @@
 # 如何运行（统一环境变量方案）
 
-> 本文说明当前原型的启动方式。2026-09-20 仅核对了代码与配置，未重新执行安装、
-> 启动或模型验收。SQLite 独立 worker 的重做方案见 `docs/00_vision/rebuild-plan.md`，
-> 该 worker 尚未实现；当前不需要启动 Celery 或 Redis。
+> 本文说明单机运行方式。FastAPI 只负责入队与 WebSocket，媒体处理由独立 SQLite
+> worker 执行。当前不需要启动 Celery 或 Redis。自动化验证与真实模型内容验收的
+> 边界见 `docs/QUALITY.md`。
 
 当前项目建议使用一份根目录 `.env.local` 来管理本地运行配置：
 
@@ -36,6 +36,9 @@ QWEN_API_KEY=your-key
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
 VLM_MODEL=qwen3.5-plus
 VLM_TIMEOUT_SECONDS=60
+SUMMARY_API_KEY=your-summary-key
+SUMMARY_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+SUMMARY_MODEL=qwen-plus
 ```
 
 VLM（画面描述 + 文字提取）建议至少配置：
@@ -43,6 +46,10 @@ VLM（画面描述 + 文字提取）建议至少配置：
 - `QWEN_API_KEY`
 - `QWEN_BASE_URL`
 - `VLM_MODEL`
+
+启用最终摘要时还必须配置 `SUMMARY_API_KEY`。摘要 endpoint、模型、提示词与上下文预算
+可在系统设置中单独调整；创建 job 时会冻结到非敏感配置快照。VLM 与最终摘要可使用
+不同的 key 和模型。
 
 ## 2. 初始化 Python 环境（UV）
 
@@ -65,8 +72,9 @@ VIDEOSIEVE_ASR_DEVICE=auto
 
 模型在首次转写时加载，可能下载文件。真实媒体处理还需核对 FFmpeg/ffprobe 等
 外部工具的可用性，具体由下载格式、合并和音频解码路径决定。
-未设置 provider 时当前代码返回模拟转写。VLM 缺密钥或调用失败时当前代码可能生成
-占位描述，最终摘要目前只拼接文本；启动成功不能视为模型链路验收通过。
+未设置 ASR provider 时默认使用真实 `funasr_local`。空值、未知值或 `baseline` 会明确
+失败。VLM／摘要缺密钥、调用失败或返回空内容时任务失败，不生成占位结果。启动成功
+仍不能视为模型内容验收通过。
 
 ## 3. 启动后端（终端 1）
 
@@ -74,7 +82,19 @@ VIDEOSIEVE_ASR_DEVICE=auto
 uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
 ```
 
-## 4. 启动前端（终端 2）
+## 4. 启动独立 worker（终端 2）
+
+worker 和 API 必须使用相同的 `VIDEOSIEVE_API_DATA_DIR`：
+
+```powershell
+uv run python -m workers.single_host --data-dir runtime/api
+```
+
+启动入口持有 `runtime/api/worker.lock`，第二个实例会拒绝启动。`--once` 可用于只领取
+一个任务的诊断运行。worker 崩溃或心跳过期会把任务标为 `interrupted`，必须显式恢复，
+不会自动重复执行。
+
+## 5. 启动前端（终端 3）
 
 首次安装按已有 npm 锁文件执行：
 
@@ -86,7 +106,7 @@ npm --prefix apps/web ci
 npm --prefix apps/web run dev
 ```
 
-## 5. 浏览器访问
+## 6. 浏览器访问
 
 - Web：`http://localhost:3000`
 - API：`http://127.0.0.1:8000`
@@ -105,6 +125,7 @@ npm --prefix apps/web run dev
   - 推荐：`NEXT_PUBLIC_API_ORIGIN`
   - 可选：`ENABLE_GUEST_MODE`、`GUEST_ALLOW_COOKIE_INPUT`、`GUEST_JOB_COOLDOWN_SECONDS`、`GUEST_COOKIE_KEY`
   - VLM：`QWEN_API_KEY`、`QWEN_BASE_URL`、`VLM_MODEL`、`VLM_TIMEOUT_SECONDS`
+  - 最终摘要：`SUMMARY_API_KEY`、`SUMMARY_BASE_URL`、`SUMMARY_MODEL`
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
 
 ## 常见问题（Windows）
@@ -139,3 +160,20 @@ netsh interface ipv4 show excludedportrange protocol=tcp
 ```powershell
 npm --prefix apps/web run dev
 ```
+
+## 验证
+
+日常检查：
+
+```powershell
+uv run python scripts/verify.py --profile integration
+```
+
+发布验收必须提供与当前 Git revision 匹配的真实模型证据：
+
+```powershell
+uv run python scripts/verify.py --profile release --real-evidence path/to/evidence.json
+```
+
+证据格式和人工复核项见 `docs/harness/README.md`。未提供真实证据时，release profile
+必须失败，不能把 NOT-RUN 解释为通过。

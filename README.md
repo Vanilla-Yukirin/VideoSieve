@@ -4,16 +4,21 @@
 
 ## 入口
 
-- 单机重做方案与现状核查：`docs/00_vision/rebuild-plan.md`（方案尚未实施）
+- 单机重做方案与迁移记录：`docs/00_vision/rebuild-plan.md`
 - 架构总览：`docs/ARCHITECTURE.md`
 - 文档索引：`docs/README.md`
 - 当前运行说明：`how_to_run.md`
 
 ## 当前状态
 
-项目已有前后端、处理模块和测试，但仍是未完成的原型。当前任务在 API 后台线程
-执行，事件总线为内存实现；没有实际运行的 Celery/Redis 链路。最终摘要尚未接入
-大模型，ASR 默认模拟结果、画面摘要错误回退等问题详见重做方案。
+单机运行时已经改为 FastAPI + SQLite 持久队列 + 独立 Python worker + 本地文件系统，
+任务状态与游标事件保存在 SQLite，前端任务状态和控制通过 WebSocket 传输。Celery 与
+Redis 只保留在历史设计中，不是运行依赖。
+
+生产 ASR 默认使用真实 FunASR；画面描述和最终摘要使用真实兼容模型接口。漏配、网络
+错误和空响应会让任务明确失败，不会生成 mock 或占位成功。自动化验证已经覆盖队列、
+控制、恢复、事件重连和 provider 失败；真实视频与真实模型的内容验收仍需按
+`docs/harness/README.md` 留存证据，不能用单元测试代替。
 
 ## 本地开发（UV）
 
@@ -34,13 +39,14 @@ uv run mypy apps packages workers
 ```
 
 当前 FunASR / PyTorch 已在主依赖中，`asr_local` extra 为空，无需额外安装该 extra。
-真实转写需在本地配置中显式选择 provider：
+真实转写的生产默认 provider 为：
 
 ```env
 VIDEOSIEVE_ASR_PROVIDER=funasr_local
 ```
 
-模型首次使用时加载，可能触发下载。以上命令来自现有配置，本次文档核查未执行安装或测试。
+模型首次使用时加载，可能触发下载。完整启动与验证命令见 `how_to_run.md` 和
+`docs/QUALITY.md`。
 
 ## 历史版本
 

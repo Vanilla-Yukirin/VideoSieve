@@ -1,12 +1,17 @@
 # App: workers
 
-状态：目标契约。重做审计基线中的 `workers/celery_app.py` 是普通 Python 适配入口，
-并不证明存在 Celery worker。独立 worker 的完成状态以进程级测试和实际启动验收为准。
+状态：已实现。`workers/single_host.py` 是 SQLite 队列的独立进程入口；
+`workers/celery_app.py` 只保留薄适配器名称，不表示存在 Celery 运行时。自动化测试覆盖
+跨进程领取与恢复，真实媒体执行仍按 harness 单独验收。
 
 ## Purpose
 
 独立 Python worker 在 API 进程之外消费 SQLite 持久队列，装配并调用 `packages/*`
 流水线。首版单主机只运行一个 worker，一次执行一个视频 job。
+
+```powershell
+uv run python -m workers.single_host --data-dir runtime/api
+```
 
 ## Responsibilities
 

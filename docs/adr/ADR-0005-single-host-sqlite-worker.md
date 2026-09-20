@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted on 2026-09-20. Implementation is pending.
+Accepted and implemented on 2026-09-20. Automated unit, contract and process-level
+integration coverage exists; real-provider end-to-end acceptance remains a separate gate.
 
 ## Context
 

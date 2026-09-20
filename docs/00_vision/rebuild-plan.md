@@ -1,9 +1,10 @@
 # VideoSieve 单机重做方案
 
-日期：2026-09-20。状态：架构方向已采纳，代码迁移尚未完成。
+日期：2026-09-20。状态：核心代码迁移与自动化 harness 已完成，真实模型验收待执行。
 
 用户已确认部署范围：一台电脑或服务器，个人／少量用户使用。
-本次核查基于代码和配置，未启动服务、运行模型或执行端到端测试。
+初始核查基于代码和配置；后续已补充自动化单元、契约和跨进程测试。尚未使用真实视频
+与真实模型凭据完成内容验收。
 
 ## 1. 结论与边界
 
@@ -21,20 +22,20 @@ API 与 worker 分进程，API 重启不应杀死正在运行的计算任务。
 数据库位于同一主机的本地磁盘。远程用户通过 HTTP 访问应用，不直接访问数据库。
 若以后需要多个计算节点、高写入并发或高可用，再评估服务端数据库与消息队列。
 
-## 2. 核查到的实际问题
+## 2. 初始问题与关闭状态
 
-| 问题 | 代码证据 | 影响 |
+| 初始问题 | 当前处理 | 证据边界 |
 | --- | --- | --- |
-| 每个任务创建 API 守护线程 | `apps/api/service.py::_default_job_dispatcher` | 缺少持久队列领取和可靠的进程重启恢复 |
-| Redis 仅有内存实现 | `packages/infra/event_bus.py` | live 方法未实现，内存通知不是可恢复的事件记录 |
-| 最终摘要拼接前三个非空片段 | `packages/deliverables/service.py::_render_summary_text` | 没有全文总结模型调用 |
-| 整理稿只是逐段输出原文 | `packages/deliverables/service.py::_render_clean_transcript` | 尚未实现去口语与结构化改写 |
-| ASR 默认或未知 provider 都落入模拟实现 | `packages/asr/factory.py` | 漏配、拼写错误也可能产出看似成功的假转写 |
-| 画面摘要缺密钥、网络错误、无效或空响应回退占位文本 | `packages/frame_summary/service.py` | 调用失败可能仍写出结果并标记阶段成功 |
-| 控制面与执行器状态不一致 | `apps/api/service.py::_default_control_dispatcher`、`packages/pipeline/orchestrator.py::_safety_point` | API 的 pause 写数据库，执行器却依赖实例内 pending pause；需验证实际停止行为 |
-| 配置快照未全面约束执行 | `packages/pipeline/orchestrator.py::_read_vlm_str` / `_read_vlm_int` | VLM 阶段读取可变系统设置，与快照承诺不一致 |
-| checkpoint 不等于自动恢复 | `packages/pipeline/orchestrator.py::run_job` | 有文件和显式起始阶段参数，但不能据此宣称崩溃后自动跳过已完成工作 |
-| 环境与能力描述失真 | 旧 `AGENTS.md`、`CLAUDE.md`、`README.md` | 无骨架、Celery、conda、Python 3.11 安装指令与当前仓库不一致 |
+| API 守护线程执行任务 | API 只入队，`workers/single_host.py` 独立领取 | 跨进程领取／恢复测试通过后才能证明调度语义 |
+| 内存事件不可恢复 | `SQLiteEventBus` 保存单调 cursor 并支持重放 | WebSocket 契约测试证明重连顺序，不代表生产网络已压测 |
+| 摘要拼接前三段 | `OverallSummaryService` 调用真实兼容 LLM 并分层归约长材料 | fake provider 单测只证明调用和失败语义；真实内容仍需人工复核 |
+| 整理稿逐段输出原文 | 仍保留为可追溯格式化产物 | 去口语和结构化改写尚未实现，不能称为模型整理稿 |
+| ASR 漏配回退 mock | 默认真实 FunASR，未知／baseline 配置拒绝 | 本地模型加载和真实转写质量待验收 |
+| 画面摘要失败回退占位 | 缺配置、网络、HTTP、畸形和空响应全部失败；产物原子发布 | 真实视觉模型内容待验收 |
+| 控制请求与执行状态混写 | control version 与 worker ack 分离，安全点确认 | 长 provider 调用仍只能在调用前后协作中断 |
+| VLM 读取可变设置 | job 创建时冻结 frame/summary 配置，worker 只读快照 | secret 仍由受保护环境提供，不写入快照 |
+| checkpoint 被误称自动恢复 | 失联先标 `interrupted`，显式 resume 后再产生新 attempt | 外部调用不承诺 exactly-once |
+| 环境和文档失真 | 文档统一到 uv、Python pin、SQLite worker 和 harness | 目标环境的正式服务托管仍需验证 |
 
 保留并校验已有的视频接入、关键帧算法、FunASR 适配、工作区约定和前端基础。
 测试中允许 mock；真实运行不得自动切入 mock。现有单测文件存在不等于真实视频验收通过。
@@ -150,11 +151,11 @@ mock 通过测试依赖注入提供，生产默认值与错误分支不能选择
 
 | 顺序 | 工作 | 完成标准 |
 | --- | --- | --- |
-| P0 | 固化现状、补迁移与备份方案、纠正文档 | 区分真实能力、mock、未实现能力；保留已有数据 |
-| P1 | 移除生产静默 mock/占位降级，建立三类模型配置及真实总结步骤 | 真实视频得到真实转写、画面描述和总结；漏配/失败明确可见 |
-| P2 | SQLite 持久队列、独立 worker、事件恢复和控制语义 | API 重启任务继续；worker 崩溃可识别恢复；重复领取、暂停、取消与删除经过验证 |
-| P3 | 长视频分段总结、断点复用、产物预览和依赖开关 | 全视频覆盖、来源可追溯、改配置不影响已建任务、不重复处理已确认分块 |
-| P4 | 环境复现、质量检查、文档与 UI 收尾 | 在目标 Windows/Linux 环境复现安装和运行，文档列明实际验证情况 |
+| P0 | 固化现状、补迁移与备份方案、纠正文档 | 已完成 |
+| P1 | 移除生产静默 mock/占位降级，建立三类模型配置及真实总结步骤 | 代码与失败契约已完成；真实模型内容验收待执行 |
+| P2 | SQLite 持久队列、独立 worker、事件恢复和控制语义 | 代码、契约测试与跨进程测试已完成；正式服务托管待验证 |
+| P3 | 长视频分段总结、断点复用、产物预览和依赖开关 | 分段总结与现有 checkpoint 已接入；完整恢复复用和内容覆盖仍需真实验收 |
+| P4 | 环境复现、质量检查、文档与 UI 收尾 | harness 已建立；目标 Windows/Linux 与真实 provider 验收待执行 |
 
 单测关注真实边界：错误响应不能成功、多个领取者不能拿到同一任务、未停止不能
 被标记暂停、恢复不复用损坏产物、摘要覆盖后半段内容。集成验收至少包括本地视频、

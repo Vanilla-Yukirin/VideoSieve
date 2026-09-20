@@ -3,8 +3,8 @@
 日期：2026-09-20。
 
 本文定义 VideoSieve 面向“一台电脑或服务器、个人／少量用户”的目标架构。
-架构决策已经确定，代码迁移仍在进行；除“当前实现”小节外，本文的目标行为
-不得被描述为已经上线或通过端到端验收。
+架构决策和核心单机运行时已经实现；自动化测试与真实模型端到端验收仍分开记录。
+本文不把“代码存在”描述为已经上线或通过真实内容验收。
 
 旧的 Celery + Redis 长方案保留在 [ARCHITECTURE-old.md](ARCHITECTURE-old.md)，
 旧重写草稿保留在 [ARCHITECTURE-rewrite.md](ARCHITECTURE-rewrite.md)。它们仅用于
@@ -44,10 +44,11 @@
 - 暂停请求与执行器确认尚未形成可靠的跨进程闭环；
 - ASR 默认 mock、画面摘要占位降级和拼接式摘要仍是待修缺陷。
 
-后续提交可能逐项修复这些基线缺陷，完成状态以对应代码、自动测试和真实验收证据为准。
-本文中的完整独立 worker、SQLite 事件重放、纯 WebSocket 业务控制等仍是目标契约，
-不能因局部类或测试出现就整体标成“已实现”。详细缺陷与实施顺序见
-[单机重做方案](00_vision/rebuild-plan.md)。
+当前提交已移除 API 默认后台线程执行，接入 SQLite 原子领取、attempt/心跳/显式恢复、
+持久事件游标、独立 worker 和任务页 WebSocket 控制，并让三类模型漏配或失败显式暴露。
+跨进程领取与恢复、WebSocket 重连和 provider 失败已有自动测试。真实视频、真实
+FunASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md) 与
+[harness](harness/README.md) 验收。
 
 ## 3. 目标组件
 

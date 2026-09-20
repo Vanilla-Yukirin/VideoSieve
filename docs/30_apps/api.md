@@ -1,12 +1,12 @@
 # App: api
 
-状态：本文同时记录当前 REST 原型和目标 WebSocket 控制面。标为 `implemented` 的路由
-是迁移输入，不代表目标传输边界已经完成。
+状态：SQLite 队列与任务 WebSocket 控制面已实现。现有 REST 路由仍承担认证、设置、
+创建、上传和下载等迁移接口；标为 `implemented` 只表示代码路径存在，不代替运行验收。
 
 ## Purpose
 
-提供认证、受限 HTTP 文件接口与 WebSocket 业务网关。目标架构中 API 不执行媒体
-pipeline；当前代码仍会在 API 进程内启动后台线程，这是待移除的迁移缺陷。
+提供认证、受限 HTTP 文件接口与 WebSocket 业务网关。API 创建任务时只持久化配置快照
+和 queued 记录，不在 API 进程内执行媒体 pipeline。
 
 ## Domain Axis (Project vs Job)
 

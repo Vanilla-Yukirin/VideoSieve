@@ -69,7 +69,7 @@
 - [ADR-0002: control protocol and safe points](adr/ADR-0002-control-protocol-and-safe-points.md)
 - [ADR-0003: workspace lifecycle](adr/ADR-0003-workspace-lifecycle.md)
 - [ADR-0004: Redis event bus](adr/ADR-0004-redis-event-bus.md)（Superseded，未实施）
-- [ADR-0005: single-host SQLite queue and worker](adr/ADR-0005-single-host-sqlite-worker.md)（Accepted，待实现）
+- [ADR-0005: single-host SQLite queue and worker](adr/ADR-0005-single-host-sqlite-worker.md)（Accepted，已实现；真实模型验收待执行）
 
 ## Archive
 

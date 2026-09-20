@@ -15,10 +15,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
 from math import ceil
-from typing import cast
+from pathlib import Path
+from typing import BinaryIO, cast
 
 from cryptography.fernet import Fernet, InvalidToken
-from workers import WorkerRuntime
 
 from contracts import ControlCommandType, JobStatus
 from core import DELETE_PENDING_CLEANUP
@@ -35,7 +35,6 @@ from ingest import IngestRequest, probe_url_formats
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
 from overall_summary import OpenAICompatibleSummaryProvider
 from pipeline.control import ControlAckPayload, evaluate_control_command
-from pipeline.dispatch import PIPELINE_DISPATCH_FAILED
 
 from .models import (
     ArtifactItem,
@@ -139,25 +138,16 @@ class ApiControlPlane:
         control_dispatcher: (
             Callable[[str, str, ControlCommandType], dict[str, str | bool]] | None
         ) = None,
-        job_dispatcher: Callable[[str, str], None] | None = None,
-        worker_runtime: WorkerRuntime | None = None,
     ) -> None:
         self._repository = repository
         self._workspace = workspace
         self._event_bus = event_bus
         self._uses_default_control_dispatcher = control_dispatcher is None
         self._control_dispatcher = control_dispatcher or self._default_control_dispatcher
-        self._worker_runtime = worker_runtime
-        # Dispatcher mode is fixed at construction time.
-        # Runtime hot-swap is not supported.
-        self._uses_default_job_dispatcher = job_dispatcher is None
-        self._job_dispatcher = job_dispatcher
         self._subscriptions: dict[str, EventSubscription] = {}
         self._latest_progress: dict[str, float] = {}
         self._latest_stage: dict[str, str | None] = {}
         self._latest_logs: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=MAX_LOG_BUFFER))
-        self._dispatch_lock = threading.Lock()
-        self._dispatched_jobs: set[str] = set()
         self._project_locks_guard = threading.Lock()
         self._project_locks: dict[str, threading.RLock] = {}
         self._project_delete_lock = threading.Lock()
@@ -175,6 +165,7 @@ class ApiControlPlane:
             self._guest_cooldown_seconds = 30
         self._initialize_settings_from_env_once()
         self._validate_guest_cookie_setting_or_raise()
+        self._reconcile_pending_job_deletes()
 
     def create_project(self, payload: ProjectCreateRequest) -> str:
         """Create one project and its workspace."""
@@ -185,6 +176,52 @@ class ApiControlPlane:
         )
         self._workspace.ensure_project_layout(project_id)
         return project_id
+
+    def stage_local_upload(
+        self,
+        project_id: str,
+        *,
+        filename: str | None,
+        source: BinaryIO,
+    ) -> Path:
+        """Persist an upload inside the project workspace before queueing a job."""
+
+        if self._repository.get_project(project_id) is None:
+            raise KeyError(f"project not found: {project_id}")
+        project_root = self._workspace.ensure_project_layout(project_id)
+        upload_root = project_root / "uploads"
+        upload_root.mkdir(parents=True, exist_ok=True)
+        safe_name = Path(filename or "upload.mp4").name
+        suffix = Path(safe_name).suffix.lower()
+        if not suffix or len(suffix) > 16 or not suffix[1:].isalnum():
+            suffix = ".bin"
+        upload_path: Path = upload_root / f"upload_{uuid.uuid4().hex}{suffix}"
+        temporary_path = upload_path.with_suffix(f"{upload_path.suffix}.tmp")
+        try:
+            with temporary_path.open("wb") as handle:
+                shutil.copyfileobj(source, handle)
+            if temporary_path.stat().st_size <= 0:
+                raise ApiError(
+                    code="upload_empty",
+                    message="uploaded video is empty",
+                    status_code=400,
+                )
+            os.replace(temporary_path, upload_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        return upload_path
+
+    def discard_local_upload(self, project_id: str, upload_path: Path) -> None:
+        """Remove one unqueued staged upload without escaping the project workspace."""
+
+        upload_root = (self._workspace.project_root(project_id) / "uploads").resolve()
+        resolved = upload_path.resolve()
+        try:
+            resolved.relative_to(upload_root)
+        except ValueError:
+            return
+        resolved.unlink(missing_ok=True)
 
     def get_project(self, project_id: str) -> dict[str, str | None] | None:
         """Get one project by id."""
@@ -968,6 +1005,11 @@ class ApiControlPlane:
                         status_code=409,
                     )
 
+            local_video_path = self._validate_local_video_path(
+                payload.project_id,
+                payload.local_video_path,
+            )
+
             if actor == "guest":
                 now = datetime.now(UTC)
                 acquired = self._repository.try_acquire(now, self._guest_cooldown_seconds)
@@ -1018,8 +1060,8 @@ class ApiControlPlane:
                 normalized_ingest, dedupe_estimate = self._normalize_ingest(payload.ingest)
                 config["ingest"] = normalized_ingest
                 config["dedupe_applied_estimate"] = dedupe_estimate
-            if payload.local_video_path:
-                config["local_video_path"] = payload.local_video_path
+            if local_video_path is not None:
+                config["local_video_path"] = str(local_video_path)
             if payload.local_video_context:
                 config["local_video_context"] = payload.local_video_context
 
@@ -1044,8 +1086,22 @@ class ApiControlPlane:
                     detail=f"job_id={job_id}",
                 )
 
-        self._dispatch_job_if_needed(payload.project_id, job_id)
         return job_id
+
+    def _validate_local_video_path(
+        self, project_id: str, raw_path: str | None
+    ) -> Path | None:
+        if raw_path is None:
+            return None
+        upload_root = (self._workspace.project_root(project_id) / "uploads").resolve()
+        candidate = Path(raw_path).resolve()
+        if not candidate.is_relative_to(upload_root) or not candidate.is_file():
+            raise ApiError(
+                code="local_upload_invalid",
+                message="local video must be a staged upload for this project",
+                status_code=400,
+            )
+        return candidate
 
     def _get_project_lock(self, project_id: str) -> threading.RLock:
         # Keep locks cached per project in single-process mode.
@@ -1056,52 +1112,6 @@ class ApiControlPlane:
                 lock = threading.RLock()
                 self._project_locks[project_id] = lock
             return lock
-
-    def _dispatch_job_if_needed(self, project_id: str, job_id: str) -> None:
-        if self._job_dispatcher is None:
-            return
-
-        try:
-            self._job_dispatcher(project_id, job_id)
-        except Exception as exc:
-            self._mark_dispatch_failure(project_id, job_id, exc)
-
-    def _mark_dispatch_failure(self, project_id: str, job_id: str, error: Exception) -> None:
-        message = str(error) or error.__class__.__name__
-        self._repository.update_job_status(
-            job_id,
-            status=JobStatus.FAILED.value,
-            stage=None,
-            error_code=PIPELINE_DISPATCH_FAILED,
-            error_message=message,
-        )
-        self._repository.update_project_status(project_id, JobStatus.FAILED.value)
-        detailed = (
-            f"阶段 dispatch | 结果: 失败 | 原因: {message} | 建议: 检查任务配置与运行依赖后重试"
-        )
-        self._append_worker_log_line(project_id, job_id, f"[error] 任务派发失败: {detailed}")
-        self._event_bus.publish(
-            f"jobs:{job_id}",
-            InfraEvent(
-                event_type="log",
-                project_id=project_id,
-                job_id=job_id,
-                payload={"level": "error", "message": f"任务派发失败: {detailed}"},
-            ),
-        )
-        self._event_bus.publish(
-            f"jobs:{job_id}",
-            InfraEvent(
-                event_type="error",
-                project_id=project_id,
-                job_id=job_id,
-                payload={
-                    "stage": "dispatch",
-                    "code": PIPELINE_DISPATCH_FAILED,
-                    "message": message,
-                },
-            ),
-        )
 
     def _normalize_ingest(self, ingest: IngestParams) -> tuple[dict[str, object], bool]:
         analysis_asset = ingest.analysis_asset
@@ -1231,6 +1241,7 @@ class ApiControlPlane:
         root = self._workspace.job_root(project_id, job_id)
         if not root.exists():
             return []
+        ready_deliverables = self._ready_deliverable_paths(project_id, job_id)
 
         items: list[ArtifactItem] = []
         for path in sorted(
@@ -1242,11 +1253,63 @@ class ApiControlPlane:
             key=lambda p: p.as_posix(),
         ):
             relative = path.relative_to(root).as_posix()
+            if relative.startswith("outputs/") and relative not in ready_deliverables:
+                continue
             items.append(ArtifactItem(path=relative, size_bytes=path.stat().st_size))
         return items
 
+    def _ready_deliverable_paths(self, project_id: str, job_id: str) -> set[str]:
+        root = self._workspace.job_root(project_id, job_id).resolve()
+        manifest_path = self._workspace.deliverables_manifest_file(project_id, job_id)
+        if not manifest_path.exists():
+            return set()
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(payload, dict)
+                or payload.get("ready") is not True
+                or payload.get("project_id") != project_id
+                or payload.get("job_id") != job_id
+            ):
+                return set()
+            raw_artifacts = payload.get("artifacts")
+            if not isinstance(raw_artifacts, list) or not raw_artifacts:
+                return set()
+            ready_paths: set[str] = set()
+            for item in raw_artifacts:
+                if not isinstance(item, dict):
+                    return set()
+                relative = item.get("path")
+                size_bytes = item.get("size_bytes")
+                expected_hash = item.get("sha256")
+                if (
+                    not isinstance(relative, str)
+                    or not relative.startswith("outputs/")
+                    or not isinstance(size_bytes, int)
+                    or size_bytes < 0
+                    or not isinstance(expected_hash, str)
+                    or len(expected_hash) != 64
+                ):
+                    return set()
+                candidate = (root / relative).resolve()
+                if not candidate.is_relative_to(root) or not candidate.is_file():
+                    return set()
+                if candidate.stat().st_size != size_bytes:
+                    return set()
+                digest = sha256()
+                with candidate.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                if digest.hexdigest() != expected_hash:
+                    return set()
+                ready_paths.add(relative)
+            ready_paths.add(manifest_path.relative_to(root).as_posix())
+            return ready_paths
+        except (OSError, ValueError, json.JSONDecodeError):
+            return set()
+
     def get_job_snapshot(self, job_id: str) -> JobSnapshot:
-        """Build one HTTP snapshot for UI convergence."""
+        """Build one authoritative job snapshot for UI convergence."""
 
         job = self._repository.get_job(job_id)
         if job is None:
@@ -1263,7 +1326,7 @@ class ApiControlPlane:
                 raise KeyError(f"job not found: {job_id}")
 
         self.ensure_job_tracking(job_id)
-        progress = self._coalesce_progress(job_id, job.status)
+        progress = self._coalesce_progress(job)
         stage = self._latest_stage.get(job_id) or job.stage
         # worker.log is primarily written by the pipeline orchestrator.
         # Control plane only appends dispatch-failure fallback lines.
@@ -1290,6 +1353,8 @@ class ApiControlPlane:
             control_request_id=job.control_request_id,
             attempt=job.attempt,
             progress=progress,
+            error_code=job.error_code,
+            error_message=job.error_message,
             latest_logs=list(merged_logs),
             artifacts=self.list_artifacts(job.project_id, job_id),
         )
@@ -1347,8 +1412,6 @@ class ApiControlPlane:
         self._latest_progress.pop(job_id, None)
         self._latest_stage.pop(job_id, None)
         self._latest_logs.pop(job_id, None)
-        with self._dispatch_lock:
-            self._dispatched_jobs.discard(job_id)
 
     def _wait_for_project_jobs_to_finish(self, project_id: str) -> list[str]:
         deadline = time.monotonic() + PROJECT_DELETE_WAIT_SECONDS
@@ -1372,22 +1435,11 @@ class ApiControlPlane:
             JobStatus.PAUSED.value,
             JobStatus.INTERRUPTED.value,
         }
-        with self._dispatch_lock:
-            running_jobs = set(self._dispatched_jobs)
         return [
             job.job_id
             for job in rows
-            if job.status in pending_statuses or job.job_id in running_jobs
+            if job.status in pending_statuses
         ]
-
-    def _append_worker_log_line(self, project_id: str, job_id: str, line: str) -> None:
-        log_file = self._workspace.worker_log_file(project_id, job_id)
-        try:
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-            with log_file.open("a", encoding="utf-8") as handle:
-                handle.write(f"{line}\n")
-        except OSError:
-            return
 
     def _read_worker_log_tail(self, project_id: str, job_id: str) -> list[str]:
         log_file = self._workspace.worker_log_file(project_id, job_id)
@@ -1419,12 +1471,11 @@ class ApiControlPlane:
         merged = [*persisted_logs, *memory_logs[overlap:]]
         return merged[-MAX_LOG_BUFFER:]
 
-    def _coalesce_progress(self, job_id: str, status: str) -> float:
-        if job_id in self._latest_progress:
-            return self._latest_progress[job_id]
-        if status == JobStatus.SUCCEEDED.value:
+    def _coalesce_progress(self, job: JobRecord) -> float:
+        if job.status == JobStatus.SUCCEEDED.value:
             return 100.0
-        return 0.0
+        live_progress = self._latest_progress.get(job.job_id, 0.0)
+        return float(max(float(job.progress), live_progress))
 
     def _default_control_dispatcher(
         self,
@@ -1452,11 +1503,15 @@ class ApiControlPlane:
             )
 
         if command is ControlCommandType.PAUSE and decision.request_pause:
-            self._repository.request_job_control(
+            control_version = self._repository.request_job_control(
                 job_id,
                 ControlCommandType.PAUSE.value,
                 request_id=request_id,
+                expected_status=current.status,
+                expected_state_version=current.state_version,
             )
+            if control_version is None:
+                return self._control_state_changed_ack(command)
             return cast(
                 dict[str, str | bool],
                 ControlAckPayload(
@@ -1468,12 +1523,23 @@ class ApiControlPlane:
 
         if command is ControlCommandType.RESUME and decision.target_status is not None:
             if JobStatus(current.status) is JobStatus.INTERRUPTED:
-                self._repository.recover_interrupted_job(job_id)
-            self._repository.request_job_control(
-                job_id,
-                ControlCommandType.RESUME.value,
-                request_id=request_id,
-            )
+                recovered = self._repository.recover_interrupted_job(
+                    job_id,
+                    request_id=request_id,
+                    expected_state_version=current.state_version,
+                )
+                if not recovered:
+                    return self._control_state_changed_ack(command)
+            else:
+                control_version = self._repository.request_job_control(
+                    job_id,
+                    ControlCommandType.RESUME.value,
+                    request_id=request_id,
+                    expected_status=current.status,
+                    expected_state_version=current.state_version,
+                )
+                if control_version is None:
+                    return self._control_state_changed_ack(command)
             return cast(
                 dict[str, str | bool],
                 ControlAckPayload(
@@ -1488,18 +1554,12 @@ class ApiControlPlane:
                 job_id,
                 ControlCommandType.CANCEL.value,
                 request_id=request_id,
+                expected_status=current.status,
+                expected_state_version=current.state_version,
+                finalize_cancel_if_unowned=True,
             )
-            if current.worker_id is None:
-                self._repository.update_job_status(
-                    job_id,
-                    status=JobStatus.CANCELLED.value,
-                    stage=current.stage,
-                )
-                self._repository.update_project_status(project_id, JobStatus.CANCELLED.value)
-                self._repository.acknowledge_unowned_job_control(
-                    job_id,
-                    control_version,
-                )
+            if control_version is None:
+                return self._control_state_changed_ack(command)
 
         if command is ControlCommandType.DELETE:
             if self._job_worker_may_be_running(job_id):
@@ -1558,12 +1618,22 @@ class ApiControlPlane:
         ).to_dict()
         return ack_payload
 
+    def _control_state_changed_ack(
+        self, command: ControlCommandType
+    ) -> dict[str, str | bool]:
+        return cast(
+            dict[str, str | bool],
+            ControlAckPayload(
+                command=command.value,
+                accepted=False,
+                code="job_state_changed",
+                reason="job state changed while applying control; refresh and retry",
+            ).to_dict(),
+        )
+
     def _job_worker_may_be_running(self, job_id: str) -> bool:
         job = self._repository.get_job(job_id)
-        if job is not None and job.worker_id is not None:
-            return True
-        with self._dispatch_lock:
-            return job_id in self._dispatched_jobs
+        return job is not None and job.worker_id is not None
 
     def _cleanup_job_workspace(self, project_id: str, job_id: str) -> bool:
         root = self._workspace.job_root(project_id, job_id)
@@ -1573,6 +1643,7 @@ class ApiControlPlane:
         attempts = 4
         for index in range(attempts):
             try:
+                self._cleanup_staged_upload_for_job(project_id, job_id)
                 shutil.rmtree(root)
                 return True
             except OSError:
@@ -1580,6 +1651,27 @@ class ApiControlPlane:
                     return False
                 time.sleep(0.2 * (index + 1))
         return False
+
+    def _cleanup_staged_upload_for_job(self, project_id: str, job_id: str) -> None:
+        config_path = self._workspace.config_snapshot_file(project_id, job_id)
+        if not config_path.exists():
+            return
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        raw_path = payload.get("local_video_path")
+        if not isinstance(raw_path, str) or not raw_path:
+            return
+        upload_root = (self._workspace.project_root(project_id) / "uploads").resolve()
+        candidate = Path(raw_path).resolve()
+        try:
+            candidate.relative_to(upload_root)
+        except ValueError:
+            return
+        candidate.unlink(missing_ok=True)
 
     def _mark_job_delete_pending(self, job_id: str) -> None:
         self._repository.set_job_delete_pending(job_id, True)
@@ -1599,6 +1691,18 @@ class ApiControlPlane:
         pending_ids = self._repository.list_pending_delete_job_ids()
         with self._pending_job_delete_cache_lock:
             self._pending_job_deletes_cache = set(pending_ids)
+
+    def _reconcile_pending_job_deletes(self) -> None:
+        with self._pending_job_delete_cache_lock:
+            pending_ids = list(self._pending_job_deletes_cache)
+        for job_id in pending_ids:
+            job = self._repository.get_job(job_id)
+            if job is None:
+                with self._pending_job_delete_cache_lock:
+                    self._pending_job_deletes_cache.discard(job_id)
+                continue
+            self.ensure_job_tracking(job_id)
+            self._try_finalize_pending_job_delete(job.project_id, job_id)
 
     def _try_finalize_pending_job_delete(self, project_id: str, job_id: str) -> bool:
         if not self._is_job_delete_pending(job_id):

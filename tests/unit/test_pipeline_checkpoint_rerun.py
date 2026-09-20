@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 import pytest
+from tests.support import StubASRProvider
 
-from asr import BaselineASRProvider
 from contracts import JobStatus, StageName
 from frame_summary import FrameSummaryResult
-from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepository
 from pipeline import PipelineOrchestrator
 
 
@@ -39,11 +39,24 @@ def test_rerun_from_stage_preserves_prior_stage_status_and_sets_reuse_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def _write_test_keyframes(
+        _video_path: Path,
+        *,
+        timestamps_to_paths: list[tuple[float, Path]],
+    ) -> None:
+        for _timestamp, output_path in timestamps_to_paths:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"test-keyframe")
+
     monkeypatch.setattr(
         "pipeline.orchestrator.QwenFrameSummaryProvider",
         _StaticFrameSummaryProvider,
     )
-    monkeypatch.setattr("pipeline.orchestrator._is_cv2_available", lambda: False)
+    monkeypatch.setattr("pipeline.orchestrator._is_cv2_available", lambda: True)
+    monkeypatch.setattr(
+        "pipeline.orchestrator.write_images_for_records",
+        _write_test_keyframes,
+    )
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
     repository.upsert_project("p1", title="demo", status=JobStatus.QUEUED.value)
@@ -67,8 +80,8 @@ def test_rerun_from_stage_preserves_prior_stage_status_and_sets_reuse_metadata(
     orchestrator = PipelineOrchestrator(
         repository=repository,
         workspace=workspace,
-        event_bus=RedisEventBus(stub_mode=True),
-        asr_provider=BaselineASRProvider(),
+        event_bus=InMemoryEventBus(),
+        asr_provider=StubASRProvider(),
     )
 
     source = tmp_path / "source.mp4"

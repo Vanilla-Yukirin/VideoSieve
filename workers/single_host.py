@@ -6,6 +6,7 @@ import argparse
 import importlib
 import os
 import socket
+import sys
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -14,11 +15,17 @@ from pathlib import Path
 
 from asr import create_asr_provider_from_env
 from contracts import JobStatus, StageName
-from infra import FileSystemWorkspaceStore, InfraEvent, SQLiteEventBus, SQLiteJobRepository
+from infra import (
+    FileSystemWorkspaceStore,
+    InfraEvent,
+    JobRecord,
+    SQLiteEventBus,
+    SQLiteJobRepository,
+)
 from pipeline import PipelineOrchestrator
 from pipeline.dispatch import extract_ingest_config, load_job_config_snapshot
 
-from .celery_app import WorkerRuntime
+from .runtime import WorkerRuntime
 
 
 class WorkerAlreadyRunningError(RuntimeError):
@@ -89,11 +96,13 @@ class _HeartbeatLease:
         db_path: Path,
         job_id: str,
         worker_id: str,
+        worker_attempt: int,
         interval_seconds: float,
     ) -> None:
         self._db_path = db_path
         self._job_id = job_id
         self._worker_id = worker_id
+        self._worker_attempt = worker_attempt
         self._interval_seconds = interval_seconds
         self._stop = threading.Event()
         self._thread = threading.Thread(
@@ -113,7 +122,11 @@ class _HeartbeatLease:
         repository = SQLiteJobRepository(self._db_path)
         try:
             while not self._stop.wait(self._interval_seconds):
-                if not repository.heartbeat_job(self._job_id, self._worker_id):
+                if not repository.heartbeat_job(
+                    self._job_id,
+                    self._worker_id,
+                    expected_attempt=self._worker_attempt,
+                ):
                     return
         finally:
             repository.close()
@@ -159,108 +172,70 @@ class SingleHostWorker:
         if job is None:
             return False
 
-        self._event_bus.publish(
-            f"jobs:{job.job_id}",
-            InfraEvent(
-                event_type="job_state_changed",
-                project_id=job.project_id,
-                job_id=job.job_id,
-                payload={
-                    "from": (
-                        JobStatus.PAUSED.value
-                        if job.control_command == "resume"
-                        else JobStatus.QUEUED.value
-                    ),
-                    "to": JobStatus.RUNNING.value,
-                    "stage": job.stage,
-                },
-            ),
-        )
-
-        if (
-            job.control_command == "resume"
-            and job.control_version > 0
-            and job.control_ack_version == job.control_version
-        ):
-            self._event_bus.publish(
-                f"jobs:{job.job_id}",
-                InfraEvent(
-                    event_type="control_ack",
-                    project_id=job.project_id,
-                    job_id=job.job_id,
-                    payload={
-                        "command": "resume",
-                        "accepted": True,
-                        "phase": "applied",
-                        "confirmed": True,
-                        "control_version": job.control_version,
-                        "execution_state": JobStatus.RUNNING.value,
-                        "requested_action": None,
-                    },
-                    request_id=job.control_request_id,
-                ),
-            )
-
         lease = _HeartbeatLease(
             db_path=self._db_path,
             job_id=job.job_id,
             worker_id=self._worker_id,
+            worker_attempt=job.attempt,
             interval_seconds=self._heartbeat_interval_seconds,
         )
         lease.start()
         try:
-            self._run_claimed_job(job.project_id, job.job_id)
+            self._event_bus.publish(
+                f"jobs:{job.job_id}",
+                InfraEvent(
+                    event_type="job_state_changed",
+                    project_id=job.project_id,
+                    job_id=job.job_id,
+                    payload={
+                        "from": (
+                            JobStatus.PAUSED.value
+                            if job.control_command == "resume"
+                            else JobStatus.QUEUED.value
+                        ),
+                        "to": JobStatus.RUNNING.value,
+                        "stage": job.stage,
+                    },
+                ),
+            )
+
+            if (
+                job.control_command == "resume"
+                and job.control_version > 0
+                and job.control_ack_version == job.control_version
+            ):
+                self._event_bus.publish(
+                    f"jobs:{job.job_id}",
+                    InfraEvent(
+                        event_type="control_ack",
+                        project_id=job.project_id,
+                        job_id=job.job_id,
+                        payload={
+                            "command": "resume",
+                            "accepted": True,
+                            "phase": "applied",
+                            "confirmed": True,
+                            "control_version": job.control_version,
+                            "execution_state": JobStatus.RUNNING.value,
+                            "requested_action": None,
+                        },
+                        request_id=job.control_request_id,
+                    ),
+                )
+            self._run_claimed_job(job.project_id, job.job_id, job.attempt)
         except Exception as exc:
-            latest = self._repository.get_job(job.job_id)
-            if latest is not None and latest.status not in {
-                JobStatus.PAUSED.value,
-                JobStatus.CANCELLED.value,
-                JobStatus.FAILED.value,
-                JobStatus.SUCCEEDED.value,
-                JobStatus.INTERRUPTED.value,
-            }:
-                message = str(exc) or exc.__class__.__name__
-                self._repository.update_job_status(
-                    job.job_id,
-                    status=JobStatus.FAILED.value,
-                    stage=latest.stage,
-                    error_code="WORKER_EXECUTION_FAILED",
-                    error_message=message,
-                )
-                self._repository.update_project_status(job.project_id, JobStatus.FAILED.value)
-                self._event_bus.publish(
-                    f"jobs:{job.job_id}",
-                    InfraEvent(
-                        event_type="job_state_changed",
-                        project_id=job.project_id,
-                        job_id=job.job_id,
-                        payload={
-                            "from": latest.status,
-                            "to": JobStatus.FAILED.value,
-                            "stage": latest.stage,
-                        },
-                    ),
-                )
-                self._event_bus.publish(
-                    f"jobs:{job.job_id}",
-                    InfraEvent(
-                        event_type="error",
-                        project_id=job.project_id,
-                        job_id=job.job_id,
-                        payload={
-                            "stage": latest.stage or "dispatch",
-                            "code": "WORKER_EXECUTION_FAILED",
-                            "message": message,
-                        },
-                    ),
-                )
+            self._handle_claim_failure(job, exc)
         finally:
             lease.stop()
-            released = self._repository.release_job_claim(job.job_id, self._worker_id)
+            released = self._repository.release_job_claim(
+                job.job_id,
+                self._worker_id,
+                expected_attempt=job.attempt,
+            )
             if released:
                 latest = self._repository.get_job(job.job_id)
                 if latest is not None:
-                    self._event_bus.publish(
+                    self._publish_best_effort(
                         f"jobs:{job.job_id}",
                         InfraEvent(
                             event_type="job_state_changed",
@@ -280,9 +255,79 @@ class SingleHostWorker:
         """Poll the durable queue until ``stop`` is requested."""
 
         while not self._stop.is_set():
-            if self.run_once():
-                continue
+            try:
+                if self.run_once():
+                    continue
+            except Exception as exc:
+                print(
+                    f"VideoSieve worker poll failed: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             self._stop.wait(self._poll_interval_seconds)
+
+    def _handle_claim_failure(self, job: JobRecord, exc: Exception) -> None:
+        job_id = job.job_id
+        project_id = job.project_id
+        attempt = job.attempt
+        latest = self._repository.get_job(job_id)
+        if latest is None or latest.status in {
+            JobStatus.PAUSED.value,
+            JobStatus.CANCELLED.value,
+            JobStatus.FAILED.value,
+            JobStatus.SUCCEEDED.value,
+            JobStatus.INTERRUPTED.value,
+        }:
+            return
+        message = str(exc) or exc.__class__.__name__
+        updated = self._repository.update_job_status(
+            job_id,
+            status=JobStatus.FAILED.value,
+            stage=latest.stage,
+            error_code="WORKER_EXECUTION_FAILED",
+            error_message=message,
+            expected_worker_id=self._worker_id,
+            expected_attempt=attempt,
+        )
+        if not updated:
+            return
+        self._repository.refresh_project_status(project_id)
+        self._publish_best_effort(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="job_state_changed",
+                project_id=project_id,
+                job_id=job_id,
+                payload={
+                    "from": latest.status,
+                    "to": JobStatus.FAILED.value,
+                    "stage": latest.stage,
+                },
+            ),
+        )
+        self._publish_best_effort(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="error",
+                project_id=project_id,
+                job_id=job_id,
+                payload={
+                    "stage": latest.stage or "dispatch",
+                    "code": "WORKER_EXECUTION_FAILED",
+                    "message": message,
+                },
+            ),
+        )
+
+    def _publish_best_effort(self, channel: str, event: InfraEvent) -> None:
+        try:
+            self._event_bus.publish(channel, event)
+        except Exception as exc:
+            print(
+                f"VideoSieve worker event publish failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     def stop(self) -> None:
         self._stop.set()
@@ -292,7 +337,7 @@ class SingleHostWorker:
         self._event_bus.close()
         self._repository.close()
 
-    def _run_claimed_job(self, project_id: str, job_id: str) -> None:
+    def _run_claimed_job(self, project_id: str, job_id: str, worker_attempt: int) -> None:
         snapshot = load_job_config_snapshot(
             self._workspace,
             project_id=project_id,
@@ -311,6 +356,7 @@ class SingleHostWorker:
                 event_bus=self._event_bus,
                 asr_provider=create_asr_provider_from_env(),
                 worker_id=self._worker_id,
+                worker_attempt=worker_attempt,
             )
         )
         rerun_from_stage = _optional_stage(snapshot.get("rerun_from_stage"))

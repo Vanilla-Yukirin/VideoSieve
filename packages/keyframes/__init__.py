@@ -1,6 +1,7 @@
 """Keyframe baseline extraction package."""
 
 from .algorithm import CandidateFrame, FrameFeature
+from .errors import KeyframeStageError
 from .extractor import extract_video_features, write_images_for_records
 from .models import ALLOWED_KEYFRAME_REASONS, KeyframeRecord
 from .service import (
@@ -19,6 +20,7 @@ __all__ = [
     "KeyframeAlgorithmService",
     "KeyframeBaselineService",
     "KeyframeRunDiagnostics",
+    "KeyframeStageError",
     "KeyframeRecord",
     "write_images_for_records",
 ]

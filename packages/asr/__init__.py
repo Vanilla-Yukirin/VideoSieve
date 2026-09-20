@@ -1,6 +1,5 @@
-"""ASR module interfaces and baseline provider."""
+"""ASR contracts and production provider selection."""
 
-from .baseline import BaselineASRProvider
 from .factory import create_asr_provider_from_env
 from .funasr_local import FunASRLocalProvider
 from .interfaces import ASRProvider
@@ -12,7 +11,6 @@ __all__ = [
     "ASRRequest",
     "ASRResult",
     "ASRSegment",
-    "BaselineASRProvider",
     "FunASRLocalProvider",
     "create_asr_provider_from_env",
     "write_transcript_jsonl",

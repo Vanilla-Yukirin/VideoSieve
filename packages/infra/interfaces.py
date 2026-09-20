@@ -79,6 +79,10 @@ class JobRepository(ABC):
         """Update project status."""
 
     @abstractmethod
+    def refresh_project_status(self, project_id: str) -> str | None:
+        """Derive and persist project status from all of its jobs."""
+
+    @abstractmethod
     def delete_project(self, project_id: str) -> None:
         """Delete one project and all its jobs."""
 
@@ -105,8 +109,22 @@ class JobRepository(ABC):
         stage: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
-    ) -> None:
-        """Update job status and optional stage/error fields."""
+        expected_worker_id: str | None = None,
+        expected_attempt: int | None = None,
+    ) -> bool:
+        """Update job state, optionally fenced to one worker attempt."""
+
+    @abstractmethod
+    def update_job_progress(
+        self,
+        job_id: str,
+        *,
+        progress: float,
+        stage: str | None,
+        expected_worker_id: str | None = None,
+        expected_attempt: int | None = None,
+    ) -> bool:
+        """Persist progress, optionally fenced to one worker attempt."""
 
     @abstractmethod
     def delete_job(self, job_id: str) -> None:
@@ -125,11 +143,15 @@ class JobRepository(ABC):
         """Atomically claim the oldest runnable job for one worker."""
 
     @abstractmethod
-    def heartbeat_job(self, job_id: str, worker_id: str) -> bool:
+    def heartbeat_job(
+        self, job_id: str, worker_id: str, *, expected_attempt: int | None = None
+    ) -> bool:
         """Refresh a job lease when it is still owned by the worker."""
 
     @abstractmethod
-    def release_job_claim(self, job_id: str, worker_id: str) -> bool:
+    def release_job_claim(
+        self, job_id: str, worker_id: str, *, expected_attempt: int | None = None
+    ) -> bool:
         """Clear a worker claim when it is still owned by that worker."""
 
     @abstractmethod
@@ -137,14 +159,27 @@ class JobRepository(ABC):
         """Mark stale claimed jobs interrupted without automatically rerunning them."""
 
     @abstractmethod
-    def recover_interrupted_job(self, job_id: str) -> bool:
+    def recover_interrupted_job(
+        self,
+        job_id: str,
+        *,
+        request_id: str | None = None,
+        expected_state_version: int | None = None,
+    ) -> bool:
         """Explicitly move an interrupted job back to the durable queue."""
 
     @abstractmethod
     def request_job_control(
-        self, job_id: str, command: str, *, request_id: str | None = None
-    ) -> int:
-        """Persist a control request and return its monotonically increasing version."""
+        self,
+        job_id: str,
+        command: str,
+        *,
+        request_id: str | None = None,
+        expected_status: str | None = None,
+        expected_state_version: int | None = None,
+        finalize_cancel_if_unowned: bool = False,
+    ) -> int | None:
+        """Persist an idempotent, optionally state-conditional control request."""
 
     @abstractmethod
     def acknowledge_job_control(
@@ -346,6 +381,10 @@ class WorkspaceStore(ABC):
     @abstractmethod
     def summary_file(self, project_id: str, job_id: str) -> Path:
         """Return `outputs/summary.json` path for one job."""
+
+    @abstractmethod
+    def deliverables_manifest_file(self, project_id: str, job_id: str) -> Path:
+        """Return the generation readiness manifest path for one job."""
 
     @abstractmethod
     def worker_log_file(self, project_id: str, job_id: str) -> Path:

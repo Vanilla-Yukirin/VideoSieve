@@ -14,7 +14,7 @@ from apps.api.rest import create_job as rest_create_job
 from apps.api.service import ApiControlPlane
 from pydantic import ValidationError
 
-from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepository
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +26,7 @@ def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
 def _make_control_plane(tmp_path: Path) -> tuple[ApiControlPlane, FileSystemWorkspaceStore]:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
-    bus = RedisEventBus(stub_mode=True)
+    bus = InMemoryEventBus()
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
     control_plane = ApiControlPlane(
         repository=repository,

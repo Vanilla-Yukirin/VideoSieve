@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from infra import SQLiteJobRepository
+from infra import InfraEvent, SQLiteJobRepository
 
 
 def test_sqlite_repository_project_and_job_crud(tmp_path: Path) -> None:
@@ -245,3 +245,131 @@ def test_sqlite_repository_guest_cooldown_try_acquire_atomic(tmp_path: Path) -> 
 
     repo_a.close()
     repo_b.close()
+
+
+def test_worker_attempt_fences_progress_and_terminal_state(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-fence", title="demo", status="queued")
+    repo.create_job("j-fence", "p-fence", status="queued", stage=None)
+
+    first = repo.claim_next_job("worker-old")
+    assert first is not None
+    assert repo.update_job_progress(
+        "j-fence",
+        progress=25.0,
+        stage="asr",
+        expected_worker_id="worker-old",
+        expected_attempt=first.attempt,
+    )
+    assert repo.mark_stale_jobs_interrupted(datetime.now(UTC)) == ["j-fence"]
+    assert repo.recover_interrupted_job("j-fence")
+    second = repo.claim_next_job("worker-new")
+    assert second is not None
+
+    assert not repo.update_job_status(
+        "j-fence",
+        status="succeeded",
+        stage="deliverables",
+        expected_worker_id="worker-old",
+        expected_attempt=first.attempt,
+    )
+    assert repo.update_job_progress(
+        "j-fence",
+        progress=50.0,
+        stage="keyframes",
+        expected_worker_id="worker-new",
+        expected_attempt=second.attempt,
+    )
+    current = repo.get_job("j-fence")
+    assert current is not None
+    assert current.status == "running"
+    assert current.progress == 50.0
+    assert current.attempt == 2
+    repo.close()
+
+
+def test_control_request_is_conditional_idempotent_and_cancels_unowned_job(
+    tmp_path: Path,
+) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-control", title="demo", status="queued")
+    repo.create_job("j-control", "p-control", status="queued", stage=None)
+    before = repo.get_job("j-control")
+    assert before is not None
+
+    version = repo.request_job_control(
+        "j-control",
+        "cancel",
+        request_id="request-1",
+        expected_status=before.status,
+        expected_state_version=before.state_version,
+        finalize_cancel_if_unowned=True,
+    )
+    assert version == 1
+    replayed = repo.request_job_control(
+        "j-control",
+        "cancel",
+        request_id="request-1",
+        expected_status=before.status,
+        expected_state_version=before.state_version,
+        finalize_cancel_if_unowned=True,
+    )
+    assert replayed == version
+    cancelled = repo.get_job("j-control")
+    assert cancelled is not None
+    assert cancelled.status == "cancelled"
+    assert cancelled.control_ack_version == version
+    assert repo.claim_next_job("worker-too-late") is None
+    assert (
+        repo.request_job_control(
+            "j-control",
+            "pause",
+            request_id="request-2",
+            expected_status="queued",
+            expected_state_version=before.state_version,
+        )
+        is None
+    )
+    repo.close()
+
+
+def test_delete_job_and_project_remove_persisted_events(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-events", title="demo", status="queued")
+    repo.create_job("j-one", "p-events", status="queued", stage=None)
+    repo.create_job("j-two", "p-events", status="queued", stage=None)
+    for job_id in ("j-one", "j-two"):
+        repo.append_job_event(
+            f"jobs:{job_id}",
+            InfraEvent(
+                event_type="log",
+                project_id="p-events",
+                job_id=job_id,
+                payload={"message": job_id},
+            ),
+        )
+
+    repo.delete_job("j-one")
+    assert repo.list_job_events("jobs:j-one") == []
+    repo.delete_project("p-events")
+    assert repo.list_job_events("jobs:j-two") == []
+    repo.close()
+
+
+def test_project_status_is_derived_across_multiple_jobs(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-many", title="demo", status="queued")
+    repo.create_job("j-done", "p-many", status="succeeded", stage="deliverables")
+    repo.create_job("j-active", "p-many", status="running", stage="asr")
+
+    assert repo.refresh_project_status("p-many") == "running"
+    repo.update_job_status("j-active", status="failed", stage="asr")
+    assert repo.refresh_project_status("p-many") == "failed"
+    project = repo.get_project("p-many")
+    assert project is not None
+    assert project.status == "failed"
+    repo.close()

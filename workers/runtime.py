@@ -1,4 +1,4 @@
-"""Minimal worker entrypoints without a hard Celery runtime dependency."""
+"""Thin execution adapter shared by the standalone worker and focused tests."""
 
 from __future__ import annotations
 

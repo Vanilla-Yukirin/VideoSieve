@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 
 import pytest
-from workers.celery_app import WorkerRuntime
+from tests.support import StubASRProvider
+from workers.runtime import WorkerRuntime
 
-from asr import BaselineASRProvider
 from contracts import JobStatus
 from frame_summary import FrameSummaryResult
-from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepository
 from ingest import INGEST_CANCELLED, IngestError
+from keyframes import KeyframeStageError
 from overall_summary import OverallSummaryProviderError, OverallSummaryResult
 from pipeline import PipelineOrchestrator
 from pipeline.models import STAGE_SEQUENCE
@@ -58,7 +59,7 @@ class _StaticOverallSummaryProvider:
                 "summary backend unavailable",
                 retryable=True,
             )
-        assert "baseline ASR segment" in source_text
+        assert "test ASR segment" in source_text
         return OverallSummaryResult(
             text="real model-shaped test summary",
             provider=self.provider_name,
@@ -70,6 +71,15 @@ class _StaticOverallSummaryProvider:
 def _real_providers_are_replaced_only_in_this_unit_test(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def _write_test_keyframes(
+        _video_path: Path,
+        *,
+        timestamps_to_paths: list[tuple[float, Path]],
+    ) -> None:
+        for _timestamp, output_path in timestamps_to_paths:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"test-keyframe")
+
     monkeypatch.setattr(
         "pipeline.orchestrator.QwenFrameSummaryProvider",
         _StaticFrameSummaryProvider,
@@ -78,7 +88,11 @@ def _real_providers_are_replaced_only_in_this_unit_test(
         "pipeline.orchestrator.OpenAICompatibleSummaryProvider",
         _StaticOverallSummaryProvider,
     )
-    monkeypatch.setattr("pipeline.orchestrator._is_cv2_available", lambda: False)
+    monkeypatch.setattr("pipeline.orchestrator._is_cv2_available", lambda: True)
+    monkeypatch.setattr(
+        "pipeline.orchestrator.write_images_for_records",
+        _write_test_keyframes,
+    )
 
 
 def _make_runtime(
@@ -114,8 +128,8 @@ def _make_runtime(
         PipelineOrchestrator(
             repository=repository,
             workspace=workspace,
-            event_bus=RedisEventBus(stub_mode=True),
-            asr_provider=BaselineASRProvider(),
+            event_bus=InMemoryEventBus(),
+            asr_provider=StubASRProvider(),
             worker_id=worker_id,
         )
     )
@@ -232,6 +246,37 @@ def test_pipeline_preserves_overall_summary_provider_error_code(tmp_path: Path) 
     assert job.status == JobStatus.FAILED.value
     assert job.error_code == "OVERALL_SUMMARY_PROVIDER_UNAVAILABLE"
     assert not workspace.summary_file("p1", "j1").exists()
+
+
+def test_pipeline_fails_when_selected_keyframe_images_are_not_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, repository, workspace = _make_runtime(tmp_path)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+
+    def _drop_all_keyframes(
+        _video_path: Path,
+        *,
+        timestamps_to_paths: list[tuple[float, Path]],
+    ) -> None:
+        del timestamps_to_paths
+
+    monkeypatch.setattr(
+        "pipeline.orchestrator.write_images_for_records",
+        _drop_all_keyframes,
+    )
+
+    with pytest.raises(KeyframeStageError) as captured:
+        runtime.run_job(project_id="p1", job_id="j1", source_path=str(source))
+
+    assert captured.value.code == "KEYFRAME_IMAGES_INCOMPLETE"
+    job = repository.get_job("j1")
+    assert job is not None
+    assert job.status == JobStatus.FAILED.value
+    assert job.error_code == "KEYFRAME_IMAGES_INCOMPLETE"
+    assert not workspace.job_path("p1", "j1", "frames", "images.zip").exists()
 
 
 def test_pipeline_cancel_during_ingest_does_not_flip_failed_first(

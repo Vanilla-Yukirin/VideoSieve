@@ -56,6 +56,7 @@ class JobRecord:
     control_acknowledged_at: str | None = None
     control_request_id: str | None = None
     state_version: int = 0
+    progress: float = 0.0
 
 
 @dataclass(slots=True)

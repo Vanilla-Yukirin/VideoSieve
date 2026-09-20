@@ -14,7 +14,7 @@ from apps.api.rest import (
 from apps.api.service import ApiConfigError, ApiControlPlane
 from pydantic import ValidationError
 
-from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepository
 from ingest import IngestFormatOption, IngestFormatProbeResult
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
 
@@ -34,8 +34,7 @@ def _make_control_plane(tmp_path: Path) -> ApiControlPlane:
     return ApiControlPlane(
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
-        event_bus=RedisEventBus(stub_mode=True),
-        job_dispatcher=lambda _project_id, _job_id: None,
+        event_bus=InMemoryEventBus(),
     )
 
 

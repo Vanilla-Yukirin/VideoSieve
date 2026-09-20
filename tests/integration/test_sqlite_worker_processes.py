@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from infra import SQLiteJobRepository
+from infra.workspace import FileSystemWorkspaceStore
 
 _CLAIM_SCRIPT = """
 import json
@@ -113,3 +114,61 @@ def test_crashed_process_claim_is_persisted_and_explicitly_recovered(tmp_path: P
         "worker_id": "process-after-restart",
         "attempt": 2,
     }
+
+
+def test_real_worker_cli_claims_job_persists_failure_and_releases_lease(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "runtime"
+    db_path = data_dir / "infra.db"
+    data_dir.mkdir(parents=True)
+    repository = SQLiteJobRepository(db_path)
+    repository.ensure_schema()
+    repository.upsert_project("project-cli", title="demo", status="queued")
+    repository.create_job("job-cli", "project-cli", status="queued", stage=None)
+    workspace = FileSystemWorkspaceStore(data_dir / "workspaces")
+    workspace.ensure_job_layout("project-cli", "job-cli")
+    workspace.config_snapshot_file("project-cli", "job-cli").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "project_id": "project-cli",
+                "job_id": "job-cli",
+            }
+        ),
+        encoding="utf-8",
+    )
+    repository.close()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "workers.single_host",
+            "--data-dir",
+            str(data_dir),
+            "--worker-id",
+            "process-worker-cli",
+            "--heartbeat-interval",
+            "0.1",
+            "--stale-after",
+            "1",
+            "--once",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=_child_env(),
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    verified = SQLiteJobRepository(db_path)
+    job = verified.get_job("job-cli")
+    assert job is not None
+    assert job.status == "failed"
+    assert job.worker_id is None
+    assert job.attempt == 1
+    assert job.error_code == "PIPELINE_STAGE_FAILED"
+    assert verified.list_job_events("jobs:job-cli")
+    verified.close()

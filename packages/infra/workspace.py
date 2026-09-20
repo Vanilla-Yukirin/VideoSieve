@@ -98,5 +98,8 @@ class FileSystemWorkspaceStore(WorkspaceStore):
     def summary_file(self, project_id: str, job_id: str) -> Path:
         return self.job_path(project_id, job_id, "outputs", "summary.json")
 
+    def deliverables_manifest_file(self, project_id: str, job_id: str) -> Path:
+        return self.job_path(project_id, job_id, "outputs", "deliverables.ready.json")
+
     def worker_log_file(self, project_id: str, job_id: str) -> Path:
         return self.job_path(project_id, job_id, "logs", "worker.log")

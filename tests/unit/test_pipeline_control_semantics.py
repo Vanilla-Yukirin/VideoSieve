@@ -2,26 +2,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from asr import BaselineASRProvider
+from tests.support import StubASRProvider
+
 from contracts import ControlCommandType, JobStatus
 from core import INVALID_STATE_TRANSITION
-from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InfraEvent, InMemoryEventBus, SQLiteJobRepository
 from pipeline import PipelineOrchestrator
 
 
 def _make_orchestrator(
     tmp_path: Path,
-) -> tuple[PipelineOrchestrator, SQLiteJobRepository, RedisEventBus]:
+) -> tuple[PipelineOrchestrator, SQLiteJobRepository, InMemoryEventBus]:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
     repository.upsert_project("p1", title="demo", status=JobStatus.QUEUED.value)
     repository.create_job("j1", "p1", status=JobStatus.QUEUED.value, stage=None)
-    bus = RedisEventBus(stub_mode=True)
+    bus = InMemoryEventBus()
     orchestrator = PipelineOrchestrator(
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
-        asr_provider=BaselineASRProvider(),
+        asr_provider=StubASRProvider(),
     )
     return orchestrator, repository, bus
 

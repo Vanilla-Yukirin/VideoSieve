@@ -6,13 +6,46 @@ import json
 import os
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from contracts.models import SCHEMA_VERSION
 from infra.interfaces import WorkspaceStore
 
-from .providers import OverallSummaryProvider, OverallSummaryProviderError, OverallSummaryResult
+from .evidence import (
+    evidence_sha256,
+    read_frame_summary_evidence,
+    read_timeline_evidence,
+    sha256_file,
+    sha256_json,
+    sha256_text,
+)
+from .providers import (
+    OverallSummaryProvider,
+    OverallSummaryProviderError,
+    OverallSummaryResult,
+    SummaryProviderProvenance,
+)
+
+_PROMPT_VERSION = "overall-summary-v1"
+_REDUCTION_STRATEGY = "hierarchical-map-reduce-v1"
+_MAX_REDUCTION_ROUNDS = 16
+_TEMPERATURE = 0.2
+_PARTIAL_TASK_ZH = "这是完整材料的一部分。请压缩为保留全部关键信息的中间摘要，供下一轮综合。"
+_PARTIAL_TASK_EN = (
+    "This is one partition of the full evidence. Preserve every key fact for final synthesis."
+)
+_FINAL_TASK_ZH = "请基于以下全部材料生成最终摘要。"
+_FINAL_TASK_EN = "Create the final summary from all evidence below."
+
+
+@dataclass(frozen=True)
+class _SummaryExecution:
+    result: OverallSummaryResult
+    provider_calls: int
+    reduction_rounds: int
 
 
 class OpenAICompatibleSummaryProvider:
@@ -54,6 +87,32 @@ class OpenAICompatibleSummaryProvider:
     def model_name(self) -> str:
         return self._model
 
+    def describe_provenance(
+        self, *, language_hint: str | None
+    ) -> SummaryProviderProvenance:
+        """Describe the selected prompt and request parameters without secrets."""
+
+        is_zh = (language_hint or "zh").lower().startswith("zh")
+        prompt = self._prompt_zh if is_zh else self._prompt_en
+        return SummaryProviderProvenance(
+            provider=self.provider_name,
+            model=self.model_name,
+            prompt_version=_PROMPT_VERSION,
+            prompt_sha256=sha256_json(
+                {
+                    "system": prompt,
+                    "partial_task": _PARTIAL_TASK_ZH if is_zh else _PARTIAL_TASK_EN,
+                    "final_task": _FINAL_TASK_ZH if is_zh else _FINAL_TASK_EN,
+                }
+            ),
+            endpoint_sha256=sha256_text(self._base_url),
+            parameters={
+                "temperature": _TEMPERATURE,
+                "timeout_seconds": self._timeout_seconds,
+                "api": "openai-compatible-chat-completions",
+            },
+        )
+
     def summarize(
         self,
         source_text: str,
@@ -80,20 +139,9 @@ class OpenAICompatibleSummaryProvider:
         is_zh = (language_hint or "zh").lower().startswith("zh")
         system_prompt = self._prompt_zh if is_zh else self._prompt_en
         if partial:
-            task = (
-                "这是完整材料的一部分。请压缩为保留全部关键信息的中间摘要，供下一轮综合。"
-                if is_zh
-                else (
-                    "This is one partition of the full evidence. "
-                    "Preserve every key fact for final synthesis."
-                )
-            )
+            task = _PARTIAL_TASK_ZH if is_zh else _PARTIAL_TASK_EN
         else:
-            task = (
-                "请基于以下全部材料生成最终摘要。"
-                if is_zh
-                else "Create the final summary from all evidence below."
-            )
+            task = _FINAL_TASK_ZH if is_zh else _FINAL_TASK_EN
         body = json.dumps(
             {
                 "model": self._model,
@@ -101,7 +149,7 @@ class OpenAICompatibleSummaryProvider:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"{task}\n\n{source_text}"},
                 ],
-                "temperature": 0.2,
+                "temperature": _TEMPERATURE,
             },
             ensure_ascii=False,
         ).encode("utf-8")
@@ -183,44 +231,114 @@ class OverallSummaryService:
         *,
         job_id: str,
         language_hint: str | None = None,
+        output_path: Path | None = None,
     ) -> Path:
-        output_path: Path = self._workspace_store.summary_file(project_id, job_id)
-        output_path.unlink(missing_ok=True)
+        canonical_output = self._workspace_store.summary_file(project_id, job_id)
+        publish_path = output_path or canonical_output
+        job_root = self._workspace_store.job_root(project_id, job_id).resolve()
+        resolved_output = publish_path.resolve()
+        if not resolved_output.is_relative_to(job_root):
+            raise ValueError("summary output path escapes the job workspace")
+        if publish_path == canonical_output:
+            self._workspace_store.deliverables_manifest_file(project_id, job_id).unlink(
+                missing_ok=True
+            )
+        publish_path.unlink(missing_ok=True)
         timeline_path = self._workspace_store.timeline_file(project_id, job_id)
         if not timeline_path.exists():
             raise FileNotFoundError(timeline_path)
 
-        sections = self._read_timeline_sections(timeline_path)
-        sections.extend(
-            self._read_frame_summary_sections(
-                self._workspace_store.frame_summary_file(project_id, job_id)
+        timeline = read_timeline_evidence(
+            timeline_path,
+            project_id=project_id,
+            job_id=job_id,
+            error_code="OVERALL_SUMMARY_INPUT_INVALID",
+        )
+        evidence_sections = list(timeline.sections)
+        evidence_sections.extend(
+            read_frame_summary_evidence(
+                self._workspace_store.frame_summary_file(project_id, job_id),
+                error_code="OVERALL_SUMMARY_INPUT_INVALID",
             )
         )
-        if not sections:
+        if not evidence_sections:
             raise OverallSummaryProviderError(
                 "OVERALL_SUMMARY_INPUT_EMPTY",
                 "timeline and frame summary evidence are empty",
             )
 
-        result = self._summarize_hierarchically(sections, language_hint=language_hint)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        rendered_sections = [section.render() for section in evidence_sections]
+        execution = self._summarize_hierarchically(
+            rendered_sections,
+            language_hint=language_hint,
+        )
+        provider_provenance = self._describe_provider(language_hint=language_hint)
+        summary_config = {
+            "provider": provider_provenance.provider,
+            "model": provider_provenance.model,
+            "prompt_version": provider_provenance.prompt_version,
+            "prompt_sha256": provider_provenance.prompt_sha256,
+            "endpoint_sha256": provider_provenance.endpoint_sha256,
+            "parameters": provider_provenance.parameters,
+            "max_input_chars": self._max_input_chars,
+            "reduction_strategy": _REDUCTION_STRATEGY,
+            "max_reduction_rounds": _MAX_REDUCTION_ROUNDS,
+            "language_hint": language_hint,
+        }
+        config_path = self._workspace_store.config_snapshot_file(project_id, job_id)
+        source_ids = [section.source_id for section in evidence_sections]
+        transcript_count = sum(
+            section.source_type == "transcript" for section in evidence_sections
+        )
+        frame_count = len(evidence_sections) - transcript_count
+        provenance = {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "input_sha256": evidence_sha256(evidence_sections),
+            "summary_config_sha256": sha256_json(summary_config),
+            "job_config_sha256": sha256_file(config_path) if config_path.exists() else None,
+            "source_ids": source_ids,
+            "coverage": {
+                "validated_source_count": len(evidence_sections),
+                "summarized_source_count": len(evidence_sections),
+                "transcript_section_count": transcript_count,
+                "frame_section_count": frame_count,
+                "coverage_ratio": 1.0,
+            },
+            "provider": provider_provenance.provider,
+            "model": provider_provenance.model,
+            "prompt_version": provider_provenance.prompt_version,
+            "prompt_sha256": provider_provenance.prompt_sha256,
+            "endpoint_sha256": provider_provenance.endpoint_sha256,
+            "parameters": {
+                **provider_provenance.parameters,
+                "max_input_chars": self._max_input_chars,
+                "reduction_strategy": _REDUCTION_STRATEGY,
+                "max_reduction_rounds": _MAX_REDUCTION_ROUNDS,
+            },
+            "execution": {
+                "provider_calls": execution.provider_calls,
+                "reduction_rounds": execution.reduction_rounds,
+            },
+        }
+        publish_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = publish_path.with_suffix(publish_path.suffix + ".tmp")
         payload = {
             "schema_version": SCHEMA_VERSION,
             "title": f"Summary for {project_id}",
-            "summary": result.text,
-            "provider": result.provider,
-            "model": result.model,
-            "source_sections": len(sections),
+            "summary": execution.result.text,
+            "provider": execution.result.provider,
+            "model": execution.result.model,
+            "source_sections": len(evidence_sections),
+            "provenance": provenance,
         }
         try:
             temp_path.write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            temp_path.replace(output_path)
+            temp_path.replace(publish_path)
         finally:
             temp_path.unlink(missing_ok=True)
-        return output_path
+        return publish_path
 
     def _partition(self, sections: list[str]) -> list[str]:
         batches: list[str] = []
@@ -246,22 +364,29 @@ class OverallSummaryService:
         sections: list[str],
         *,
         language_hint: str | None,
-    ) -> OverallSummaryResult:
+    ) -> _SummaryExecution:
         round_sections = sections
-        for round_index in range(1, 17):
+        provider_calls = 0
+        for round_index in range(1, _MAX_REDUCTION_ROUNDS + 1):
             batches = self._partition(round_sections)
             if len(batches) == 1:
                 result = self._provider.summarize(
                     batches[0], language_hint=language_hint, partial=False
                 )
+                provider_calls += 1
                 self._validate_result(result)
-                return result
+                return _SummaryExecution(
+                    result=result,
+                    provider_calls=provider_calls,
+                    reduction_rounds=round_index - 1,
+                )
 
             partials: list[str] = []
             for batch in batches:
                 partial_result = self._provider.summarize(
                     batch, language_hint=language_hint, partial=True
                 )
+                provider_calls += 1
                 self._validate_result(partial_result)
                 partials.append(partial_result.text)
             next_sections = [
@@ -296,42 +421,32 @@ class OverallSummaryService:
             for index, piece in enumerate(pieces, start=1)
         ]
 
-    @staticmethod
-    def _validate_result(result: OverallSummaryResult) -> None:
+    def _validate_result(self, result: OverallSummaryResult) -> None:
         if not result.text.strip() or not result.provider.strip() or not result.model.strip():
             raise OverallSummaryProviderError(
                 "OVERALL_SUMMARY_INVALID_RESULT",
                 "overall summary provider returned an incomplete result",
             )
+        if (
+            result.provider != self._provider.provider_name
+            or result.model != self._provider.model_name
+        ):
+            raise OverallSummaryProviderError(
+                "OVERALL_SUMMARY_INVALID_RESULT",
+                "overall summary result provenance does not match the configured provider",
+            )
 
-    @staticmethod
-    def _read_timeline_sections(path: Path) -> list[str]:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        chunks = payload.get("chunks") if isinstance(payload, dict) else None
-        if not isinstance(chunks, list):
-            raise ValueError("timeline chunks must be a list")
-        sections: list[str] = []
-        for index, chunk in enumerate(chunks, start=1):
-            if not isinstance(chunk, dict):
-                continue
-            text = str(chunk.get("text") or "").strip()
-            if text:
-                sections.append(f"[TRANSCRIPT {index}]\n{text}")
-        return sections
-
-    @staticmethod
-    def _read_frame_summary_sections(path: Path) -> list[str]:
-        if not path.exists():
-            return []
-        sections: list[str] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            payload = json.loads(line)
-            if not isinstance(payload, dict):
-                continue
-            text = str(payload.get("description_text") or "").strip()
-            frame_id = str(payload.get("frame_id") or "unknown")
-            if text:
-                sections.append(f"[FRAME {frame_id}]\n{text}")
-        return sections
+    def _describe_provider(self, *, language_hint: str | None) -> SummaryProviderProvenance:
+        describe = getattr(self._provider, "describe_provenance", None)
+        if callable(describe):
+            provenance = describe(language_hint=language_hint)
+            if isinstance(provenance, SummaryProviderProvenance):
+                return provenance
+        return SummaryProviderProvenance(
+            provider=self._provider.provider_name,
+            model=self._provider.model_name,
+            prompt_version=None,
+            prompt_sha256=None,
+            endpoint_sha256=None,
+            parameters={},
+        )

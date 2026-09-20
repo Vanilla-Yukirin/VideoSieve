@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from collections.abc import Callable
+from hashlib import sha256
 from pathlib import Path
 
 import apps.api.service as api_service
@@ -31,7 +32,7 @@ from apps.api.service import ApiControlPlane, ApiError
 from pydantic import ValidationError
 
 from contracts import ControlCommandType, JobStatus
-from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
+from infra import FileSystemWorkspaceStore, InfraEvent, InMemoryEventBus, SQLiteJobRepository
 from ingest import IngestFormatOption, IngestFormatProbeResult
 
 
@@ -43,17 +44,14 @@ def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_control_plane(
     tmp_path: Path,
-    *,
-    job_dispatcher: Callable[[str, str], None] | None = None,
-) -> tuple[ApiControlPlane, SQLiteJobRepository, RedisEventBus]:
+) -> tuple[ApiControlPlane, SQLiteJobRepository, InMemoryEventBus]:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
-    bus = RedisEventBus(stub_mode=True)
+    bus = InMemoryEventBus()
     control_plane = ApiControlPlane(
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
-        job_dispatcher=job_dispatcher,
     )
     return control_plane, repository, bus
 
@@ -72,6 +70,37 @@ def _wait_until(
     return predicate()
 
 
+def _publish_ready_artifact(
+    workspace: FileSystemWorkspaceStore,
+    project_id: str,
+    job_id: str,
+    *,
+    content: str = "ok",
+) -> Path:
+    artifact = workspace.clean_transcript_file(project_id, job_id)
+    artifact.write_text(content, encoding="utf-8")
+    data = artifact.read_bytes()
+    workspace.deliverables_manifest_file(project_id, job_id).write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "ready": True,
+                "project_id": project_id,
+                "job_id": job_id,
+                "artifacts": [
+                    {
+                        "path": "outputs/clean_transcript.md",
+                        "size_bytes": len(data),
+                        "sha256": sha256(data).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return artifact
+
+
 def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     control_plane, repository, bus = _make_control_plane(tmp_path)
 
@@ -81,9 +110,7 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     repository.update_project_status(project_id, JobStatus.RUNNING.value)
     repository.update_job_status(job_id, status=JobStatus.RUNNING.value, stage="asr")
     workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
-    workspace.job_path(project_id, job_id, "outputs", "clean_transcript.md").write_text(
-        "ok", encoding="utf-8"
-    )
+    _publish_ready_artifact(workspace, project_id, job_id)
 
     # Prime one snapshot so the control plane starts event tracking for this job.
     get_job_snapshot(control_plane, job_id)
@@ -127,10 +154,67 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     assert any(item["path"] == "outputs/clean_transcript.md" for item in artifacts)
 
 
+def test_snapshot_restores_persisted_progress_and_error_after_api_restart(
+    tmp_path: Path,
+) -> None:
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    repository.update_job_progress(job_id, progress=62.5, stage="frame_summary")
+    repository.update_job_status(
+        job_id,
+        status=JobStatus.FAILED.value,
+        stage="frame_summary",
+        error_code="FRAME_SUMMARY_PROVIDER_FAILED",
+        error_message="provider unavailable",
+    )
+
+    restarted_repository = SQLiteJobRepository(tmp_path / "infra.db")
+    restarted_repository.ensure_schema()
+    restarted = ApiControlPlane(
+        repository=restarted_repository,
+        workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
+        event_bus=InMemoryEventBus(),
+    )
+    snapshot = restarted.get_job_snapshot(job_id)
+
+    assert snapshot.progress == 62.5
+    assert snapshot.current_stage == "frame_summary"
+    assert snapshot.error_code == "FRAME_SUMMARY_PROVIDER_FAILED"
+    assert snapshot.error_message == "provider unavailable"
+
+
+def test_artifacts_hide_uncommitted_or_tampered_deliverables(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    artifact = workspace.clean_transcript_file(project_id, job_id)
+    artifact.write_text("stale", encoding="utf-8")
+
+    assert not any(
+        item.path.startswith("outputs/")
+        for item in control_plane.list_artifacts(project_id, job_id)
+    )
+    _publish_ready_artifact(workspace, project_id, job_id, content="ready")
+    assert [
+        item.path
+        for item in control_plane.list_artifacts(project_id, job_id)
+        if item.path.startswith("outputs/")
+    ] == [
+        "outputs/clean_transcript.md",
+        "outputs/deliverables.ready.json",
+    ]
+    artifact.write_text("tampered", encoding="utf-8")
+    assert not any(
+        item.path.startswith("outputs/")
+        for item in control_plane.list_artifacts(project_id, job_id)
+    )
+
+
 def test_delete_project_removes_workspace_and_metadata(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     first_job = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -152,7 +236,6 @@ def test_delete_project_removes_workspace_and_metadata(tmp_path: Path) -> None:
 def test_delete_project_rejects_when_active_jobs_exist_without_force(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -168,7 +251,6 @@ def test_delete_project_rejects_when_active_jobs_exist_without_force(tmp_path: P
 def test_delete_project_force_cancel_active_jobs_then_delete(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -197,7 +279,7 @@ def test_delete_project_force_cancel_times_out_when_jobs_stay_active(
 ) -> None:
     repository = SQLiteJobRepository(tmp_path / "infra.db")
     repository.ensure_schema()
-    bus = RedisEventBus(stub_mode=True)
+    bus = InMemoryEventBus()
 
     def _noop_dispatch(
         _project_id: str, _job_id: str, _command: ControlCommandType
@@ -209,7 +291,6 @@ def test_delete_project_force_cancel_times_out_when_jobs_stay_active(
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
         control_dispatcher=_noop_dispatch,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     monkeypatch.setattr(api_service, "PROJECT_DELETE_WAIT_SECONDS", 0.05)
     monkeypatch.setattr(api_service, "PROJECT_DELETE_POLL_SECONDS", 0.01)
@@ -228,7 +309,6 @@ def test_delete_project_force_cancel_times_out_when_jobs_stay_active(
 def test_create_job_rejected_while_project_deletion_in_progress(tmp_path: Path) -> None:
     control_plane, _, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
 
@@ -244,7 +324,6 @@ def test_create_job_rejected_while_project_deletion_in_progress(tmp_path: Path) 
 def test_create_job_blocks_on_project_lock_and_sees_delete_marker(tmp_path: Path) -> None:
     control_plane, _, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = "p_locktest"
     create_called = {"value": False}
@@ -265,7 +344,6 @@ def test_create_job_blocks_on_project_lock_and_sees_delete_marker(tmp_path: Path
     control_plane._workspace.config_snapshot_file = (  # type: ignore[method-assign]
         lambda _project_id, _job_id: tmp_path / "config.snapshot.json"
     )
-    control_plane._dispatch_job_if_needed = lambda _project_id, _job_id: None  # type: ignore[method-assign]
 
     from apps.api.models import JobCreateRequest
 
@@ -303,7 +381,6 @@ def test_create_job_blocks_on_project_lock_and_sees_delete_marker(tmp_path: Path
 def test_delete_project_returns_error_when_workspace_cleanup_fails(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -324,24 +401,21 @@ def test_delete_project_returns_error_when_workspace_cleanup_fails(tmp_path: Pat
 
 
 def test_job_snapshot_loads_persisted_worker_logs_after_restart(tmp_path: Path) -> None:
-    def _failing_dispatcher(_project_id: str, _job_id: str) -> None:
-        raise RuntimeError("boom")
-
-    control_plane, repository, bus = _make_control_plane(
-        tmp_path,
-        job_dispatcher=_failing_dispatcher,
-    )
+    control_plane, repository, bus = _make_control_plane(tmp_path)
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    worker_log = workspace.worker_log_file(project_id, job_id)
+    worker_log.parent.mkdir(parents=True, exist_ok=True)
+    worker_log.write_text("[error] worker failed before restart\n", encoding="utf-8")
 
     restarted = ApiControlPlane(
         repository=repository,
-        workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
+        workspace=workspace,
         event_bus=bus,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     snapshot = get_job_snapshot(restarted, job_id)
-    assert any("任务派发失败" in line for line in snapshot["latest_logs"])
+    assert "[error] worker failed before restart" in snapshot["latest_logs"]
 
 
 def test_job_snapshot_merges_persisted_and_memory_logs_without_overlap_duplicates(
@@ -349,7 +423,6 @@ def test_job_snapshot_merges_persisted_and_memory_logs_without_overlap_duplicate
 ) -> None:
     control_plane, _, bus = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -375,50 +448,9 @@ def test_job_snapshot_merges_persisted_and_memory_logs_without_overlap_duplicate
     assert snapshot["latest_logs"] == ["[info] a", "[info] b", "[info] c"]
 
 
-def test_mark_dispatch_failure_ignores_worker_log_write_errors(tmp_path: Path) -> None:
-    control_plane, repository, _ = _make_control_plane(
-        tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
-    )
-    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
-    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
-
-    blocked_parent = tmp_path / "blocked-api"
-    blocked_parent.write_text("not a directory", encoding="utf-8")
-    control_plane._workspace.worker_log_file = (  # type: ignore[method-assign]
-        lambda _project_id, _job_id: blocked_parent / "worker.log"
-    )
-
-    control_plane._mark_dispatch_failure(project_id, job_id, RuntimeError("boom"))
-
-    job = repository.get_job(job_id)
-    assert job is not None
-    assert job.status == JobStatus.FAILED.value
-    assert job.error_code == "PIPELINE_DISPATCH_FAILED"
-
-
-def test_non_default_job_dispatcher_failure_marks_job_failed(tmp_path: Path) -> None:
-    def _failing_dispatcher(_project_id: str, _job_id: str) -> None:
-        raise RuntimeError("boom")
-
-    control_plane, repository, _ = _make_control_plane(
-        tmp_path,
-        job_dispatcher=_failing_dispatcher,
-    )
-    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
-    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
-
-    job = repository.get_job(job_id)
-    assert job is not None
-    assert job.status == JobStatus.FAILED.value
-    assert job.error_code == "PIPELINE_DISPATCH_FAILED"
-    assert "boom" in (job.error_message or "")
-
-
 def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
 
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
@@ -443,7 +475,6 @@ def test_rest_control_commands_are_job_scoped(tmp_path: Path) -> None:
 def test_job_delete_returns_pending_cleanup_when_workspace_busy(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -462,7 +493,6 @@ def test_job_delete_returns_pending_cleanup_when_workspace_busy(tmp_path: Path) 
 def test_job_delete_removes_job_row_after_cleanup(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -476,7 +506,6 @@ def test_job_delete_removes_job_row_after_cleanup(tmp_path: Path) -> None:
 def test_pending_job_delete_is_finalized_during_snapshot(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -500,7 +529,6 @@ def test_pending_job_delete_is_finalized_during_snapshot(tmp_path: Path) -> None
 def test_pending_job_delete_survives_control_plane_restart(tmp_path: Path) -> None:
     control_plane, repository, bus = _make_control_plane(
         tmp_path,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
@@ -516,7 +544,6 @@ def test_pending_job_delete_survives_control_plane_restart(tmp_path: Path) -> No
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
-        job_dispatcher=lambda _project_id, _job_id: None,
     )
     restarted._cleanup_job_workspace = (  # type: ignore[method-assign]
         lambda _project_id, _job_id: True
@@ -772,20 +799,6 @@ def test_create_job_stays_queued_until_independent_worker_claims(tmp_path: Path)
     assert snapshot["status"] == JobStatus.QUEUED.value
     assert snapshot["current_stage"] is None
     assert snapshot["progress"] == 0.0
-
-
-def test_create_job_dispatch_allows_retrigger_for_custom_dispatcher(tmp_path: Path) -> None:
-    calls: list[tuple[str, str]] = []
-
-    def _dispatcher(project_id: str, job_id: str) -> None:
-        calls.append((project_id, job_id))
-
-    control_plane, _, _ = _make_control_plane(tmp_path, job_dispatcher=_dispatcher)
-    project_id = create_project(control_plane, {"title": "demo"})["project_id"]
-    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
-
-    control_plane._dispatch_job_if_needed(project_id, job_id)
-    assert calls == [(project_id, job_id), (project_id, job_id)]
 
 
 def test_auth_bootstrap_login_and_settings_flow(

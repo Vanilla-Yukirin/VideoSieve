@@ -34,6 +34,16 @@ def test_workspace_store_builds_expected_paths(tmp_path: Path) -> None:
         store.summary_file("project-2", "job-2")
         == tmp_path / "workspaces" / "project-2" / "jobs" / "job-2" / "outputs" / "summary.json"
     )
+    assert (
+        store.deliverables_manifest_file("project-2", "job-2")
+        == tmp_path
+        / "workspaces"
+        / "project-2"
+        / "jobs"
+        / "job-2"
+        / "outputs"
+        / "deliverables.ready.json"
+    )
 
 
 def test_workspace_store_rejects_path_escape(tmp_path: Path) -> None:

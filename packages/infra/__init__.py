@@ -1,6 +1,6 @@
 """Infrastructure adapters for VideoSieve."""
 
-from .event_bus import RedisEventBus, SQLiteEventBus
+from .event_bus import InMemoryEventBus, SQLiteEventBus
 from .interfaces import EventBus, EventSubscription, JobRepository, WorkspaceStore
 from .models import (
     AuthUserRecord,
@@ -26,7 +26,7 @@ __all__ = [
     "JobRepository",
     "OperationLogRecord",
     "ProjectRecord",
-    "RedisEventBus",
+    "InMemoryEventBus",
     "SQLiteJobRepository",
     "SQLiteEventBus",
     "SystemSettingRecord",

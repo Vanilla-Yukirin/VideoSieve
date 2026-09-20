@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asr import BaselineASRProvider, write_transcript_jsonl
+from tests.support import StubASRProvider
+
+from asr import write_transcript_jsonl
 from contracts.models import SCHEMA_VERSION
 
 
 def test_write_transcript_jsonl_matches_contract_fields(tmp_path: Path) -> None:
-    provider = BaselineASRProvider(default_texts=("alpha", "beta"))
+    provider = StubASRProvider(default_texts=("alpha", "beta"))
     output_path = tmp_path / "asr" / "transcript.jsonl"
 
     result = write_transcript_jsonl(

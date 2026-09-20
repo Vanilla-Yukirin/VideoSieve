@@ -73,6 +73,7 @@ class SQLiteJobRepository(JobRepository):
               control_acknowledged_at TEXT,
               control_request_id TEXT,
               state_version INTEGER NOT NULL DEFAULT 0,
+              progress REAL NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               FOREIGN KEY(project_id) REFERENCES projects(project_id)
@@ -164,6 +165,7 @@ class SQLiteJobRepository(JobRepository):
             "control_acknowledged_at": "TEXT",
             "control_request_id": "TEXT",
             "state_version": "INTEGER NOT NULL DEFAULT 0",
+            "progress": "REAL NOT NULL DEFAULT 0",
         }
         for column, declaration in migrations.items():
             if column not in job_columns:
@@ -273,7 +275,47 @@ class SQLiteJobRepository(JobRepository):
         )
         self._conn.commit()
 
+    def refresh_project_status(self, project_id: str) -> str | None:
+        """Derive project status from all persisted jobs."""
+
+        status = self._refresh_project_status_in_transaction(project_id, _utc_now_iso())
+        self._conn.commit()
+        return status
+
+    def _refresh_project_status_in_transaction(
+        self, project_id: str, now: str
+    ) -> str | None:
+        rows = self._conn.execute(
+            "SELECT status FROM jobs WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        statuses = {str(row["status"]) for row in rows}
+        precedence = (
+            "running",
+            "queued",
+            "paused",
+            "interrupted",
+            "failed",
+            "cancelled",
+            "succeeded",
+        )
+        status = next(item for item in precedence if item in statuses)
+        self._conn.execute(
+            "UPDATE projects SET status = ?, updated_at = ? WHERE project_id = ?",
+            (status, now, project_id),
+        )
+        return status
+
     def delete_project(self, project_id: str) -> None:
+        self._conn.execute(
+            """
+            DELETE FROM job_events
+            WHERE job_id IN (SELECT job_id FROM jobs WHERE project_id = ?)
+            """,
+            (project_id,),
+        )
         self._conn.execute(
             """
             DELETE FROM jobs
@@ -315,12 +357,13 @@ class SQLiteJobRepository(JobRepository):
               control_acknowledged_at,
               control_request_id,
               state_version,
+              progress,
               created_at,
               updated_at
             )
             VALUES (
               ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL,
-              NULL, NULL, 0, 0, NULL, NULL, NULL, 0, ?, ?
+              NULL, NULL, 0, 0, NULL, NULL, NULL, 0, 0, ?, ?
             )
             """,
             (job_id, project_id, status, stage, now, now),
@@ -349,6 +392,7 @@ class SQLiteJobRepository(JobRepository):
               control_acknowledged_at,
               control_request_id,
               state_version,
+              progress,
               created_at,
               updated_at
             FROM jobs
@@ -382,6 +426,7 @@ class SQLiteJobRepository(JobRepository):
               control_acknowledged_at,
               control_request_id,
               state_version,
+              progress,
               created_at,
               updated_at
             FROM jobs
@@ -400,35 +445,83 @@ class SQLiteJobRepository(JobRepository):
         stage: str | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
-    ) -> None:
+        expected_worker_id: str | None = None,
+        expected_attempt: int | None = None,
+    ) -> bool:
         current = self.get_job(job_id)
         if current is None:
-            return
+            return False
 
-        self._conn.execute(
-            """
+        where = "job_id = ?"
+        params: list[object] = [
+            status,
+            stage if stage is not None else current.stage,
+            error_code,
+            error_message,
+            100.0 if status == "succeeded" else current.progress,
+            _utc_now_iso(),
+            job_id,
+        ]
+        if expected_worker_id is not None:
+            where += " AND worker_id = ?"
+            params.append(expected_worker_id)
+        if expected_attempt is not None:
+            where += " AND attempt = ?"
+            params.append(expected_attempt)
+
+        cursor = self._conn.execute(
+            f"""
             UPDATE jobs
             SET
               status = ?,
               stage = ?,
               error_code = ?,
               error_message = ?,
+              progress = ?,
               state_version = state_version + 1,
               updated_at = ?
-            WHERE job_id = ?
+            WHERE {where}
             """,
-            (
-                status,
-                stage if stage is not None else current.stage,
-                error_code,
-                error_message,
-                _utc_now_iso(),
-                job_id,
-            ),
+            tuple(params),
         )
         self._conn.commit()
+        return cursor.rowcount == 1
+
+    def update_job_progress(
+        self,
+        job_id: str,
+        *,
+        progress: float,
+        stage: str | None,
+        expected_worker_id: str | None = None,
+        expected_attempt: int | None = None,
+    ) -> bool:
+        where = "job_id = ?"
+        params: list[object] = [
+            max(0.0, min(100.0, progress)),
+            stage,
+            _utc_now_iso(),
+            job_id,
+        ]
+        if expected_worker_id is not None:
+            where += " AND worker_id = ?"
+            params.append(expected_worker_id)
+        if expected_attempt is not None:
+            where += " AND attempt = ?"
+            params.append(expected_attempt)
+        cursor = self._conn.execute(
+            f"""
+            UPDATE jobs
+            SET progress = ?, stage = ?, state_version = state_version + 1, updated_at = ?
+            WHERE {where}
+            """,
+            tuple(params),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
 
     def delete_job(self, job_id: str) -> None:
+        self._conn.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
         self._conn.execute(
             """
             DELETE FROM jobs
@@ -471,7 +564,13 @@ class SQLiteJobRepository(JobRepository):
                 SELECT job_id, project_id
                 FROM jobs
                 WHERE
-                  status = 'queued'
+                  (
+                    status = 'queued'
+                    AND NOT (
+                      control_command = 'cancel'
+                      AND control_version > control_ack_version
+                    )
+                  )
                   OR (
                     status = 'paused'
                     AND control_command = 'resume'
@@ -510,7 +609,13 @@ class SQLiteJobRepository(JobRepository):
                   updated_at = ?
                 WHERE job_id = ?
                   AND (
-                    status = 'queued'
+                    (
+                      status = 'queued'
+                      AND NOT (
+                        control_command = 'cancel'
+                        AND control_version > control_ack_version
+                      )
+                    )
                     OR (
                       status = 'paused'
                       AND control_command = 'resume'
@@ -537,28 +642,40 @@ class SQLiteJobRepository(JobRepository):
             raise
         return self.get_job(job_id)
 
-    def heartbeat_job(self, job_id: str, worker_id: str) -> bool:
+    def heartbeat_job(
+        self, job_id: str, worker_id: str, *, expected_attempt: int | None = None
+    ) -> bool:
+        where = "job_id = ? AND worker_id = ? AND status = 'running'"
+        params: list[object] = [_utc_now_iso(), job_id, worker_id]
+        if expected_attempt is not None:
+            where += " AND attempt = ?"
+            params.append(expected_attempt)
         cursor = self._conn.execute(
-            """
+            f"""
             UPDATE jobs
             SET heartbeat_at = ?
-            WHERE job_id = ?
-              AND worker_id = ?
-              AND status = 'running'
+            WHERE {where}
             """,
-            (_utc_now_iso(), job_id, worker_id),
+            tuple(params),
         )
         self._conn.commit()
         return cursor.rowcount == 1
 
-    def release_job_claim(self, job_id: str, worker_id: str) -> bool:
+    def release_job_claim(
+        self, job_id: str, worker_id: str, *, expected_attempt: int | None = None
+    ) -> bool:
+        where = "job_id = ? AND worker_id = ?"
+        params: list[object] = [_utc_now_iso(), job_id, worker_id]
+        if expected_attempt is not None:
+            where += " AND attempt = ?"
+            params.append(expected_attempt)
         cursor = self._conn.execute(
-            """
+            f"""
             UPDATE jobs
             SET worker_id = NULL, claimed_at = NULL, heartbeat_at = NULL, updated_at = ?
-            WHERE job_id = ? AND worker_id = ?
+            WHERE {where}
             """,
-            (_utc_now_iso(), job_id, worker_id),
+            tuple(params),
         )
         self._conn.commit()
         return cursor.rowcount == 1
@@ -599,35 +716,57 @@ class SQLiteJobRepository(JobRepository):
                     (now, *job_ids),
                 )
                 project_ids = sorted({str(row["project_id"]) for row in rows})
-                project_placeholders = ",".join("?" for _ in project_ids)
-                self._conn.execute(
-                    f"""
-                    UPDATE projects
-                    SET status = 'interrupted', updated_at = ?
-                    WHERE project_id IN ({project_placeholders})
-                    """,
-                    (now, *project_ids),
-                )
+                for project_id in project_ids:
+                    self._refresh_project_status_in_transaction(project_id, now)
             self._conn.commit()
             return job_ids
         except Exception:
             self._conn.rollback()
             raise
 
-    def recover_interrupted_job(self, job_id: str) -> bool:
+    def recover_interrupted_job(
+        self,
+        job_id: str,
+        *,
+        request_id: str | None = None,
+        expected_state_version: int | None = None,
+    ) -> bool:
         """Explicitly return an interrupted job to the queue."""
 
         now = _utc_now_iso()
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             row = self._conn.execute(
-                "SELECT project_id FROM jobs WHERE job_id = ? AND status = 'interrupted'",
+                """
+                SELECT project_id, state_version, control_version, control_request_id,
+                       control_command
+                FROM jobs
+                WHERE job_id = ?
+                """,
                 (job_id,),
             ).fetchone()
             if row is None:
                 self._conn.commit()
                 return False
-            self._conn.execute(
+            if request_id is not None and row["control_request_id"] == request_id:
+                accepted = bool(row["control_command"] == "resume")
+                self._conn.commit()
+                return accepted
+            status_row = self._conn.execute(
+                "SELECT status FROM jobs WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+            if status_row is None or str(status_row["status"]) != "interrupted":
+                self._conn.commit()
+                return False
+            if (
+                expected_state_version is not None
+                and int(row["state_version"]) != expected_state_version
+            ):
+                self._conn.commit()
+                return False
+            version = int(row["control_version"]) + 1
+            cursor = self._conn.execute(
                 """
                 UPDATE jobs
                 SET
@@ -635,21 +774,23 @@ class SQLiteJobRepository(JobRepository):
                   worker_id = NULL,
                   claimed_at = NULL,
                   heartbeat_at = NULL,
-                  control_command = NULL,
-                  control_ack_version = control_version,
-                  control_acknowledged_at = ?,
+                  control_command = 'resume',
+                  control_version = ?,
+                  control_requested_at = ?,
+                  control_acknowledged_at = NULL,
+                  control_request_id = ?,
                   error_code = NULL,
                   error_message = NULL,
                   state_version = state_version + 1,
                   updated_at = ?
-                WHERE job_id = ? AND status = 'interrupted'
+                WHERE job_id = ? AND status = 'interrupted' AND state_version = ?
                 """,
-                (now, now, job_id),
+                (version, now, request_id, now, job_id, int(row["state_version"])),
             )
-            self._conn.execute(
-                "UPDATE projects SET status = 'queued', updated_at = ? WHERE project_id = ?",
-                (now, str(row["project_id"])),
-            )
+            if cursor.rowcount != 1:
+                self._conn.rollback()
+                return False
+            self._refresh_project_status_in_transaction(str(row["project_id"]), now)
             self._conn.commit()
             return True
         except Exception:
@@ -657,32 +798,84 @@ class SQLiteJobRepository(JobRepository):
             raise
 
     def request_job_control(
-        self, job_id: str, command: str, *, request_id: str | None = None
-    ) -> int:
+        self,
+        job_id: str,
+        command: str,
+        *,
+        request_id: str | None = None,
+        expected_status: str | None = None,
+        expected_state_version: int | None = None,
+        finalize_cancel_if_unowned: bool = False,
+    ) -> int | None:
         now = _utc_now_iso()
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             row = self._conn.execute(
-                "SELECT control_version FROM jobs WHERE job_id = ?", (job_id,)
+                """
+                SELECT project_id, status, worker_id, state_version, control_command,
+                       control_version, control_request_id
+                FROM jobs
+                WHERE job_id = ?
+                """,
+                (job_id,),
             ).fetchone()
             if row is None:
                 self._conn.rollback()
                 raise KeyError(f"job not found: {job_id}")
+            if request_id is not None and row["control_request_id"] == request_id:
+                if str(row["control_command"]) != command:
+                    self._conn.rollback()
+                    raise ValueError("request_id was already used for another control command")
+                version = int(row["control_version"])
+                self._conn.commit()
+                return version
+            if expected_status is not None and str(row["status"]) != expected_status:
+                self._conn.commit()
+                return None
+            if (
+                expected_state_version is not None
+                and int(row["state_version"]) != expected_state_version
+            ):
+                self._conn.commit()
+                return None
             version = int(row["control_version"]) + 1
+            finalize_cancel = (
+                finalize_cancel_if_unowned
+                and command == "cancel"
+                and row["worker_id"] is None
+                and str(row["status"]) in {"queued", "running", "paused", "interrupted"}
+            )
             self._conn.execute(
                 """
                 UPDATE jobs
                 SET
                   control_command = ?,
                   control_version = ?,
+                  control_ack_version = CASE WHEN ? THEN ? ELSE control_ack_version END,
                   control_requested_at = ?,
-                  control_acknowledged_at = NULL,
+                  control_acknowledged_at = CASE WHEN ? THEN ? ELSE NULL END,
                   control_request_id = ?,
+                  status = CASE WHEN ? THEN 'cancelled' ELSE status END,
+                  state_version = state_version + 1,
                   updated_at = ?
                 WHERE job_id = ?
                 """,
-                (command, version, now, request_id, now, job_id),
+                (
+                    command,
+                    version,
+                    finalize_cancel,
+                    version,
+                    now,
+                    finalize_cancel,
+                    now,
+                    request_id,
+                    finalize_cancel,
+                    now,
+                    job_id,
+                ),
             )
+            if finalize_cancel:
+                self._refresh_project_status_in_transaction(str(row["project_id"]), now)
             self._conn.commit()
             return version
         except Exception:
@@ -1164,6 +1357,7 @@ class SQLiteJobRepository(JobRepository):
             control_acknowledged_at=row["control_acknowledged_at"],
             control_request_id=row["control_request_id"],
             state_version=int(row["state_version"]),
+            progress=float(row["progress"]),
         )
 
     def _to_user_cookie_record(self, row: sqlite3.Row) -> UserCookieRecord:

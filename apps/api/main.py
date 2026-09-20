@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from infra import (
     EventBus,
     FileSystemWorkspaceStore,
-    RedisEventBus,
+    InMemoryEventBus,
     SQLiteEventBus,
     SQLiteJobRepository,
 )
@@ -110,7 +110,9 @@ def _validation_details(exc: ValidationError | RequestValidationError) -> list[d
     return details
 
 
-def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool | None) -> _Runtime:
+def _build_runtime(
+    *, data_dir_override: Path | None, in_memory_event_bus_override: bool | None
+) -> _Runtime:
     data_dir = data_dir_override or Path(os.getenv("VIDEOSIEVE_API_DATA_DIR", "runtime/api"))
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,8 +120,8 @@ def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool |
     repository.ensure_schema()
     workspace = FileSystemWorkspaceStore(data_dir / "workspaces")
     event_bus: EventBus
-    if stub_mode_override is True:
-        event_bus = RedisEventBus(stub_mode=True)
+    if in_memory_event_bus_override is True:
+        event_bus = InMemoryEventBus()
     else:
         event_bus = SQLiteEventBus(data_dir / "infra.db")
     control_plane = ApiControlPlane(
@@ -137,12 +139,12 @@ def _build_runtime(*, data_dir_override: Path | None, stub_mode_override: bool |
     )
 
 
-def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None = None) -> FastAPI:
+def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         runtime = _build_runtime(
             data_dir_override=data_dir,
-            stub_mode_override=event_bus_stub_mode,
+            in_memory_event_bus_override=event_bus_in_memory,
         )
         app.state.runtime = runtime
         try:
@@ -336,30 +338,23 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
             _ = _control_plane(request).get_me(token)
             actor = "user"
 
-        # Save uploaded file to temp location
-        import shutil
-        import tempfile
-        import uuid
-
-        temp_id = uuid.uuid4().hex[:12]
-        temp_dir = Path(tempfile.gettempdir()) / "videosieve_uploads" / temp_id
-        temp_dir.mkdir(parents=True, exist_ok=True)
-
-        video_filename = video.filename or f"upload_{temp_id}.mp4"
-        video_path = temp_dir / video_filename
-
-        with video_path.open("wb") as f:
-            shutil.copyfileobj(video.file, f)
-
-        # Create job with local file reference
+        control_plane = _control_plane(request)
+        video_path = control_plane.stage_local_upload(
+            project_id,
+            filename=video.filename,
+            source=video.file,
+        )
         payload = {
             "project_id": project_id,
             "summary_enabled": summary_enabled.lower() == "true",
             "local_video_path": str(video_path),
             "local_video_context": context.strip() if context.strip() else None,
         }
-
-        return create_job(_control_plane(request), payload, actor=actor)
+        try:
+            return create_job(control_plane, payload, actor=actor)
+        except Exception:
+            control_plane.discard_local_upload(project_id, video_path)
+            raise
 
     @app.get("/jobs/{job_id}")
     async def get_jobs(job_id: str, request: Request) -> dict[str, str | None]:
@@ -486,38 +481,58 @@ def create_app(*, data_dir: Path | None = None, event_bus_stub_mode: bool | None
         await websocket.accept()
         runtime: _Runtime = websocket.app.state.runtime
         socket_adapter = _SocketQueueAdapter()
+        sender_task: asyncio.Task[None] | None = None
 
         async def _sender() -> None:
             while True:
                 payload = await socket_adapter.queue.get()
                 await websocket.send_json(payload)
 
-        sender_task = asyncio.create_task(_sender())
-
         try:
             raw_after_cursor = websocket.query_params.get("after_cursor")
-            after_cursor = int(raw_after_cursor) if raw_after_cursor is not None else None
+            try:
+                after_cursor = int(raw_after_cursor) if raw_after_cursor is not None else None
+            except ValueError as exc:
+                raise ValueError("after_cursor must be a non-negative integer") from exc
+            if after_cursor is not None and after_cursor < 0:
+                raise ValueError("after_cursor must be a non-negative integer")
+
             runtime.ws_gateway.connect(
                 job_id=job_id,
                 socket=socket_adapter,
                 after_cursor=after_cursor,
             )
-        except KeyError:
-            sender_task.cancel()
-            await websocket.close(code=4404, reason="job not found")
-            return
-
-        try:
+            # Replay and snapshot messages are queued during synchronous setup.
+            # Start the sender only after the gateway has committed the connection.
+            sender_task = asyncio.create_task(_sender())
             while True:
                 message = await websocket.receive_json()
                 runtime.ws_gateway.handle_command(job_id=job_id, payload=message)
-        except (WebSocketDisconnect, RuntimeError):
+        except KeyError:
+            with contextlib.suppress(RuntimeError):
+                await websocket.close(code=4404, reason="job not found")
+        except (ValidationError, ValueError):
+            with contextlib.suppress(RuntimeError):
+                await websocket.close(code=4400, reason="invalid websocket request")
+        except WebSocketDisconnect:
             pass
+        except RuntimeError:
+            with contextlib.suppress(RuntimeError):
+                await websocket.close(code=1011, reason="websocket runtime failure")
+        except Exception:
+            with contextlib.suppress(RuntimeError):
+                await websocket.close(code=1011, reason="websocket setup failure")
+            raise
         finally:
             runtime.ws_gateway.disconnect(job_id=job_id, socket=socket_adapter)
-            sender_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await sender_task
+            if sender_task is not None:
+                sender_task.cancel()
+                with contextlib.suppress(
+                    asyncio.CancelledError,
+                    WebSocketDisconnect,
+                    RuntimeError,
+                ):
+                    await sender_task
 
     return app
 

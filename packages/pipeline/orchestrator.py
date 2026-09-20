@@ -24,6 +24,7 @@ from keyframes import (
     KeyframeAlgorithmService,
     KeyframeBaselineService,
     KeyframeRecord,
+    KeyframeStageError,
     build_images_zip,
     write_images_for_records,
 )
@@ -57,12 +58,14 @@ class PipelineOrchestrator:
         event_bus: EventBus,
         asr_provider: ASRProvider,
         worker_id: str | None = None,
+        worker_attempt: int | None = None,
     ) -> None:
         self._repository = repository
         self._workspace = workspace
         self._event_bus = event_bus
         self._asr_provider = asr_provider
         self._worker_id = worker_id
+        self._worker_attempt = worker_attempt
         self._checkpoint_store = CheckpointStore(workspace)
         self._pending_pause: set[str] = set()
         self._pending_cancel: set[str] = set()
@@ -137,6 +140,13 @@ class PipelineOrchestrator:
                     checkpoint.stage_statuses[stage.value] = "failed"
                     self._checkpoint_store.save(checkpoint)
                     error_code = str(getattr(exc, "code", "PIPELINE_STAGE_FAILED"))
+                    error_hint = str(
+                        getattr(
+                            exc,
+                            "hint",
+                            "检查该阶段输入、配置与依赖后重试。",
+                        )
+                    )
                     retryable = bool(getattr(exc, "retryable", False))
                     self._set_job_status(
                         project_id,
@@ -152,7 +162,7 @@ class PipelineOrchestrator:
                         level="error",
                         message=(
                             f"阶段 {stage.value} | 结果: 失败 | 原因: {exc} | "
-                            "建议: 检查该阶段输入与依赖后重试"
+                            f"建议: {error_hint}"
                         ),
                     )
                     publish_event(
@@ -164,6 +174,7 @@ class PipelineOrchestrator:
                             "stage": stage.value,
                             "code": error_code,
                             "message": str(exc),
+                            "hint": error_hint,
                             "retryable": retryable,
                         },
                     )
@@ -287,7 +298,9 @@ class PipelineOrchestrator:
         if job is None:
             raise ValueError(f"job not found: {job_id}")
         if self._worker_id is not None and not self._repository.heartbeat_job(
-            job_id, self._worker_id
+            job_id,
+            self._worker_id,
+            expected_attempt=self._worker_attempt,
         ):
             raise _SafetySignal(JobStatus.INTERRUPTED.value)
         current = _to_job_status(job.status)
@@ -498,18 +511,21 @@ class PipelineOrchestrator:
             )
             quality_video = self._workspace.source_video_file(project_id, job_id)
             if not quality_video.exists():
-                KeyframeBaselineService(self._workspace).run(
-                    project_id,
-                    job_id,
-                    duration_seconds=duration_seconds,
-                    interval_seconds=5.0,
-                    reason="sample",
+                raise KeyframeStageError(
+                    "KEYFRAME_SOURCE_MISSING",
+                    f"quality source video is missing: {quality_video}",
+                    hint="Verify that ingest published media/source.mp4 before retrying.",
                 )
-                return
 
             analysis_path = analysis_video if analysis_video.exists() else quality_video
             records: list[KeyframeRecord]
             cv2_available = _is_cv2_available()
+            if not cv2_available:
+                raise KeyframeStageError(
+                    "KEYFRAME_DECODER_UNAVAILABLE",
+                    "opencv-python is required for keyframe selection and image extraction",
+                    hint="Install the pinned video dependencies and retry this stage.",
+                )
             try:
                 KeyframeAlgorithmService(self._workspace).run_from_dual_sources(
                     project_id,
@@ -537,48 +553,41 @@ class PipelineOrchestrator:
                     reason="sample",
                 )
 
-            if not cv2_available:
-                self._publish_log(
-                    project_id,
-                    job_id,
-                    level="warning",
-                    message=(
-                        f"阶段 {stage.value} | 动作: 跳过关键帧图片提取 | "
-                        "原因: 未检测到 opencv-python | "
-                        "建议: 安装 opencv-python 后重试"
-                    ),
+            if not records:
+                raise KeyframeStageError(
+                    "KEYFRAME_SELECTION_EMPTY",
+                    "keyframe selection returned no records",
+                    hint="Check video duration and decoder compatibility before retrying.",
                 )
-                return
 
-            if records:
-                existing_images = sum(1 for record in records if Path(record.path).exists())
-                if existing_images == 0:
-                    try:
-                        write_images_for_records(
-                            quality_video,
-                            timestamps_to_paths=[
-                                (record.ts, Path(record.path)) for record in records
-                            ],
-                        )
-                    except Exception as exc:
-                        self._publish_log(
-                            project_id,
-                            job_id,
-                            level="warning",
-                            message=(
-                                f"阶段 {stage.value} | 动作: 关键帧图片提取重试失败 | "
-                                f"原因: {exc} | "
-                                "建议: 检查 ffmpeg/cv2 与视频编码兼容性"
-                            ),
-                        )
-                    existing_images = sum(1 for record in records if Path(record.path).exists())
-                if existing_images == 0:
-                    message = (
-                        f"阶段 {stage.value} | 结果: 失败 | 原因: 关键帧图片提取结果为空 | "
-                        "建议: 检查视频解码与 ffmpeg/cv2 运行环境"
+            missing_records = [record for record in records if not Path(record.path).exists()]
+            if missing_records:
+                try:
+                    write_images_for_records(
+                        quality_video,
+                        timestamps_to_paths=[
+                            (record.ts, Path(record.path)) for record in missing_records
+                        ],
                     )
-                    raise RuntimeError(message)
-                build_images_zip(self._workspace, project_id, job_id)
+                except Exception as exc:
+                    self._publish_log(
+                        project_id,
+                        job_id,
+                        level="warning",
+                        message=(
+                            f"阶段 {stage.value} | 动作: 关键帧图片提取失败 | "
+                            f"原因: {exc} | 建议: 检查 ffmpeg/cv2 与视频编码兼容性"
+                        ),
+                    )
+            missing_paths = [record.path for record in records if not Path(record.path).exists()]
+            if missing_paths:
+                raise KeyframeStageError(
+                    "KEYFRAME_IMAGES_INCOMPLETE",
+                    f"{len(missing_paths)} selected keyframe images were not published",
+                    hint="Check OpenCV/FFmpeg decoding and the source video before retrying.",
+                    retryable=True,
+                )
+            build_images_zip(self._workspace, project_id, job_id)
             return
 
         if stage is StageName.FRAME_SUMMARY:
@@ -680,6 +689,14 @@ class PipelineOrchestrator:
     def _publish_progress(self, project_id: str, job_id: str, stage: StageName) -> None:
         stage_index = STAGE_SEQUENCE.index(stage)
         pct = sum(STAGE_WEIGHTS[item] for item in STAGE_SEQUENCE[: stage_index + 1])
+        if not self._repository.update_job_progress(
+            job_id,
+            progress=min(100.0, pct),
+            stage=stage.value,
+            expected_worker_id=self._worker_id,
+            expected_attempt=self._worker_attempt,
+        ):
+            raise _SafetySignal(JobStatus.INTERRUPTED.value)
         publish_event(
             self._event_bus,
             project_id=project_id,
@@ -749,14 +766,18 @@ class PipelineOrchestrator:
         current = _to_job_status(self._job_status(job_id))
         if current is not target:
             apply_job_transition(current, target)
-        self._repository.update_job_status(
+        updated = self._repository.update_job_status(
             job_id,
             status=target.value,
             stage=stage.value if stage is not None else None,
             error_code=error_code,
             error_message=error_message,
+            expected_worker_id=self._worker_id,
+            expected_attempt=self._worker_attempt,
         )
-        self._repository.update_project_status(project_id, target.value)
+        if not updated:
+            raise _SafetySignal(JobStatus.INTERRUPTED.value)
+        self._repository.refresh_project_status(project_id)
         publish_event(
             self._event_bus,
             project_id=project_id,

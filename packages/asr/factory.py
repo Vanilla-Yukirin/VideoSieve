@@ -24,5 +24,5 @@ def create_asr_provider_from_env() -> ASRProvider:
     raise ValueError(
         "unsupported VIDEOSIEVE_ASR_PROVIDER: "
         f"{provider or '<empty>'}; configure 'funasr_local'. "
-        "BaselineASRProvider is a test double and cannot be selected for production jobs."
+        "mock and baseline providers are not available to production jobs."
     )

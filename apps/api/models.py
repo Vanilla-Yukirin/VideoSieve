@@ -215,7 +215,7 @@ class ArtifactItem(ApiModel):
 
 
 class JobSnapshot(ApiModel):
-    """HTTP snapshot as source-of-truth for UI state convergence."""
+    """Authoritative job snapshot for HTTP compatibility and WebSocket convergence."""
 
     project_id: str
     job_id: str
@@ -227,6 +227,8 @@ class JobSnapshot(ApiModel):
     control_request_id: str | None = None
     attempt: int = Field(default=0, ge=0)
     progress: float = Field(ge=0.0, le=100.0)
+    error_code: str | None = None
+    error_message: str | None = None
     latest_logs: list[str] = Field(default_factory=list)
     artifacts: list[ArtifactItem] = Field(default_factory=list)
 

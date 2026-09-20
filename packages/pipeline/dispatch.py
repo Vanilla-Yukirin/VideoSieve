@@ -7,8 +7,6 @@ from typing import Any
 
 from infra import WorkspaceStore
 
-PIPELINE_DISPATCH_FAILED = "PIPELINE_DISPATCH_FAILED"
-
 
 def load_job_config_snapshot(
     workspace: WorkspaceStore,

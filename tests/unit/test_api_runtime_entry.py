@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import zipfile
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from infra import RedisEventBus, SQLiteEventBus, SQLiteJobRepository
+from infra import InMemoryEventBus, SQLiteEventBus, SQLiteJobRepository
 
 
 @pytest.fixture(autouse=True)
@@ -20,8 +22,37 @@ def _make_client(tmp_path: Path) -> Any:
     from apps.api.main import create_app
     from fastapi.testclient import TestClient
 
-    app = create_app(data_dir=tmp_path / "runtime", event_bus_stub_mode=True)
+    app = create_app(data_dir=tmp_path / "runtime", event_bus_in_memory=True)
     return TestClient(app)
+
+
+def _publish_ready_artifact(
+    artifact_file: Path,
+    *,
+    project_id: str,
+    job_id: str,
+    content: str = "ok",
+) -> None:
+    artifact_file.write_text(content, encoding="utf-8")
+    data = artifact_file.read_bytes()
+    (artifact_file.parent / "deliverables.ready.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "ready": True,
+                "project_id": project_id,
+                "job_id": job_id,
+                "artifacts": [
+                    {
+                        "path": "outputs/clean_transcript.md",
+                        "size_bytes": len(data),
+                        "sha256": sha256(data).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
@@ -45,6 +76,40 @@ def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
         fetched_job = client.get(f"/jobs/{job_id}")
         assert fetched_job.status_code == 200
         assert fetched_job.json()["project_id"] == project_id
+
+
+def test_runtime_upload_is_staged_inside_project_workspace_with_safe_name(
+    tmp_path: Path,
+) -> None:
+    with _make_client(tmp_path) as client:
+        project_id = client.post("/projects", json={"title": "demo"}).json()["project_id"]
+        response = client.post(
+            f"/projects/{project_id}/jobs/upload",
+            files={"video": ("../../unsafe name.mp4", b"video-bytes", "video/mp4")},
+            data={"context": "demo", "summary_enabled": "false"},
+        )
+        assert response.status_code == 200
+        job_id = response.json()["job_id"]
+
+        config_path = (
+            tmp_path
+            / "runtime"
+            / "workspaces"
+            / project_id
+            / "jobs"
+            / job_id
+            / "meta"
+            / "config.snapshot.json"
+        )
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        staged = Path(config["local_video_path"])
+        upload_root = (
+            tmp_path / "runtime" / "workspaces" / project_id / "uploads"
+        ).resolve()
+        assert staged.resolve().is_relative_to(upload_root)
+        assert staged.name.startswith("upload_")
+        assert staged.suffix == ".mp4"
+        assert staged.read_bytes() == b"video-bytes"
 
 
 def test_runtime_source_video_route_returns_file_when_present(tmp_path: Path) -> None:
@@ -114,7 +179,11 @@ def test_runtime_artifact_download_route_returns_file_when_present(tmp_path: Pat
         )
         artifact_dir.mkdir(parents=True, exist_ok=True)
         artifact_file = artifact_dir / "clean_transcript.md"
-        artifact_file.write_text("ok", encoding="utf-8")
+        _publish_ready_artifact(
+            artifact_file,
+            project_id=project_id,
+            job_id=job_id,
+        )
 
         response = client.get(f"/jobs/{job_id}/artifacts/download/outputs/clean_transcript.md")
         assert response.status_code == 200
@@ -147,7 +216,7 @@ def test_runtime_artifact_download_route_supports_relative_data_dir(
     from fastapi.testclient import TestClient
 
     monkeypatch.chdir(tmp_path)
-    with TestClient(create_app(data_dir=Path("runtime"), event_bus_stub_mode=True)) as client:
+    with TestClient(create_app(data_dir=Path("runtime"), event_bus_in_memory=True)) as client:
         created_project = client.post("/projects", json={"title": "demo"})
         project_id = created_project.json()["project_id"]
         created_job = client.post("/jobs", json={"project_id": project_id})
@@ -158,7 +227,11 @@ def test_runtime_artifact_download_route_supports_relative_data_dir(
         )
         artifact_dir.mkdir(parents=True, exist_ok=True)
         artifact_file = artifact_dir / "clean_transcript.md"
-        artifact_file.write_text("ok", encoding="utf-8")
+        _publish_ready_artifact(
+            artifact_file,
+            project_id=project_id,
+            job_id=job_id,
+        )
 
         response = client.get(f"/jobs/{job_id}/artifacts/download/outputs/clean_transcript.md")
         assert response.status_code == 200
@@ -251,6 +324,42 @@ def test_runtime_ws_connect_immediately_receives_snapshot(tmp_path: Path) -> Non
             assert first["payload"]["job_id"] == job_id
 
 
+@pytest.mark.parametrize("raw_cursor", ["-1", "not-an-integer", "999999"])
+def test_runtime_ws_rejects_invalid_cursor_and_cleans_connection(
+    tmp_path: Path,
+    raw_cursor: str,
+) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
+    with _make_client(tmp_path) as client:
+        project_id = client.post("/projects", json={"title": "demo"}).json()["project_id"]
+        job_id = client.post("/jobs", json={"project_id": project_id}).json()["job_id"]
+
+        with client.websocket_connect(f"/ws/jobs/{job_id}?after_cursor={raw_cursor}") as websocket:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                websocket.receive_json()
+
+        assert exc_info.value.code == 4400
+        runtime = cast(Any, client.app).state.runtime
+        assert job_id not in runtime.ws_gateway._connections
+        assert job_id not in runtime.ws_gateway._subscriptions
+
+
+def test_runtime_ws_missing_job_closes_without_leaking_subscription(tmp_path: Path) -> None:
+    from starlette.websockets import WebSocketDisconnect
+
+    with _make_client(tmp_path) as client:
+        with client.websocket_connect("/ws/jobs/j_missing") as websocket:
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                websocket.receive_json()
+
+        assert exc_info.value.code == 4404
+        runtime = cast(Any, client.app).state.runtime
+        assert "j_missing" not in runtime.ws_gateway._connections
+        assert "j_missing" not in runtime.ws_gateway._subscriptions
+        assert "j_missing" not in runtime.control_plane._subscriptions
+
+
 def test_runtime_ws_control_ack_uses_versioned_envelope_and_request_id(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         project_id = client.post("/projects", json={"title": "demo"}).json()["project_id"]
@@ -284,7 +393,7 @@ def test_runtime_startup_fails_when_app_secret_missing(
     from apps.api.service import ApiConfigError
     from fastapi.testclient import TestClient
 
-    app = create_app(data_dir=tmp_path / "runtime", event_bus_stub_mode=True)
+    app = create_app(data_dir=tmp_path / "runtime", event_bus_in_memory=True)
     with pytest.raises(ApiConfigError, match="APP_SECRET_KEY is required"):
         with TestClient(app):
             pass
@@ -466,7 +575,7 @@ def test_runtime_public_access_flags_matches_private_settings(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize("override", [None, False, True])
-def test_runtime_event_bus_stub_is_explicit_test_only_override(
+def test_runtime_in_memory_event_bus_is_explicit_test_only_override(
     tmp_path: Path,
     override: bool | None,
 ) -> None:
@@ -474,12 +583,11 @@ def test_runtime_event_bus_stub_is_explicit_test_only_override(
     from apps.api.main import create_app
     from fastapi.testclient import TestClient
 
-    app = create_app(data_dir=tmp_path / "runtime", event_bus_stub_mode=override)
+    app = create_app(data_dir=tmp_path / "runtime", event_bus_in_memory=override)
     with TestClient(app) as client:
         _ = client.get("/healthz")
         runtime = cast(Any, client.app).state.runtime
         if override is True:
-            assert isinstance(runtime.event_bus, RedisEventBus)
-            assert runtime.event_bus._stub_mode is True
+            assert isinstance(runtime.event_bus, InMemoryEventBus)
         else:
             assert isinstance(runtime.event_bus, SQLiteEventBus)

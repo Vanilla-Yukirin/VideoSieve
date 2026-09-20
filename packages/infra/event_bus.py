@@ -1,8 +1,10 @@
-"""Event bus abstractions and minimal Redis-compatible stub implementation."""
+"""Persistent SQLite and process-local event bus implementations."""
 
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import threading
 from collections import defaultdict
 from collections.abc import Callable
@@ -11,6 +13,8 @@ from pathlib import Path
 from .interfaces import EventBus, EventHandler, EventSubscription
 from .models import InfraEvent
 from .sqlite_repository import SQLiteJobRepository
+
+logger = logging.getLogger(__name__)
 
 
 class _InMemorySubscription(EventSubscription):
@@ -25,23 +29,15 @@ class _InMemorySubscription(EventSubscription):
         self._on_unsubscribe()
 
 
-class RedisEventBus(EventBus):
-    """Redis-oriented event bus abstraction.
+class InMemoryEventBus(EventBus):
+    """Process-local event stream for focused tests and explicit embedding."""
 
-    Stub mode is enabled by default and uses in-memory fanout so tests and
-    local bootstrap work without a Redis runtime dependency.
-    """
-
-    def __init__(self, *, stub_mode: bool = True) -> None:
-        self._stub_mode = stub_mode
+    def __init__(self) -> None:
         self._handlers: dict[str, list[EventHandler]] = defaultdict(list)
         self._events: dict[str, list[InfraEvent]] = defaultdict(list)
         self._next_event_id = 1
 
     def publish(self, channel: str, event: InfraEvent) -> None:
-        if not self._stub_mode:
-            raise NotImplementedError("live Redis publish is not implemented yet")
-
         message = json.dumps(
             {
                 "event_type": event.event_type,
@@ -77,9 +73,6 @@ class RedisEventBus(EventBus):
         *,
         after_cursor: int | None = None,
     ) -> EventSubscription:
-        if not self._stub_mode:
-            raise NotImplementedError("live Redis subscribe is not implemented yet")
-
         self._handlers[channel].append(handler)
 
         def _remove() -> None:
@@ -89,9 +82,7 @@ class RedisEventBus(EventBus):
 
         return _InMemorySubscription(on_unsubscribe=_remove)
 
-    def list_after(
-        self, channel: str, *, after_cursor: int, limit: int = 1000
-    ) -> list[InfraEvent]:
+    def list_after(self, channel: str, *, after_cursor: int, limit: int = 1000) -> list[InfraEvent]:
         return [
             event
             for event in self._events[channel]
@@ -132,6 +123,8 @@ class _SQLiteSubscription(EventSubscription):
             name=f"sqlite-event-subscription-{channel}",
             daemon=True,
         )
+
+    def start(self) -> None:
         self._thread.start()
 
     def unsubscribe(self) -> None:
@@ -143,21 +136,55 @@ class _SQLiteSubscription(EventSubscription):
         self._on_unsubscribe(self)
 
     def _run(self) -> None:
-        repository = SQLiteJobRepository(self._db_path)
+        repository: SQLiteJobRepository | None = None
         try:
             while not self._stop.wait(self._poll_interval_seconds):
-                events = repository.list_job_events(
-                    self._channel,
-                    after_event_id=self._cursor,
-                    limit=1000,
-                )
+                try:
+                    if repository is None:
+                        repository = SQLiteJobRepository(self._db_path)
+                    events = repository.list_job_events(
+                        self._channel,
+                        after_event_id=self._cursor,
+                        limit=1000,
+                    )
+                except sqlite3.Error:
+                    logger.warning(
+                        "transient SQLite event subscription error; polling will retry",
+                        exc_info=True,
+                        extra={"channel": self._channel, "after_cursor": self._cursor},
+                    )
+                    if repository is not None:
+                        repository.close()
+                        repository = None
+                    continue
+                except Exception:
+                    logger.exception(
+                        "SQLite event subscription stopped after an unexpected read error",
+                        extra={"channel": self._channel, "after_cursor": self._cursor},
+                    )
+                    return
+
                 for event in events:
                     if self._stop.is_set():
                         return
-                    self._handler(event)
-                    self._cursor = int(event.event_id or self._cursor)
+                    event_cursor = int(event.event_id or self._cursor)
+                    try:
+                        self._handler(event)
+                    except Exception:
+                        # One broken consumer must not silently kill the polling
+                        # thread or block all later events behind a poison event.
+                        logger.exception(
+                            "SQLite event subscription handler failed; event skipped",
+                            extra={
+                                "channel": self._channel,
+                                "event_id": event.event_id,
+                            },
+                        )
+                    finally:
+                        self._cursor = event_cursor
         finally:
-            repository.close()
+            if repository is not None:
+                repository.close()
 
 
 class SQLiteEventBus(EventBus):
@@ -200,11 +227,14 @@ class SQLiteEventBus(EventBus):
         )
         with self._lock:
             self._subscriptions.add(subscription)
+        try:
+            subscription.start()
+        except Exception:
+            self._remove_subscription(subscription)
+            raise
         return subscription
 
-    def list_after(
-        self, channel: str, *, after_cursor: int, limit: int = 1000
-    ) -> list[InfraEvent]:
+    def list_after(self, channel: str, *, after_cursor: int, limit: int = 1000) -> list[InfraEvent]:
         repository = SQLiteJobRepository(self._db_path)
         try:
             return repository.list_job_events(

@@ -1,5 +1,5 @@
 """Worker runtime adapters."""
 
-from .celery_app import WorkerRuntime
+from .runtime import WorkerRuntime
 
 __all__ = ["WorkerRuntime"]

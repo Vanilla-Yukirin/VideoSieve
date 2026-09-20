@@ -78,8 +78,9 @@ HTTP 保留给认证、设置、项目/任务 CRUD、上传、播放/下载和�
 ## Results Preview
 
 - **[已实现]** 原始转录页签读取 transcript / keyframe JSONL，并按时间交错展示；
-- **[已实现]** 运行中画面摘要使用 HTTP byte range 读取新增内容；若服务端不支持 range，
-  客户端安全回退到全量读取；单行损坏不会让整个 JSONL 进入错误态；
+- **[已实现]** 当前 frame-summary 服务在整批完成后原子发布 JSONL，因此 UI 会在该阶段
+  完成后一次看到整批描述；客户端读取器支持 HTTP byte range，可兼容未来的追加写入方，
+  服务端不支持 range 时安全回退到全量读取，单行损坏也不会让整个 JSONL 进入错误态；
 - **[已实现]** 润色稿页签读取已发布的 `outputs/illustrated_notes.md`，严格解析
   `[[frame:...]]` 引用并展示对应 workspace 图片；不把 Markdown 当 HTML 注入页面；
 - **[已实现]** 摘要页签读取带 provider/model 信息的 `outputs/summary.json`；未生成时

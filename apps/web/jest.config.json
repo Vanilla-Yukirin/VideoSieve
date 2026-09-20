@@ -2,6 +2,9 @@
   "preset": "ts-jest",
   "testEnvironment": "node",
   "moduleDirectories": ["node_modules", "<rootDir>/node_modules"],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/$1"
+  },
   "roots": [
     "<rootDir>",
     "<rootDir>/../../tests/unit"

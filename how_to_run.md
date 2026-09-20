@@ -8,6 +8,7 @@
 
 - 前端通过 `apps/web/next.config.js` 的加载逻辑读取根目录 `.env.local`
 - 后端（Uvicorn）通过 `--env-file .env.local` 读取同一份配置
+- worker 通过自身的 `--env-file` 参数读取同一份配置（默认也是 `.env.local`）
 
 ## 1. 准备环境变量文件
 
@@ -17,7 +18,8 @@
 copy .env.example .env.local
 ```
 
-然后按需编辑 `.env.local`。
+然后编辑 `.env.local`。模板中的 `APP_SECRET_KEY` 示例值会被后端拒绝，必须换成随机、
+不可公开的值。
 
 最小必填项：
 
@@ -27,7 +29,7 @@ copy .env.example .env.local
 默认推荐：
 
 ```env
-APP_SECRET_KEY=dev-secret-change-me
+APP_SECRET_KEY=replace-with-a-long-random-value
 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
 ENABLE_GUEST_MODE=false
 GUEST_ALLOW_COOKIE_INPUT=false
@@ -95,7 +97,7 @@ uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.
 worker 和 API 必须使用相同的 `VIDEOSIEVE_API_DATA_DIR`：
 
 ```powershell
-uv run python -m workers.single_host --data-dir runtime/api
+uv run python -m workers.single_host --env-file .env.local
 ```
 
 启动入口持有 `runtime/api/worker.lock`，第二个实例会拒绝启动。`--once` 可用于只领取
@@ -107,11 +109,11 @@ uv run python -m workers.single_host --data-dir runtime/api
 首次安装按已有 npm 锁文件执行：
 
 ```powershell
-npm --prefix apps/web ci
+npm.cmd --prefix apps/web ci
 ```
 
 ```powershell
-npm --prefix apps/web run dev
+npm.cmd --prefix apps/web run dev
 ```
 
 ## 6. 浏览器访问
@@ -168,7 +170,7 @@ netsh interface ipv4 show excludedportrange protocol=tcp
 `NEXT_PUBLIC_*` 变量在前端需要重启开发服务器后生效。改完 `.env.local` 后请重新执行：
 
 ```powershell
-npm --prefix apps/web run dev
+npm.cmd --prefix apps/web run dev
 ```
 
 ## 验证

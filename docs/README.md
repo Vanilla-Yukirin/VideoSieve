@@ -58,6 +58,7 @@
 
 ## Operations
 
+- [Windows 本机部署](40_ops/local-windows.md)
 - [Deployment](40_ops/deployment.md)
 - [Observability](40_ops/observability.md)
 - [Troubleshooting](40_ops/troubleshooting.md)

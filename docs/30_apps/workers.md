@@ -10,7 +10,7 @@
 流水线。首版单主机只运行一个 worker，一次执行一个视频 job。
 
 ```powershell
-uv run python -m workers.single_host --data-dir runtime/api
+uv run python -m workers.single_host --env-file .env.local
 ```
 
 ## Responsibilities
@@ -21,7 +21,7 @@ uv run python -m workers.single_host --data-dir runtime/api
 - 调用 pipeline stage，不在入口层实现业务算法；
 - 更新心跳、stage、持久进度、执行确认态和持久事件；
 - 检查 pause/cancel/delete 请求并在安全点应用；
-- 调用 ingest/provider 层管理 FFmpeg、yt-dlp 和本地模型；
+- 调用 ingest/provider 层管理 FFmpeg、yt-dlp 和外部模型服务；
 - 所有状态和进度写入按 worker identity + attempt fence，旧尝试失去租约后不能覆盖新状态。
 
 ## Claim Loop

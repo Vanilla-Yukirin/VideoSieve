@@ -61,6 +61,16 @@ Constraint:
   合适 `SameSite` 的服务端 cookie，并同时设计 CSRF 防护、WebSocket 握手认证和会话撤销；
   不能只把 Bearer token 改存 cookie。
 
+## Current Local Authentication Boundary
+
+- 当前只把管理会话用于设置读取/修改和 job 提交；project、Cookie Vault、产物下载、
+  job control 与 WebSocket 尚未统一要求登录。因此 API 只允许绑定回环地址，不能直接
+  开放到局域网或公网；
+- 密码当前使用随机 salt 加单次 SHA-256，缺少适合密码存储的成本参数。公网或不可信
+  多用户部署前必须迁移到 Argon2、scrypt 或 PBKDF2，并设计旧哈希升级；
+- session 保存在 API 进程内存中，API 重启会要求重新登录，账户本身仍保存在 SQLite；
+- 上述限制不影响回环地址上的个人试用，但属于扩大部署范围前的阻断项。
+
 ## Operational Guardrails
 
 - rotate keys periodically

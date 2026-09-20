@@ -62,6 +62,9 @@ worker 最低启动配置包括：
 - FFmpeg/ffprobe 等外部工具路径；
 - job snapshot 中 provider 所引用的真实凭据和外部服务地址。
 
+worker 入口默认读取仓库根目录 `.env.local`，也可用 `--env-file` 显式指定。API 与
+worker 必须读取同一份 `VIDEOSIEVE_API_DATA_DIR`；否则会连接不同的 SQLite 和 workspace。
+
 ASR worker 使用 CapsWriter 官方 WebSocket 协议。`CAPSWRITER_TOKEN` 为选填环境变量；
 上游原版服务不要求它，自建网关启用鉴权时才配置。Token 不进入 SQLite 或 job snapshot。
 worker 主机必须安装 FFmpeg，用于把输入转换为 16 kHz、单声道、float32 音频流。

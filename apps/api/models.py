@@ -88,7 +88,6 @@ class SystemSettingsResponse(ApiModel):
     guest_allow_cookie_input: bool
     # ASR routing. Credentials remain in the worker environment.
     asr_provider: str
-    asr_transport: str
     asr_endpoint: str
     asr_language: str
     asr_context: str
@@ -126,7 +125,6 @@ class SystemSettingsPatchRequest(ApiModel):
     guest_mode_enabled: bool | None = None
     guest_allow_cookie_input: bool | None = None
     asr_provider: str | None = None
-    asr_transport: str | None = None
     asr_endpoint: str | None = None
     asr_language: str | None = None
     asr_context: str | None = None
@@ -151,7 +149,6 @@ class SystemSettingsPatchRequest(ApiModel):
                 self.guest_mode_enabled,
                 self.guest_allow_cookie_input,
                 self.asr_provider,
-                self.asr_transport,
                 self.asr_endpoint,
                 self.asr_language,
                 self.asr_context,

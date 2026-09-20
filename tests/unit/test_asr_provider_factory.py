@@ -4,7 +4,6 @@ import pytest
 
 from asr import (
     ASRProviderError,
-    CapsWriterHTTPProvider,
     CapsWriterWebSocketProvider,
     create_asr_provider_from_config,
     create_asr_provider_from_env,
@@ -45,15 +44,14 @@ def test_factory_defaults_capswriter_to_upstream_websocket(monkeypatch) -> None:
     assert isinstance(provider, CapsWriterWebSocketProvider)
 
 
-def test_factory_supports_http_extension_and_optional_token(monkeypatch) -> None:
-    monkeypatch.setenv("CAPSWRITER_TOKEN", "server-secret")
+def test_factory_rejects_non_websocket_capswriter_transport() -> None:
+    with pytest.raises(ASRProviderError) as exc_info:
+        create_asr_provider_from_config(
+            {
+                "provider": "capswriter",
+                "transport": "http",
+                "endpoint": "http://localhost:6018",
+            }
+        )
 
-    provider = create_asr_provider_from_config(
-        {
-            "provider": "capswriter",
-            "transport": "http",
-            "endpoint": "http://localhost:6018",
-        }
-    )
-
-    assert isinstance(provider, CapsWriterHTTPProvider)
+    assert exc_info.value.code == "ASR_CONFIG_INVALID"

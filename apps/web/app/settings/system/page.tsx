@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 type AsrProvider = "unconfigured" | "capswriter";
-type AsrTransport = "websocket" | "http";
 
 export default function SystemSettingsPage() {
   const { t } = useI18n();
@@ -31,7 +30,6 @@ export default function SystemSettingsPage() {
 
   // External ASR routing. The optional token stays in the server environment.
   const [asrProvider, setAsrProvider] = useState<AsrProvider>("unconfigured");
-  const [asrTransport, setAsrTransport] = useState<AsrTransport>("websocket");
   const [asrEndpoint, setAsrEndpoint] = useState("");
   const [asrLanguage, setAsrLanguage] = useState("auto");
   const [asrContext, setAsrContext] = useState("");
@@ -75,7 +73,6 @@ export default function SystemSettingsPage() {
           setGuestAllowCookieInput(settings.guest_allow_cookie_input);
           setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
           setAsrProvider(settings.asr_provider);
-          setAsrTransport(settings.asr_transport);
           setAsrEndpoint(settings.asr_endpoint);
           setAsrLanguage(settings.asr_language);
           setAsrContext(settings.asr_context);
@@ -132,7 +129,6 @@ export default function SystemSettingsPage() {
         guest_mode_enabled: guestModeEnabled,
         guest_allow_cookie_input: guestAllowCookieInput,
         asr_provider: asrProvider,
-        asr_transport: asrTransport,
         asr_endpoint: asrEndpoint,
         asr_language: asrLanguage,
         asr_context: asrContext,
@@ -153,7 +149,6 @@ export default function SystemSettingsPage() {
       setGuestAllowCookieInput(settings.guest_allow_cookie_input);
       setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
       setAsrProvider(settings.asr_provider);
-      setAsrTransport(settings.asr_transport);
       setAsrEndpoint(settings.asr_endpoint);
       setAsrLanguage(settings.asr_language);
       setAsrContext(settings.asr_context);
@@ -267,32 +262,18 @@ export default function SystemSettingsPage() {
             {asrProvider === "capswriter" ? (
               <>
                 <div className="space-y-1">
-                  <label className="block text-sm font-medium">{t("settings.asrTransport")}</label>
-                  <select
-                    className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
-                    value={asrTransport}
-                    onChange={(event) => setAsrTransport(event.target.value as AsrTransport)}
-                    disabled={saving}
-                  >
-                    <option value="websocket">{t("settings.asrTransportWebSocket")}</option>
-                    <option value="http">{t("settings.asrTransportHttp")}</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
                   <label className="block text-sm font-medium">{t("settings.asrEndpoint")}</label>
                   <input
                     type="text"
                     className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
                     value={asrEndpoint}
                     onChange={(event) => setAsrEndpoint(event.target.value)}
-                    placeholder={
-                      asrTransport === "websocket"
-                        ? "ws://capswriter:6016"
-                        : "http://capswriter:6018/v1/transcriptions"
-                    }
+                    placeholder="ws://capswriter:6016"
                     disabled={saving}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.asrWebSocketHint")}
+                  </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">

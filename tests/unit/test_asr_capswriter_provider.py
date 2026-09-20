@@ -9,7 +9,6 @@ import pytest
 from asr import (
     ASRProviderError,
     ASRRequest,
-    CapsWriterHTTPProvider,
     CapsWriterWebSocketProvider,
 )
 
@@ -103,96 +102,8 @@ def test_websocket_provider_sends_optional_bearer_token(monkeypatch: pytest.Monk
     assert connect_kwargs["additional_headers"] == {"Authorization": "Bearer secret"}
 
 
-class _FakeHTTPResponse:
-    def __init__(self, status: int, payload: object) -> None:
-        self.status = status
-        self._body = json.dumps(payload, ensure_ascii=False).encode()
-
-    def read(self) -> bytes:
-        return self._body
-
-
-class _FakeHTTPConnection:
-    response = _FakeHTTPResponse(
-        200,
-        {
-            "id": "req-1",
-            "text": "第一句\n第二句",
-            "duration_seconds": 3.0,
-            "srt": (
-                "1\n00:00:00,000 --> 00:00:01,200\n第一句\n\n"
-                "2\n00:00:01,200 --> 00:00:03,000\n第二句\n"
-            ),
-        },
-    )
-    instances: list[_FakeHTTPConnection] = []
-
-    def __init__(self, netloc: str, *, timeout: int) -> None:
-        self.netloc = netloc
-        self.timeout = timeout
-        self.headers: dict[str, str] = {}
-        self.sent = bytearray()
-        self.request_path = ""
-        self.__class__.instances.append(self)
-
-    def putrequest(self, method: str, path: str) -> None:
-        assert method == "POST"
-        self.request_path = path
-
-    def putheader(self, name: str, value: str) -> None:
-        self.headers[name] = value
-
-    def endheaders(self) -> None:
-        return None
-
-    def send(self, block: bytes) -> None:
-        self.sent.extend(block)
-
-    def getresponse(self) -> _FakeHTTPResponse:
-        return self.response
-
-    def close(self) -> None:
-        return None
-
-
-def test_http_extension_streams_raw_body_and_allows_missing_token(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _FakeHTTPConnection.instances.clear()
-    monkeypatch.setattr("asr.capswriter.http.client.HTTPConnection", _FakeHTTPConnection)
-    audio = tmp_path / "audio.wav"
-    audio.write_bytes(b"wave-data")
-
-    result = CapsWriterHTTPProvider(endpoint="http://capswriter:6018").transcribe(
-        ASRRequest(audio_path=audio, language_hint="zh")
-    )
-
-    connection = _FakeHTTPConnection.instances[-1]
-    assert connection.netloc == "capswriter:6018"
-    assert connection.sent == b"wave-data"
-    assert connection.headers["Content-Type"] == "audio/wav"
-    assert "Authorization" not in connection.headers
-    assert connection.request_path.startswith("/v1/transcriptions?")
-    assert [segment.text for segment in result.segments] == ["第一句", "第二句"]
-    assert result.metadata["transport"] == "http"
-
-
-def test_http_extension_preserves_retryable_server_error(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    class FailingConnection(_FakeHTTPConnection):
-        response = _FakeHTTPResponse(503, {"detail": "busy"})
-
-    monkeypatch.setattr("asr.capswriter.http.client.HTTPConnection", FailingConnection)
-    audio = tmp_path / "audio.bin"
-    audio.write_bytes(b"audio")
-
+def test_websocket_provider_rejects_http_endpoint() -> None:
     with pytest.raises(ASRProviderError) as exc_info:
-        CapsWriterHTTPProvider(endpoint="http://capswriter:6018", token="optional").transcribe(
-            ASRRequest(audio_path=audio)
-        )
+        CapsWriterWebSocketProvider(endpoint="http://localhost:6016")
 
-    assert exc_info.value.code == "ASR_PROVIDER_HTTP_ERROR"
-    assert exc_info.value.retryable is True
+    assert exc_info.value.code == "ASR_CONFIG_INVALID"

@@ -70,7 +70,6 @@ DEFAULT_COOKIE_USER_ID = "default_user"
 SETTING_GUEST_MODE_ENABLED = "guest_mode_enabled"
 SETTING_GUEST_ALLOW_COOKIE_INPUT = "guest_allow_cookie_input"
 SETTING_ASR_PROVIDER = "asr_provider"
-SETTING_ASR_TRANSPORT = "asr_transport"
 SETTING_ASR_ENDPOINT = "asr_endpoint"
 SETTING_ASR_LANGUAGE = "asr_language"
 SETTING_ASR_CONTEXT = "asr_context"
@@ -102,7 +101,6 @@ _DEFAULT_VLM_PROMPT_EN = (
 _DEFAULT_VLM_CONCURRENCY = 5
 _DEFAULT_VLM_RPM = 30
 _DEFAULT_ASR_PROVIDER = "unconfigured"
-_DEFAULT_ASR_TRANSPORT = "websocket"
 _DEFAULT_ASR_ENDPOINT = ""
 _DEFAULT_ASR_LANGUAGE = "auto"
 _DEFAULT_ASR_CONTEXT = ""
@@ -435,7 +433,6 @@ class ApiControlPlane:
             guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
             guest_allow_cookie_input=bool(settings[SETTING_GUEST_ALLOW_COOKIE_INPUT]),
             asr_provider=str(settings[SETTING_ASR_PROVIDER]),
-            asr_transport=str(settings[SETTING_ASR_TRANSPORT]),
             asr_endpoint=str(settings[SETTING_ASR_ENDPOINT]),
             asr_language=str(settings[SETTING_ASR_LANGUAGE]),
             asr_context=str(settings[SETTING_ASR_CONTEXT]),
@@ -501,17 +498,6 @@ class ApiControlPlane:
             raise ApiError(
                 code="asr_provider_invalid",
                 message=f"unsupported ASR provider: {next_asr_provider}",
-                status_code=422,
-            )
-        next_asr_transport = (
-            payload.asr_transport.strip().lower()
-            if payload.asr_transport is not None
-            else str(current[SETTING_ASR_TRANSPORT])
-        ) or _DEFAULT_ASR_TRANSPORT
-        if next_asr_transport not in {"websocket", "http"}:
-            raise ApiError(
-                code="asr_transport_invalid",
-                message=f"unsupported CapsWriter transport: {next_asr_transport}",
                 status_code=422,
             )
         next_asr_endpoint = (
@@ -605,7 +591,6 @@ class ApiControlPlane:
             SETTING_GUEST_ALLOW_COOKIE_INPUT, json.dumps(next_allow_cookie)
         )
         self._repository.set_setting(SETTING_ASR_PROVIDER, json.dumps(next_asr_provider))
-        self._repository.set_setting(SETTING_ASR_TRANSPORT, json.dumps(next_asr_transport))
         self._repository.set_setting(SETTING_ASR_ENDPOINT, json.dumps(next_asr_endpoint))
         self._repository.set_setting(SETTING_ASR_LANGUAGE, json.dumps(next_asr_language))
         self._repository.set_setting(SETTING_ASR_CONTEXT, json.dumps(next_asr_context))
@@ -638,7 +623,6 @@ class ApiControlPlane:
             guest_mode_enabled=next_guest_mode,
             guest_allow_cookie_input=next_allow_cookie,
             asr_provider=next_asr_provider,
-            asr_transport=next_asr_transport,
             asr_endpoint=next_asr_endpoint,
             asr_language=next_asr_language,
             asr_context=next_asr_context,
@@ -926,10 +910,6 @@ class ApiControlPlane:
             default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
         )
         _ = self._read_setting_str(
-            SETTING_ASR_TRANSPORT,
-            default=os.getenv("VIDEOSIEVE_ASR_TRANSPORT") or _DEFAULT_ASR_TRANSPORT,
-        )
-        _ = self._read_setting_str(
             SETTING_ASR_ENDPOINT,
             default=os.getenv("VIDEOSIEVE_ASR_ENDPOINT") or _DEFAULT_ASR_ENDPOINT,
         )
@@ -1014,10 +994,6 @@ class ApiControlPlane:
             SETTING_ASR_PROVIDER: self._read_setting_str(
                 SETTING_ASR_PROVIDER,
                 default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
-            ),
-            SETTING_ASR_TRANSPORT: self._read_setting_str(
-                SETTING_ASR_TRANSPORT,
-                default=os.getenv("VIDEOSIEVE_ASR_TRANSPORT") or _DEFAULT_ASR_TRANSPORT,
             ),
             SETTING_ASR_ENDPOINT: self._read_setting_str(
                 SETTING_ASR_ENDPOINT,
@@ -1178,7 +1154,7 @@ class ApiControlPlane:
             runtime_settings = self._current_settings()
             config["asr"] = {
                 "provider": runtime_settings[SETTING_ASR_PROVIDER],
-                "transport": runtime_settings[SETTING_ASR_TRANSPORT],
+                "transport": "websocket",
                 "endpoint": runtime_settings[SETTING_ASR_ENDPOINT],
                 "language": runtime_settings[SETTING_ASR_LANGUAGE],
                 "context": runtime_settings[SETTING_ASR_CONTEXT],

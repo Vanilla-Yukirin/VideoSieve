@@ -51,10 +51,8 @@ export type MessageKey =
   | "settings.asrProvider"
   | "settings.asrProviderUnconfigured"
   | "settings.asrProviderCapsWriter"
-  | "settings.asrTransport"
-  | "settings.asrTransportWebSocket"
-  | "settings.asrTransportHttp"
   | "settings.asrEndpoint"
+  | "settings.asrWebSocketHint"
   | "settings.asrEndpointRequired"
   | "settings.asrLanguage"
   | "settings.asrTimeout"
@@ -291,10 +289,8 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.asrProvider": "服务提供方",
     "settings.asrProviderUnconfigured": "未配置",
     "settings.asrProviderCapsWriter": "CapsWriter 服务端",
-    "settings.asrTransport": "连接方式",
-    "settings.asrTransportWebSocket": "官方 WebSocket 协议（推荐）",
-    "settings.asrTransportHttp": "兼容 HTTP API（扩展）",
     "settings.asrEndpoint": "服务地址",
+    "settings.asrWebSocketHint": "使用 CapsWriter 官方 WebSocket 协议。",
     "settings.asrEndpointRequired": "选择 CapsWriter 后必须填写服务地址。",
     "settings.asrLanguage": "语言（auto 表示自动）",
     "settings.asrTimeout": "超时时间（秒）",
@@ -528,10 +524,8 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.asrProvider": "Provider",
     "settings.asrProviderUnconfigured": "Not configured",
     "settings.asrProviderCapsWriter": "CapsWriter Server",
-    "settings.asrTransport": "Transport",
-    "settings.asrTransportWebSocket": "Official WebSocket protocol (recommended)",
-    "settings.asrTransportHttp": "Compatible HTTP API (extension)",
     "settings.asrEndpoint": "Service endpoint",
+    "settings.asrWebSocketHint": "Uses the official CapsWriter WebSocket protocol.",
     "settings.asrEndpointRequired": "A service endpoint is required when CapsWriter is selected.",
     "settings.asrLanguage": "Language (auto for detection)",
     "settings.asrTimeout": "Timeout (seconds)",

@@ -1,6 +1,6 @@
 """ASR contracts and external provider selection."""
 
-from .capswriter import CapsWriterHTTPProvider, CapsWriterWebSocketProvider
+from .capswriter import CapsWriterWebSocketProvider
 from .factory import create_asr_provider_from_config, create_asr_provider_from_env
 from .interfaces import ASRProvider, ASRProviderError
 from .models import ASRRequest, ASRResult, ASRSegment
@@ -12,7 +12,6 @@ __all__ = [
     "ASRRequest",
     "ASRResult",
     "ASRSegment",
-    "CapsWriterHTTPProvider",
     "CapsWriterWebSocketProvider",
     "create_asr_provider_from_config",
     "create_asr_provider_from_env",

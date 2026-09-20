@@ -831,7 +831,6 @@ def test_auth_bootstrap_login_and_settings_flow(
     assert "guest_mode_enabled" in me_settings
     assert "guest_allow_cookie_input" in me_settings
     assert me_settings["asr_provider"] == "unconfigured"
-    assert me_settings["asr_transport"] == "websocket"
     assert me_settings["asr_token_configured"] is False
 
     patched = patch_system_settings(
@@ -862,7 +861,6 @@ def test_settings_persists_capswriter_without_requiring_token(
         token,
         {
             "asr_provider": "capswriter",
-            "asr_transport": "websocket",
             "asr_endpoint": "ws://capswriter.local:6016",
             "asr_language": "auto",
             "asr_context": "课程背景",

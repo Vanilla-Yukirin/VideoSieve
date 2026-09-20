@@ -1,9 +1,8 @@
-"""CapsWriter adapters for the upstream WebSocket protocol and HTTP extensions."""
+"""CapsWriter adapter for the upstream WebSocket protocol."""
 
 from __future__ import annotations
 
 import base64
-import http.client
 import json
 import shutil
 import subprocess
@@ -12,7 +11,7 @@ import uuid
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from websockets.sync.client import connect as _connect_ws
 from websockets.typing import Subprotocol
@@ -33,28 +32,13 @@ def _normalise_websocket_url(value: str) -> str:
     if "://" not in raw:
         raw = f"ws://{raw}"
     parsed = urlparse(raw)
-    scheme = {"http": "ws", "https": "wss"}.get(parsed.scheme, parsed.scheme)
-    if scheme not in {"ws", "wss"} or not parsed.netloc:
+    if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
         raise ASRProviderError(
             "ASR_CONFIG_INVALID",
             f"CapsWriter WebSocket endpoint is invalid: {value}",
             hint="Use ws://host:port or wss://host:port.",
         )
-    return urlunparse(parsed._replace(scheme=scheme, path=parsed.path or "/"))
-
-
-def _normalise_http_url(value: str) -> tuple[str, str, str]:
-    parsed = urlparse(value.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ASRProviderError(
-            "ASR_CONFIG_INVALID",
-            f"CapsWriter HTTP endpoint is invalid: {value}",
-            hint="Use a full http:// or https:// URL.",
-        )
-    path = parsed.path.rstrip("/")
-    if not path:
-        path = "/v1/transcriptions"
-    return parsed.scheme, parsed.netloc, path
+    return urlunparse(parsed._replace(path=parsed.path or "/"))
 
 
 def _context_with_hotwords(context: str, hotwords: tuple[str, ...]) -> str:
@@ -131,47 +115,6 @@ def _iter_float32_chunks(
                 process.wait()
 
 
-def _timestamp_seconds(value: str) -> float:
-    normalized = value.strip().replace(",", ".")
-    parts = normalized.split(":")
-    if len(parts) != 3:
-        raise ValueError(f"invalid SRT timestamp: {value}")
-    hours, minutes, seconds = parts
-    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-
-
-def _segments_from_srt(srt: str, *, language: str) -> list[ASRSegment]:
-    normalized = srt.replace("\r\n", "\n").strip()
-    if not normalized:
-        return []
-    segments: list[ASRSegment] = []
-    for block in normalized.split("\n\n"):
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        timing_index = next((index for index, line in enumerate(lines) if "-->" in line), None)
-        if timing_index is None:
-            continue
-        start_raw, end_raw = lines[timing_index].split("-->", maxsplit=1)
-        text = "\n".join(lines[timing_index + 1 :]).strip()
-        if not text:
-            continue
-        try:
-            start = _timestamp_seconds(start_raw)
-            end = _timestamp_seconds(end_raw)
-        except ValueError:
-            continue
-        segments.append(
-            ASRSegment(
-                segment_id=f"seg_{len(segments) + 1:06d}",
-                start=max(0.0, start),
-                end=max(start, end),
-                text=text,
-                lang=language,
-                conf=0.0,
-            )
-        )
-    return segments
-
-
 def _segments_from_tokens(
     payload: Mapping[str, Any],
     *,
@@ -246,10 +189,7 @@ def _result_from_payload(
     language: str,
     transport: str,
 ) -> ASRResult:
-    srt = payload.get("srt")
-    segments = _segments_from_srt(str(srt), language=language) if isinstance(srt, str) else []
-    if not segments:
-        segments = _segments_from_tokens(payload, language=language)
+    segments = _segments_from_tokens(payload, language=language)
     return ASRResult(
         segments=segments,
         metadata={
@@ -366,86 +306,3 @@ class CapsWriterWebSocketProvider(ASRProvider):
                 f"CapsWriter WebSocket request failed: {exc}",
                 retryable=True,
             ) from exc
-
-
-class CapsWriterHTTPProvider(ASRProvider):
-    """Adapter for CapsWriter-compatible raw-body HTTP transcription APIs."""
-
-    def __init__(
-        self,
-        *,
-        endpoint: str,
-        token: str | None = None,
-        language: str = "auto",
-        context: str = "",
-        timeout_seconds: int = 900,
-    ) -> None:
-        self._scheme, self._netloc, self._path = _normalise_http_url(endpoint)
-        self._token = token.strip() if token and token.strip() else None
-        self._language = language.strip() or "auto"
-        self._context = context
-        self._timeout_seconds = max(1, timeout_seconds)
-
-    @property
-    def adapter_name(self) -> str:
-        return "capswriter"
-
-    def transcribe(self, request: ASRRequest) -> ASRResult:
-        if not request.audio_path.is_file():
-            raise ASRProviderError(
-                "ASR_INPUT_MISSING",
-                f"ASR media input does not exist: {request.audio_path}",
-            )
-        language = request.language_hint or self._language
-        query = urlencode(
-            {
-                "filename": request.audio_path.name,
-                "response_format": "json",
-                "language": language,
-                "context": _context_with_hotwords(self._context, request.hotwords),
-            }
-        )
-        connection_type = (
-            http.client.HTTPSConnection if self._scheme == "https" else http.client.HTTPConnection
-        )
-        connection = connection_type(self._netloc, timeout=self._timeout_seconds)
-        try:
-            connection.putrequest("POST", f"{self._path}?{query}")
-            connection.putheader(
-                "Content-Type",
-                (
-                    "audio/wav"
-                    if request.audio_path.suffix.lower() == ".wav"
-                    else "application/octet-stream"
-                ),
-            )
-            connection.putheader("Content-Length", str(request.audio_path.stat().st_size))
-            if self._token:
-                connection.putheader("Authorization", f"Bearer {self._token}")
-            connection.endheaders()
-            with request.audio_path.open("rb") as handle:
-                for block in iter(lambda: handle.read(1024 * 1024), b""):
-                    connection.send(block)
-            response = connection.getresponse()
-            body = response.read()
-            if not 200 <= response.status < 300:
-                detail = body.decode("utf-8", errors="replace")[:500]
-                raise ASRProviderError(
-                    "ASR_PROVIDER_HTTP_ERROR",
-                    f"CapsWriter HTTP returned {response.status}: {detail}",
-                    retryable=response.status == 429 or response.status >= 500,
-                )
-            decoded = json.loads(body.decode("utf-8"))
-            if not isinstance(decoded, dict):
-                raise ValueError("response must be a JSON object")
-            return _result_from_payload(decoded, language=language, transport="http")
-        except ASRProviderError:
-            raise
-        except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
-            raise ASRProviderError(
-                "ASR_PROVIDER_REQUEST_FAILED",
-                f"CapsWriter HTTP request failed: {exc}",
-                retryable=True,
-            ) from exc
-        finally:
-            connection.close()

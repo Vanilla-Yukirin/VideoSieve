@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from .capswriter import CapsWriterHTTPProvider, CapsWriterWebSocketProvider
+from .capswriter import CapsWriterWebSocketProvider
 from .interfaces import ASRProvider, ASRProviderError
 
 
@@ -47,27 +47,19 @@ def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider
         context = _config_str(config, "context")
         timeout_seconds = _config_positive_int(config, "timeout_seconds", 900)
         transport = _config_str(config, "transport", "websocket").lower()
-        if transport == "websocket":
-            return CapsWriterWebSocketProvider(
-                endpoint=endpoint,
-                token=token,
-                language=language,
-                context=context,
-                timeout_seconds=timeout_seconds,
-                ffmpeg_executable=_config_str(config, "ffmpeg_executable", "ffmpeg"),
+        if transport != "websocket":
+            raise ASRProviderError(
+                "ASR_CONFIG_INVALID",
+                f"unsupported CapsWriter transport: {transport}",
+                hint="CapsWriter uses its official WebSocket protocol.",
             )
-        if transport == "http":
-            return CapsWriterHTTPProvider(
-                endpoint=endpoint,
-                token=token,
-                language=language,
-                context=context,
-                timeout_seconds=timeout_seconds,
-            )
-        raise ASRProviderError(
-            "ASR_CONFIG_INVALID",
-            f"unsupported CapsWriter transport: {transport}",
-            hint="Select websocket or http in system settings.",
+        return CapsWriterWebSocketProvider(
+            endpoint=endpoint,
+            token=token,
+            language=language,
+            context=context,
+            timeout_seconds=timeout_seconds,
+            ffmpeg_executable=_config_str(config, "ffmpeg_executable", "ffmpeg"),
         )
     raise ASRProviderError(
         "ASR_PROVIDER_UNSUPPORTED",

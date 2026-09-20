@@ -105,7 +105,6 @@ export interface SystemSettingsResponse {
   guest_mode_enabled: boolean;
   guest_allow_cookie_input: boolean;
   asr_provider: "unconfigured" | "capswriter";
-  asr_transport: "websocket" | "http";
   asr_endpoint: string;
   asr_language: string;
   asr_context: string;
@@ -132,7 +131,6 @@ export interface SystemSettingsPatchRequest {
   guest_mode_enabled?: boolean;
   guest_allow_cookie_input?: boolean;
   asr_provider?: "unconfigured" | "capswriter";
-  asr_transport?: "websocket" | "http";
   asr_endpoint?: string;
   asr_language?: string;
   asr_context?: string;

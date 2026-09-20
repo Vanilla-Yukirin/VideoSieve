@@ -16,6 +16,21 @@ Status markers:
 - cookie credentials (if needed for source download)
 - storage credentials
 
+## Online Provider Credentials
+
+- `implemented` 管理员在 Web Provider 设置中录入 CapsWriter Token、VLM API key 和 summary
+  API key；endpoint 与 model 也由同一页面管理；
+- `implemented` provider credential 使用由 `APP_SECRET_KEY` 派生的密钥加密后持久化；数据库
+  可以保存密文和 credential metadata，不能保存可直接使用的明文；
+- 读取接口只返回 `configured` 等布尔／状态信息；替换和清除 credential 使用显式写操作，
+  不通过空字符串或掩码值猜测；
+- job snapshot 只保存 credential reference。日志、事件、错误、产物、浏览器状态和操作
+  记录都不得包含 credential 明文；
+- `CAPSWRITER_TOKEN`、`QWEN_API_KEY` 与 `SUMMARY_API_KEY` 环境变量仅作为旧 snapshot
+  兼容入口。新用户路径不得要求编辑这些变量；
+- `planned` 独立 Provider 连接测试尚未实现。credential 已保存不代表鉴权、可达性、
+  模型能力或真实视频 E2E 已验证。
+
 ## Cookie Handling (High Sensitivity)
 
 - `implemented` cookie vault stores encrypted cookie text server-side; plaintext is not returned by API responses
@@ -28,6 +43,8 @@ Status markers:
 
 - `implemented` `APP_SECRET_KEY` is mandatory for API startup (fail-fast).
 - `implemented` missing or blank `APP_SECRET_KEY` prevents service startup instead of deferring failure to runtime handlers.
+- API 与 worker 必须使用同一 `APP_SECRET_KEY`，否则 worker 无法解析网页保存的 provider
+  credential；轮换前必须完成受控重加密，直接替换会使现有密文不可读。
 
 ## Minimum Deployment Env (API)
 
@@ -36,7 +53,8 @@ Status markers:
 - `GUEST_ALLOW_COOKIE_INPUT`
 - `GUEST_COOKIE_KEY`
 - `GUEST_JOB_COOLDOWN_SECONDS`
-- `QWEN_API_KEY`
+
+在线 Provider key 不属于新部署的最低环境变量集合。
 
 Constraint:
 - `implemented` if `guest_allow_cookie_input=true` in persisted settings while `GUEST_COOKIE_KEY` is empty, runtime must reject configuration.

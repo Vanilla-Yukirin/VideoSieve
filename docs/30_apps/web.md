@@ -21,6 +21,8 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 
 - **[已实现]** `/`：入口分流 + SQLite 权威项目列表；旧 localStorage 索引仅作为迁移缓存和请求失败回退
 - **[已实现]** `/setup`：首次初始化（创建单用户账号）
+- **[已实现]** 首次账号创建成功后继续进入 Provider 引导，按 ASR、画面描述 VLM、
+  全文摘要 LLM 的顺序填写 endpoint、model 与 credential；
 - **[已实现]** `/login`：登录 + 游客入口
 - **[已实现]** `/settings/system`：游客开关与游客 cookie 输入策略
 - **[已实现]** `/settings/cookies`：Cookie Vault（列表/新增/编辑/删除/设默认/validate）
@@ -36,6 +38,10 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
   - token 有效 -> 进入主界面
   - token 无效或缺失 -> 跳转 `/login`
 - **[已实现]** 游客会话只能由 `/login` 页面主动进入。
+- **[已实现]** 管理员首次完成账号创建后进入 Provider 引导；跳过可选摘要能力时需明确
+  展示影响，不能把尚未配置显示为可用。
+- **[已实现]** Provider 设置只回显 credential 是否已保存，不回显密钥明文。
+- **[规划中]** 独立连接测试尚未实现，`configured` 不得渲染成“连接成功”。
 
 ## Guest Mode & Cooldown (前端决策)
 

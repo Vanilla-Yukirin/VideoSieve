@@ -35,7 +35,8 @@ Windows 可使用受管理后台服务／进程；Linux 可使用 systemd 或等
 
 - SQLite 主文件及 WAL/SHM 同目录；
 - workspace 原始媒体、中间结果、最终产物和必要日志；
-- 受保护的 secret store 或环境注入配置。
+- SQLite 中由 `APP_SECRET_KEY` 保护的 provider credential vault；
+- 单独保管、可恢复的 `APP_SECRET_KEY` 部署配置。
 
 备份必须把数据库一致性与 workspace 文件版本对应起来。仅复制 SQLite 主文件可能遗漏
 WAL 内容；运行中备份使用 SQLite backup API 或经过验证的停机流程。
@@ -57,6 +58,7 @@ API 最低启动配置包括：
 
 worker 最低启动配置包括：
 
+- 与 API 相同的 `APP_SECRET_KEY`；
 - 同一 SQLite 路径和 workspace 根目录；
 - worker identity、轮询和心跳参数；
 - FFmpeg/ffprobe 等外部工具路径；
@@ -65,9 +67,13 @@ worker 最低启动配置包括：
 worker 入口默认读取仓库根目录 `.env.local`，也可用 `--env-file` 显式指定。API 与
 worker 必须读取同一份 `VIDEOSIEVE_API_DATA_DIR`；否则会连接不同的 SQLite 和 workspace。
 
-ASR worker 使用 CapsWriter 官方 WebSocket 协议。`CAPSWRITER_TOKEN` 为选填环境变量；
-上游原版服务不要求它，自建网关启用鉴权时才配置。Token 不进入 SQLite 或 job snapshot。
-worker 主机必须安装 FFmpeg，用于把输入转换为 16 kHz、单声道、float32 音频流。
+ASR worker 使用 CapsWriter 官方 WebSocket 协议。Token 在 Web 中选填，使用
+`APP_SECRET_KEY` 加密后持久化；上游原版服务不要求它，自建鉴权层才需要。Token 明文
+不进入 job snapshot。worker 主机必须安装 FFmpeg，用于把输入转换为 16 kHz、单声道、
+float32 音频流。
+
+环境中的 `CAPSWRITER_TOKEN`、`QWEN_API_KEY` 和 `SUMMARY_API_KEY` 只为旧 snapshot
+兼容保留，不属于新安装路径。
 
 模型 key、cookie 和 token 不使用 `NEXT_PUBLIC_*`，不写入普通 job snapshot。前端公开
 配置只包含公开 origin、版本或 UI feature hint。
@@ -78,6 +84,9 @@ worker 主机必须安装 FFmpeg，用于把输入转换为 16 kHz、单声道�
 worker 或 provider，因此不能作为 readiness 证明。active job 行会保存 worker ID、当前
 attempt 和 heartbeat；仓库目前没有独立 worker registry，也没有空闲 worker heartbeat
 或 readiness endpoint。部署验收需要另外检查 worker 进程/锁，并创建受控任务观察领取。
+
+独立 Provider 连接测试也尚未实现。`configured` 只说明设置与 credential reference
+存在，不能提升为 `reachable`、`verified` 或真实视频 E2E。
 
 worker 心跳超时只触发告警并把 active job 标记为 interrupted／需要恢复，不能自动
 重新领取可能仍在执行的任务。

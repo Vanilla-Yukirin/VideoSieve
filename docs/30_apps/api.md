@@ -53,6 +53,15 @@ Key REST endpoints:
 - `implemented` `POST /me/cookies/{cookie_id}/validate`: validate cookie against a concrete video page URL.
 - `planned` `GET /operation-logs`: query operation logs via API endpoint (current runtime writes logs to storage only).
 
+Provider settings notes:
+
+- `implemented` `PATCH /settings/system` 接受 write-only 的 CapsWriter Token、VLM API key
+  与 summary API key，并提供显式 clear 字段；替换与清除不能在同一请求中发生；
+- `implemented` `GET /settings/system` 只返回各 credential 的 `*_configured` 状态，不返回
+  明文、密文或掩码占位值；
+- `implemented` 创建 job 时只把 provider 非敏感配置与 credential reference 写入 snapshot；
+- `planned` 当前没有 Provider 连接测试接口；设置保存成功只能解释为 `configured`。
+
 Ingest config notes:
 - Create-job path is format-id only (`analysis_asset` + `quality_asset` with `video_format_id`/`audio_format_id`).
 - Probe path no longer accepts `ytdlp_sort` from client payload.

@@ -1,10 +1,10 @@
-# 如何运行（统一环境变量方案）
+# 如何运行（单机部署配置 + 网页 Provider 配置）
 
 > 本文说明单机运行方式。FastAPI 只负责入队与 WebSocket，媒体处理由独立 SQLite
 > worker 执行。当前不需要启动 Celery 或 Redis。自动化验证与真实模型内容验收的
 > 边界见 `docs/QUALITY.md`。
 
-当前项目建议使用一份根目录 `.env.local` 来管理本地运行配置：
+当前项目建议使用一份根目录 `.env.local` 管理进程启动所需的部署配置：
 
 - 前端通过 `apps/web/next.config.js` 的加载逻辑读取根目录 `.env.local`
 - 后端（Uvicorn）通过 `--env-file .env.local` 读取同一份配置
@@ -34,27 +34,12 @@ NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
 ENABLE_GUEST_MODE=false
 GUEST_ALLOW_COOKIE_INPUT=false
 GUEST_JOB_COOLDOWN_SECONDS=120
-QWEN_API_KEY=your-key
-QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
-VLM_MODEL=qwen3.5-plus
-VLM_TIMEOUT_SECONDS=60
-SUMMARY_API_KEY=your-summary-key
-SUMMARY_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
-SUMMARY_MODEL=qwen-plus
-VIDEOSIEVE_ASR_PROVIDER=capswriter
-VIDEOSIEVE_ASR_ENDPOINT=ws://capswriter-host:6016
-# CAPSWRITER_TOKEN=only-if-your-server-requires-it
 ```
 
-VLM（画面描述 + 文字提取）建议至少配置：
-
-- `QWEN_API_KEY`
-- `QWEN_BASE_URL`
-- `VLM_MODEL`
-
-启用最终摘要时还必须配置 `SUMMARY_API_KEY`。摘要 endpoint、模型、提示词与上下文预算
-可在系统设置中单独调整；创建 job 时会冻结到非敏感配置快照。VLM 与最终摘要可使用
-不同的 key 和模型。
+在线 ASR、画面描述 VLM 和全文摘要 LLM 的 endpoint、model 与 credential 不属于部署
+环境变量。首次启动后在网页 Provider 引导中填写；credential 经 `APP_SECRET_KEY` 加密
+持久化，API 不会把明文返回浏览器。创建 job 时只把非敏感配置与 credential reference
+冻结到快照。VLM 与全文摘要可以使用不同的 endpoint、key 和模型。
 
 ## 2. 初始化 Python 环境（UV）
 
@@ -67,19 +52,12 @@ uv sync --extra dev
 版本与当前 `.python-version` 对齐。已有环境应先检查，不要直接重建。基础安装不包含
 FunASR、PyTorch、Torchaudio 或 Transformers，也不会下载 ASR 模型。
 
-ASR 默认是 `unconfigured`。首次启动前可在 `.env.local` 为 SQLite 系统设置提供默认值：
+ASR 默认是 `unconfigured`。在 Web 的 Provider 设置中选择“CapsWriter（WS）”，填写
+`ws://` 或 `wss://` endpoint；原版 CapsWriter 不要求 Token，只有自建服务启用鉴权时
+才填写 Token。适配器使用上游原版根 WebSocket 协议。
 
-```env
-VIDEOSIEVE_ASR_PROVIDER=capswriter
-VIDEOSIEVE_ASR_ENDPOINT=ws://capswriter-host:6016
-VIDEOSIEVE_ASR_LANGUAGE=auto
-VIDEOSIEVE_ASR_TIMEOUT_SECONDS=900
-# CAPSWRITER_TOKEN=only-if-your-server-requires-it
-```
-
-也可在 Web 的“系统设置”中选择“CapsWriter（WS）”。适配器使用上游原版的根
-WebSocket 协议。原版 CapsWriter 不要求 Token，只有自建服务启用鉴权时才设置
-`CAPSWRITER_TOKEN`。该值只由 worker 环境读取，不进入 SQLite、任务快照或浏览器。
+`CAPSWRITER_TOKEN`、`QWEN_API_KEY` 和 `SUMMARY_API_KEY` 环境变量只为仍引用这些
+credential name 的旧不可变 job snapshot 保留。新安装和新配置不要依赖它们。
 
 WebSocket 适配器使用 FFmpeg 把输入转为 16 kHz、单声道、float32 音频流，因此 worker
 主机仍必须可执行 FFmpeg/ffprobe。未配置、未知 provider、连接失败或空响应都会明确
@@ -121,6 +99,18 @@ npm.cmd --prefix apps/web run dev
 - Web：`http://localhost:3000`
 - API：`http://127.0.0.1:8000`
 
+首次进入的推荐流程：
+
+1. 创建管理员账号；
+2. 进入 Provider 引导，配置 CapsWriter；
+3. 配置画面描述 VLM 的 endpoint、model 和 API key；
+4. 按需配置全文摘要 LLM；
+5. 保存后用一段短视频做真实验收。
+
+当前尚未实现独立的 Provider 连接测试。页面显示“已配置”只表示字段和 credential 已
+保存，不表示 endpoint 可达、鉴权有效或模型存在；真实短视频成功并人工检查内容，才是
+端到端验收。
+
 ## 配置来源说明
 
 - 本地开发：使用 `.env.local`（不提交 Git）
@@ -134,10 +124,8 @@ npm.cmd --prefix apps/web run dev
   - 必填：`APP_SECRET_KEY`
   - 推荐：`NEXT_PUBLIC_API_ORIGIN`
   - 可选：`ENABLE_GUEST_MODE`、`GUEST_ALLOW_COOKIE_INPUT`、`GUEST_JOB_COOLDOWN_SECONDS`、`GUEST_COOKIE_KEY`
-  - VLM：`QWEN_API_KEY`、`QWEN_BASE_URL`、`VLM_MODEL`、`VLM_TIMEOUT_SECONDS`
-  - 最终摘要：`SUMMARY_API_KEY`、`SUMMARY_BASE_URL`、`SUMMARY_MODEL`
-  - ASR 非敏感默认值：`VIDEOSIEVE_ASR_PROVIDER`、`VIDEOSIEVE_ASR_ENDPOINT`
-  - ASR 选填密钥：`CAPSWRITER_TOKEN`
+- 在线 Provider 的 endpoint、model 与 credential 在 Web 中配置，不放入新部署的环境变量。
+- 仅当恢复旧 job snapshot 时，才按其 credential name 临时提供旧环境变量。
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
 
 ## 常见问题（Windows）

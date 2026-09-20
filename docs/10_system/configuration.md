@@ -1,24 +1,31 @@
 # Configuration
 
-状态：核心配置快照和三类 provider 失败语义已实现；真实 provider 端到端验收仍未执行。
+状态：在线 Provider 的加密 credential vault、job credential reference、worker 解析路径和
+首次账号后的 Provider 引导已实现。独立连接测试尚未实现，真实 provider 端到端验收
+仍未执行。
 
 ## 1. 配置分层
 
 ### Deployment configuration
 
-由环境变量或受保护的运行配置提供，描述进程启动和敏感依赖：
+由环境变量或受保护的运行配置提供，只描述进程启动和本机部署边界：
 
-- `APP_SECRET_KEY` 等会话密钥；
+- `APP_SECRET_KEY`，用于会话及 SQLite 中敏感值的加密根密钥；
 - SQLite 文件路径、workspace 根目录；
-- worker 轮询、心跳、busy timeout 等运行参数；
-- provider API key 或外部服务凭据。
+- API/Web 的监听地址、端口与允许 origin；
+- worker 轮询、心跳、busy timeout 等运行参数。
 
-密钥不得写入普通数据库快照、日志、事件或产物。
+在线 Provider 的 endpoint、model 与 credential 不属于新部署环境配置。旧环境 credential
+变量只用于兼容已经冻结并引用相应名称的旧 job snapshot。
 
 ### System settings
 
-保存在 SQLite，表示管理员可调整的默认值和产品开关。环境变量只在首次初始化时提供
-默认值；初始化后不能在每次启动时无条件覆盖数据库设置。
+保存在 SQLite，表示管理员可调整的默认值和产品开关。在线 ASR、frame-summary VLM 和
+overall-summary LLM 的 endpoint、model、参数与 credential 均从 Web 管理。credential
+使用由 `APP_SECRET_KEY` 派生的密钥加密，读取 API 只返回是否已配置，不返回明文。
+
+首次启动流程为：创建管理员账号 -> Provider 引导 -> 配置所需能力 -> 创建任务。环境
+provider 变量不得成为新用户必须理解的隐藏步骤。
 
 ### Job snapshot
 
@@ -59,8 +66,9 @@ HTTP／WS 切换项。
 
 写入设置和创建 job 时：
 
-- 设置 API 校验 provider 名称和 CapsWriter endpoint；Token 为选填，不作为就绪条件；
-- 创建 job 将当前 ASR 非敏感配置和 `CAPSWRITER_TOKEN` credential name 冻结到快照；
+- 设置 API 校验 provider、endpoint、model 和必需 credential 的结构；CapsWriter Token
+  为选填，不作为配置完整性的必要条件；
+- 创建 job 将非敏感 Provider 配置与加密 vault 的 credential reference 冻结到快照；
 - 校验阶段依赖，例如 frame summary 需要 keyframes；
 - 冻结快照并持久化成功后才能返回 queued；
 - 不发起大模型下载或耗时推理。
@@ -80,16 +88,29 @@ worker 开始 attempt 时：
 - 创建 job 时冻结 frame summary 和 overall summary 的非敏感配置，worker 只读快照；
 - ASR 默认 `unconfigured`；已移除内置模型运行时，当前只实现 CapsWriter 官方
   WebSocket adapter，空值、未知值和 baseline 配置明确失败；
-- CapsWriter Token 为选填，仅从 worker 的 `CAPSWRITER_TOKEN` 读取，不进入 SQLite、
-  快照、事件、日志或浏览器；
+- Web 管理三类在线 Provider；credential 加密保存在 SQLite，明文不进入
+  job snapshot、事件、日志、产物或读取响应；
+- `CAPSWRITER_TOKEN`、`QWEN_API_KEY`、`SUMMARY_API_KEY` 仅用于旧 snapshot 兼容，
+  不再作为新用户配置路径；
 - frame summary 缺 key、传输失败、畸形或空响应明确失败，并删除旧／半写产物；
-- overall summary 使用独立 `SUMMARY_API_KEY` 与兼容接口，对长材料分段归约后再总结；
+- overall summary 使用独立 credential reference 与兼容接口，对长材料分段归约后再总结；
 - SQLite 保存领取、attempt、心跳、控制版本和游标事件，独立 worker 负责执行。
 
-这些关闭项由自动测试约束。模型内容质量、真实凭据和完整媒体覆盖必须另附真实验收
-证据；配置完成或 mock 测试通过不等于真实链路通过。
+这些失败契约、credential vault 与首次 Provider 引导由自动测试约束。模型内容质量、
+真实凭据和完整媒体覆盖必须另附真实验收证据；配置完成或 mock 测试通过不等于真实
+链路通过。
 
-## 6. Guest 与 Cookie 约束
+## 6. Provider 状态语义
+
+- `configured`：字段格式完整，所需 credential reference 存在；
+- `reachable`：从实际执行进程完成 DNS/TCP/TLS/WS 或 HTTP 连接；
+- `verified`：使用当前 credential 和 model 完成最小真实调用并解析合法响应；
+- real E2E：真实视频经过 ASR/VLM/LLM，产物与内容经人工复核。
+
+当前尚未实现独立 Provider 连接测试 API，因此产品只能陈述 `configured`，不能显示
+`reachable` 或 `verified`。`GET /healthz` 也只证明 API 进程存活。
+
+## 7. Guest 与 Cookie 约束
 
 - guest mode 默认关闭；
 - `guest_allow_cookie_input=true` 时必须提供有效 `GUEST_COOKIE_KEY`，否则启动或设置写入失败；
@@ -97,7 +118,7 @@ worker 开始 attempt 时：
 - `cookie_file_path` 仅作为迁移兼容入口，不是目标 Web 协议；
 - cookie、key 和 token 在日志、事件、快照与错误中完全脱敏。
 
-## 7. 变更、版本与验证
+## 8. 变更、版本与验证
 
 - 配置 schema 破坏性变更需要迁移和版本说明；
 - provider、模型、提示词或关键参数变化必须产生不同输入／配置指纹；

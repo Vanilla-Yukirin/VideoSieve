@@ -38,12 +38,12 @@ copy .env.example .env.local
 1. 必须替换 `APP_SECRET_KEY`；示例值会被 API 拒绝；
 2. 保持 `VIDEOSIEVE_API_DATA_DIR=runtime/api`，让 API 和 worker 使用同一数据目录；
 3. 保持 `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000`；
-4. 填写 CapsWriter 的 `ws://` 或 `wss://` 地址；原版服务无需 Token，只有自建鉴权层
-   才设置 `CAPSWRITER_TOKEN`；
-5. 所有视频任务都需要画面摘要，因此必须填写 `QWEN_API_KEY`；启用全文摘要时再填写
-   `SUMMARY_API_KEY`。
+4. 按需设置监听 origin、游客策略等部署参数；
+5. 不在 `.env.local` 填写新 Provider 的 endpoint、model 或 credential。
 
-密钥只放 `.env.local`。不要把密钥写进 `NEXT_PUBLIC_*` 变量、SQLite 设置、截图或日志。
+`APP_SECRET_KEY` 只放 `.env.local`，并与 `runtime/api/` 备份分开保管。在线 Provider
+credential 通过 Web 录入后以密文存入 SQLite。不要把任何密钥写进 `NEXT_PUBLIC_*`
+变量、截图或日志。
 
 ## 3. 启动
 
@@ -67,8 +67,14 @@ uv run python -m workers.single_host --env-file .env.local
 npm.cmd --prefix apps/web run dev
 ```
 
-访问 `http://localhost:3000`，首次进入按页面提示创建管理员账号，再到系统设置确认
-CapsWriter、画面摘要和全文摘要的非敏感配置。
+访问 `http://localhost:3000`。首次进入流程是：
+
+1. 创建管理员账号；
+2. 进入 Provider 引导；
+3. 配置 CapsWriter endpoint，以及按需填写选填 Token；
+4. 配置画面摘要 VLM 的 endpoint、model 与 API key；
+5. 按需配置全文摘要 LLM；
+6. 保存后使用一段短视频完成真实验收。
 
 要用生产模式运行前端：
 
@@ -85,10 +91,14 @@ npm.cmd --prefix apps/web run start
 - `runtime/api/infra.db`、同目录 WAL/SHM 和 `runtime/api/workspaces/` 是持久数据，不要当缓存删除；
 - 浏览器清理数据后仍可从 SQLite 重新加载项目，但 API 重启后内存登录会话失效，需要重新登录；
 - Windows 休眠、关机或强制结束 worker 会中断运行中的任务。确认旧进程已退出后，在页面显式恢复；
-- 环境变量只为首次初始化提供系统默认值。系统设置已写入 SQLite 后，应在设置页修改；
+- 在线 Provider 配置和 credential 均在 Web 修改；
 - 创建 job 时会冻结配置，设置变更只影响之后创建的 job；
-- 修改 `QWEN_API_KEY`、`SUMMARY_API_KEY` 或 `CAPSWRITER_TOKEN` 后必须重启 worker；
+- 环境中的 `QWEN_API_KEY`、`SUMMARY_API_KEY` 或 `CAPSWRITER_TOKEN` 只兼容旧 job
+  snapshot；新配置不应依赖它们；
 - API `/healthz` 只证明 API 进程存活，不证明 worker、CapsWriter 或模型服务可用。
+
+当前尚未实现独立的 Provider 连接测试。页面显示已配置只证明字段与 credential 已保存，
+不证明 endpoint 可达、鉴权有效或模型存在。
 
 不配置真实 provider 时，界面、项目管理、上传和队列仍可启动，但视频任务会在缺少配置
 的阶段明确失败。项目不会用 mock 或占位文本假装成功。

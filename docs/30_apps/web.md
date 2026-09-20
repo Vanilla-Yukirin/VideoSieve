@@ -1,5 +1,8 @@
 # App: web
 
+状态：当前页面已实现 REST + WS 混合流程；目标协议改为 WebSocket 业务快照、命令和
+增量事件。下列 `[已实现]` 只描述迁移前当前代码。
+
 ## Purpose
 
 Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
@@ -7,11 +10,11 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 - 访问入口分流（初始化 / 登录 / 游客 / 主界面）
 - 项目与任务的创建、查看、控制
 - 系统设置与 Cookie Vault 的前端治理入口
-- 实时状态展示（HTTP snapshot + WS 增量）
+- 实时状态展示与可靠重连
 
 ## Status Legend
 
-- **[已实现]** 当前代码已落地并可直接验收。
+- **[已实现]** 重做审计时观察到对应代码路径；不代表真实浏览器端到端验收已通过。
 - **[规划中]** 在 Web 文档中保留方向，但当前代码未强制完成。
 
 ## Core Views
@@ -58,9 +61,24 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 
 ## Realtime Model
 
-- **[已实现]** 任务页先拉 `GET /jobs/{job_id}/snapshot` 作为初始状态。
-- **[已实现]** 再连接 `/ws/jobs/{job_id}` 接收 `log/progress/stage_changed/snapshot/control_ack`。
-- **[已实现]** WS 断开时回退 snapshot 轮询，避免 WS 作为唯一状态来源。
+当前实现：
+
+- **[已实现]** 任务页先拉 `GET /jobs/{job_id}/snapshot`，再连接
+  `/ws/jobs/{job_id}` 接收增量；
+- **[已实现]** WS 断开时回退 HTTP snapshot 轮询。
+
+目标契约：
+
+- **[规划中]** 会话建立后，通过 WS 获得权威 snapshot，业务状态不再依赖 HTTP 轮询；
+- **[规划中]** 客户端保存最后连续 `event_id`，重连发送 `after_event_id`；
+- **[规划中]** 服务端重放后发送 snapshot 校正；cursor 过期时明确发送 `cursor_reset`；
+- **[规划中]** 状态更新按 `state_version` 防倒退，追加事件按 `event_id` 去重；
+- **[规划中]** 命令携带稳定 `request_id`，断线重发不会重复执行；
+- **[规划中]** UI 分别显示请求 accepted 与 worker applied，例如“正在暂停”与“已暂停”；
+- **[规划中]** 断线期间显示状态可能过期，不把本地缓存冒充实时结果。
+
+HTTP 在目标架构中保留给页面／初始会话、上传、播放／下载和健康检查。视频与产物
+本体不通过 WebSocket 传输。
 
 ## i18n
 

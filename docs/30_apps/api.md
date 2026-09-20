@@ -1,8 +1,12 @@
 # App: api
 
+状态：本文同时记录当前 REST 原型和目标 WebSocket 控制面。标为 `implemented` 的路由
+是迁移输入，不代表目标传输边界已经完成。
+
 ## Purpose
 
-提供 HTTP API 与 WebSocket 网关，负责项目控制面。
+提供认证、受限 HTTP 文件接口与 WebSocket 业务网关。目标架构中 API 不执行媒体
+pipeline；当前代码仍会在 API 进程内启动后台线程，这是待移除的迁移缺陷。
 
 ## Domain Axis (Project vs Job)
 
@@ -12,19 +16,25 @@
 
 ## Responsibilities
 
-- create/list project and job
-- expose artifacts and status
-- validate config and create job snapshot
-- subscribe event bus and push WS events
+- validate commands and persist project/job/config records
+- serve authoritative snapshots and cursor events over WebSocket
+- expose uploads, media/artifact downloads and health checks over HTTP
+- read SQLite events and push them to authenticated WS subscriptions
 
 ## Interfaces
 
-- REST endpoints (auth/settings/project/job/config/artifact)
-- WebSocket primary channel: `/ws/jobs/{job_id}`
-- Optional aggregate channel: `/ws/projects/{project_id}/summary` (list-only summaries)
+Current runtime exposes REST endpoints for auth/settings/project/job/config/artifact and a
+job WebSocket channel. The target split is:
+
+- HTTP: page/session bootstrap, upload, media/artifact download and health only;
+- WebSocket: business list/detail snapshots, create/update/control commands and cursor events;
+- large binary files never travel inside WebSocket messages.
+
+The exact target WS route and command registry must be versioned with
+`docs/10_system/events-and-websocket.md`; current `/ws/jobs/{job_id}` remains a migration surface.
 
 Status markers used below:
-- `implemented`: available in current API runtime.
+- `implemented`: code path observed in the rebuild audit; runtime/E2E validation is separate.
 - `planned`: documented target, not in current runtime.
 
 Key REST endpoints:
@@ -33,7 +43,7 @@ Key REST endpoints:
 - `implemented` `GET /settings/system`, `PATCH /settings/system`.
 - `implemented` `GET /guest/cooldown`: global cooldown state (`active`, `remaining_seconds`, `cooldown_seconds`).
 - `implemented` `POST /ingest/probe`: URL format probe only (no download).
-- `implemented` `POST /jobs`: create job snapshot and enqueue dispatch.
+- `implemented` `POST /jobs`: create a job snapshot and persist a queued job in the audited REST path.
 - `implemented` `GET /jobs/{job_id}/source-video`: returns workspace `media/source.mp4` for player/download.
 - `implemented` Cookie Vault: `POST /me/cookies`, `GET /me/cookies`, `PATCH /me/cookies/{cookie_id}`, `DELETE /me/cookies/{cookie_id}`.
 - `implemented` `POST /me/cookies/{cookie_id}/validate`: validate cookie against a concrete video page URL.
@@ -57,11 +67,15 @@ Artifact exposure notes:
 
 - UI controls (`pause/resume/cancel/delete`) always target a specific `job_id`.
 - Re-run creates a new `job_id`; previous jobs remain queryable by snapshot/history.
+- accepted requests are persisted separately from worker-confirmed applied state.
+- API cannot report paused/cancelled merely because it wrote a control flag.
+- heartbeat timeout yields `interrupted`; API cannot auto-dispatch a replacement attempt.
 
 ## Notes
 
 - API 不直接实现算法，算法由 `packages/*` 提供
-- WS 仅用于实时刷新；状态真相以 HTTP snapshot 为准（见 `docs/10_system/events-and-websocket.md`）
+- target state truth is a WebSocket snapshot backed by SQLite; increments use persisted event cursor
+- process-local notifications may wake the gateway but are never the recovery source
 - `APP_SECRET_KEY` is a startup precondition for API runtime; missing key fails fast at startup.
 - `implemented` API error semantics in runtime:
   - `auth_required`, `invalid_credentials`, `bootstrap_required`

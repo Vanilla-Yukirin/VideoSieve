@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed
+Superseded by [ADR-0005](ADR-0005-single-host-sqlite-worker.md) on 2026-09-20.
+This proposal was never implemented as a live Redis event bus.
 
 ## Context
 
@@ -25,3 +26,8 @@ Proposed
 
 - Positive: 兼顾上线速度与后续演进。
 - Negative: 需要维护迁移方案与双栈期。
+
+## Historical Note
+
+本文保留旧 Redis 方向的决策背景，仅供追溯。当前单机目标使用 SQLite 持久事件和
+WebSocket 游标重放，不再以 Pub/Sub 或 Streams 作为实施目标。

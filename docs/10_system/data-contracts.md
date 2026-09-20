@@ -17,7 +17,7 @@ It is contract-oriented (meaning and boundaries), not implementation-oriented (S
 
 ## 2. Canonical Domain Objects
 
-### 2.1 Project [已实现]
+### 2.1 Project [已有代码结构；运行验收未由本文证明]
 
 - Purpose: long-lived container for one source and its run history.
 - Required:
@@ -42,7 +42,7 @@ Example:
 }
 ```
 
-### 2.2 Job [已实现]
+### 2.2 Job [当前基础已存在；目标字段待迁移]
 
 - Purpose: one execution run bound to a project.
 - Required:
@@ -50,7 +50,9 @@ Example:
   - `job_id`
   - `project_id`
   - `config_snapshot_path`
-  - `status`
+  - `execution_state`
+  - `requested_action`
+  - `state_version`
 - Optional:
   - `started_at`
   - `finished_at`
@@ -62,13 +64,30 @@ Example:
   "job_id": "j_20260208_001",
   "project_id": "p_20260208_001",
   "config_snapshot_path": "workspaces/p_20260208_001/jobs/j_20260208_001/meta/config.snapshot.json",
-  "status": "running",
+  "execution_state": "running",
+  "requested_action": "pause_requested",
+  "state_version": 27,
   "started_at": "2026-02-08T10:00:05Z",
   "finished_at": null
 }
 ```
 
-### 2.3 StageState [已实现]
+Current code still exposes a legacy `status` shape in places. It must be migrated atomically with
+the state-machine and WebSocket contracts; documentation does not make the target fields available.
+
+### 2.3 JobAttempt [目标契约（target）]
+
+- Required: `attempt_id`, `job_id`, `worker_id`, `status`, `started_at`, `heartbeat_at`
+- Optional: `finished_at`, `end_reason`, `resume_from`, `parent_attempt_id`
+- A heartbeat timeout may set the attempt/job to interrupted, but cannot create a replacement attempt.
+
+### 2.4 ControlRequest [目标契约（target）]
+
+- Required: `request_id`, `job_id`, `command`, `phase`, `requested_at`
+- Optional: `applied_at`, `code`, `message`, `actor_id`
+- `phase` is `accepted|applied|rejected|failed`; accepted never proves computation stopped.
+
+### 2.5 StageState [已实现基础；恢复字段待迁移]
 
 - Purpose: per-stage state snapshot under a job.
 - Required:
@@ -81,15 +100,16 @@ Example:
 - Optional:
   - `pct` (0-100)
 
-### 2.4 Snapshot and Event Baseline [已实现]
+### 2.6 Snapshot and Event Baseline [目标契约（target）]
 
-- `snapshot`: point-in-time state record (source of truth for recovery/reconnect).
-- `event`: append-style change signal (best-effort delivery allowed depending on bus mode).
-- Snapshot is authoritative; event stream is incremental.
+- `snapshot`: point-in-time state record, delivered through WebSocket after session establishment.
+- `event`: SQLite-persisted append record with a monotonically increasing `event_id` cursor.
+- Snapshot is authoritative for current state; retained events restore incremental history.
+- Reconnect uses `after_event_id`; an expired or discontinuous cursor requires explicit reset.
 
 ## 3. Media and Processing Artifacts
 
-### 3.1 TranscriptSegment (`asr/transcript.jsonl`) [已实现]
+### 3.1 TranscriptSegment (`asr/transcript.jsonl`) [已有代码结构]
 
 - Required: `schema_version`, `segment_id`, `start`, `end`, `text`, `lang`, `conf`
 
@@ -98,7 +118,7 @@ Example JSONL line:
 {"schema_version":"1.0","segment_id":"seg_00001","start":0.2,"end":4.8,"text":"今天我们来讲线性变换。","lang":"zh","conf":0.93}
 ```
 
-### 3.2 Keyframe (`frames/keyframes.jsonl`) [已实现]
+### 3.2 Keyframe (`frames/keyframes.jsonl`) [已有代码结构]
 
 - Required: `schema_version`, `frame_id`, `ts`, `path`, `hash`, `score`, `reason`
 
@@ -107,7 +127,7 @@ Example JSONL line:
 {"schema_version":"1.0","frame_id":"frame_00012","ts":126.4,"path":"workspaces/p_20260208_001/frames/images/slide_000012.jpg","hash":"a91f...","score":0.82,"reason":"stable"}
 ```
 
-### 3.3 FrameSummary (`frame_summary/frame_summary.jsonl`) [已实现]
+### 3.3 FrameSummary (`frame_summary/frame_summary.jsonl`) [已有代码结构]
 
 - Required: `schema_version`, `frame_id`, `lang`, `provider`, `description_text`
 
@@ -116,7 +136,7 @@ Example JSONL line:
 {"schema_version":"1.1","frame_id":"frame_00012","lang":"zh","provider":"qwen_frame_summary","description_text":"画面上半部分是标题“特征值与特征向量”，下半部分是公式推导说明。"}
 ```
 
-### 3.4 Timeline (`fusion/timeline.json`) [已实现]
+### 3.4 Timeline (`fusion/timeline.json`) [已有代码结构]
 
 - Required:
   - top level: `schema_version`, `project_id`, `job_id`, `chunks[]`
@@ -146,27 +166,32 @@ Example JSONL line:
 
 ## 4. Event Envelope and Error Envelope
 
-### 4.1 EventEnvelope [已实现]
+### 4.1 EventEnvelope [目标契约（target）]
 
 - Required:
   - `schema_version`
+  - `event_id`
   - `event_type`
   - `project_id`
   - `job_id`
+  - `state_version`
   - `ts`
   - `payload`
+- Optional:
+  - `request_id` for command-related events
 
 Known `event_type` values:
 - `log`
 - `progress`
 - `stage_changed`
+- `job_state_changed`
 - `error`
 - `control_ack`
-
-Planned additional event types:
 - `artifact_ready`
 - `artifact_removed`
-- `snapshot_hint`
+
+Connection-level messages include `snapshot` and `cursor_reset`; they do not need a new persisted
+event row. Ordering and deduplication use `event_id`, not timestamps.
 
 ### 4.2 ErrorEnvelope [规划中（planned）]
 
@@ -196,7 +221,7 @@ Recommended shape:
 
 ## 5. Error Code Registry (Contract-Level)
 
-### 5.1 Control/State codes [已实现]
+### 5.1 Control/State codes [已有代码结构；迁移中]
 
 - `INVALID_STATE_TRANSITION`
 - `ALREADY_IN_TARGET_STATE`
@@ -204,7 +229,7 @@ Recommended shape:
 - `DELETE_PENDING_CLEANUP`
 - `CONTROL_CONFLICT`
 
-### 5.2 Access/Auth/Cooldown codes [已实现]
+### 5.2 Access/Auth/Cooldown codes [已有代码结构]
 
 - `auth_required`
 - `invalid_credentials`

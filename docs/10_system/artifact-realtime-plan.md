@@ -1,5 +1,11 @@
 # 产物实时可见与可下载长期扩展计划
 
+> 状态：Superseded on 2026-09-20。本文保留旧的“HTTP snapshot + WS 增量”实施计划
+> 供追溯，不再指导新代码。当前目标通过 WebSocket 传输权威 snapshot 与 SQLite
+> cursor 事件，HTTP 仅用于文件上传／下载、初始访问和健康检查。见
+> [events-and-websocket.md](events-and-websocket.md) 与
+> [ADR-0005](../adr/ADR-0005-single-host-sqlite-worker.md)。
+
 本文档用于规划 VideoSieve 后续的「产物实时更新、可下载、可播放、可扩展」能力。
 
 ## 1. 背景与当前现状

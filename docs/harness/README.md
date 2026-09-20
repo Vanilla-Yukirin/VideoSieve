@@ -14,7 +14,7 @@ Harness 把文档契约、代码实现、自动测试和真实媒体验收连成
 
 | 层级 | 检查内容 | 通过条件 |
 | --- | --- | --- |
-| 静态 | `git diff --check`、Ruff、mypy、ESLint、TypeScript | 命令实际运行且退出码均为 0 |
+| 静态 | `git diff --check`、Ruff、mypy、ESLint、TypeScript；release 额外要求 tracked worktree clean | 命令实际运行且退出码均为 0；release 开始时 tracked 文件与 `HEAD` 一致 |
 | 单元/契约 | Python 单元与契约测试、前端 Jest | 全部通过、收集数大于 0、skip 为 0 |
 | 进程级集成 | 两个独立 Python 进程竞争 SQLite 任务；worker 崩溃后的中断与显式恢复；Next.js 生产构建 | 不重复领取，不自动双跑，重启后状态和 attempt 可证明，前端可生成生产构建 |
 | 真实模型验收 | 真实视频、真实 ASR/VLM/LLM、保存产物和人工内容复核 | 证据匹配当前 revision，真实 provider 与产物齐全，覆盖视频后段，人工复核全部完成 |
@@ -23,7 +23,8 @@ Harness 把文档契约、代码实现、自动测试和真实媒体验收连成
 
 - `quick`：Python/前端静态检查、Python 单元/契约、前端单元。
 - `integration`：`quick` 加进程级集成与 Next.js 生产构建；这是日常完整检查的默认值。
-- `release`：`integration` 加真实模型证据；没有证据时结果是必需的 `NOT-RUN`，退出码为 1。
+- `release`：`integration` 加 clean tracked worktree 与真实模型证据；没有证据或存在已跟踪
+  改动时均不能通过。
 
 命令：
 
@@ -32,6 +33,10 @@ uv run python scripts/verify.py --profile quick
 uv run python scripts/verify.py --profile integration
 uv run python scripts/verify.py --profile release --real-evidence <evidence.json>
 ```
+
+裸 `uv run pytest` 按 `pyproject.toml` 发现 unit、contract 和 integration Python 测试，
+但仍不是全量门禁。需要定位失败时可显式运行单个目录或文件，最终结论仍以对应
+harness profile 为准。
 
 ## 3. 当前缺陷回归契约
 
@@ -51,17 +56,21 @@ uv run python scripts/verify.py --profile release --real-evidence <evidence.json
 ## 4. 真实模型证据
 
 真实模型调用受网络、凭据、模型下载和费用影响，不在普通自动测试里偷偷触发。完成一次
-真实验收后，按 `real-model-evidence.example.json` 生成记录，并把三个产物路径指向实际
-保存的非空文本/JSONL 文件。证据不得包含 API key、Cookie 或 Authorization header。
+真实验收后，按 `real-model-evidence.example.json` 生成记录，并把输入媒体及三个产物路径
+指向本次运行实际保存的文件。证据不得包含 API key、Cookie 或 Authorization header。
+当前证据 schema 为 `1.1`；它新增了可复算的输入／产物散列和运行标识，旧 `1.0` 声明
+不能直接作为 release 证据。
 
 验证器会检查：
 
-- `revision` 必须等于当前 `git rev-parse HEAD`；
-- 输入视频有 SHA-256 与正时长；
-- ASR、画面理解、最终总结都记录真实 provider 和存在的非空产物；
+- release 开始时 tracked worktree 必须 clean，`revision` 必须等于当前 `git rev-parse HEAD`；
+- 输入视频路径存在，声明的 SHA-256 与文件实际散列一致，声明时长与 `ffprobe` 实测值一致；
+- ASR、画面理解、最终总结都记录不含测试标记的真实 provider、model，以及 request ID
+  或与顶层一致的 run ID；
+- 三类产物是互不相同的非空文件，且各自声明的 SHA-256 与实际散列一致；
 - 产物不能含 `baseline_mock`、offline frame summary 或 placeholder；
 - ASR 与总结的来源覆盖至少到视频时长的 80%；
 - 转写内容/时间戳、画面描述、最终摘要均已人工抽查。
 
-证据 JSON 是验收索引，不替代原始日志、模型响应和产物。它证明“对哪个版本、哪个输入、
-用哪个 provider、检查了什么”，避免把旧结果或 mock 结果当作当前版本通过。
+证据 JSON 是验收索引，不替代原始日志和模型响应。散列把索引绑定到具体输入与产物，
+run/request 标识用于关联调用记录；人工复核仍须对这些被散列固定的文件进行。

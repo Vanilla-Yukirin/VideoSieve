@@ -1,133 +1,109 @@
 # Events and WebSocket Protocol
 
-状态：目标契约，当前 REST + 内存事件实现需要迁移。
+状态：job 级协议已实现；本文件同时列出仍未实现的保留期和慢客户端治理。
 
-## 1. 通道职责
+## 1. 当前边界
 
-业务会话建立后，WebSocket 是以下交互的统一通道：
+`/ws/jobs/{job_id}` 负责一个 job 的：
 
-- 项目和 job 列表、详情及权威快照；
-- 创建、设置更新、重跑和控制命令；
-- 日志、进度、状态、错误、产物和控制确认；
-- 断线后的 cursor 重放与快照收敛。
+- SQLite cursor 事件重放；
+- 权威 snapshot；
+- 日志、进度、阶段、状态、错误和控制确认增量；
+- `pause|resume|cancel|delete` 控制命令。
 
-HTTP 只用于页面／初始认证会话、上传、播放／下载和健康检查。大文件不通过 WS 传输。
+认证、设置、项目/任务创建与查询、上传和下载仍使用 HTTP。大文件不通过 WS 传输。
 
 ## 2. Client Message
 
-每个客户端请求至少包含：
+连接 URL 可带 `after_cursor=<non-negative integer>`。cursor 大于当前持久事件 watermark
+时，服务端以 4400 关闭；job 不存在时以 4404 关闭。
+
+控制消息形状：
 
 ```json
 {
-  "schema_version": "1.0",
-  "message_type": "command",
-  "request_id": "req_01...",
   "command": "pause",
-  "project_id": "p_01...",
-  "job_id": "j_01...",
-  "payload": {}
+  "request_id": "req_01"
 }
 ```
 
-- `request_id` 在客户端重试期间保持不变；
-- 服务端持久化请求结果并按 `request_id` 去重；
-- 重复命令不能重复创建 job、重复扣费或重复执行删除。
+- `request_id` 可选，但客户端发送控制时应生成稳定值；
+- 当前 job 行持久化最新 request ID、command、request/ack version；
+- 同一 request ID 的重复控制请求返回同一结果，不重复推进版本。
 
-订阅／重连消息使用 `command=subscribe`，payload 包含需要订阅的 scope 和可选
-`after_event_id`。
+当前协议不接收通用 `subscribe` 消息，也不在消息中接收 project/job ID 或
+`schema_version`；job scope 由 URL 决定。
 
-## 3. Persisted Event Envelope
+## 3. Persisted Event and WS Envelope
 
-持久事件至少包含：
+SQLite `job_events.event_id` 是全局递增 ID。发送给客户端时字段名为 `cursor`：
 
 ```json
 {
-  "schema_version": "1.0",
-  "event_id": 1842,
   "event_type": "progress",
-  "project_id": "p_01...",
-  "job_id": "j_01...",
+  "cursor": 1842,
   "state_version": 27,
-  "ts": "2026-09-20T12:00:00Z",
+  "request_id": null,
+  "payload": {"stage": "asr", "pct": 42.5}
+}
+```
+
+SQLite 行还保存 `channel`、`project_id`、`job_id` 和 `ts`，但当前 WS 信封不重复发送
+这些路由字段，也还没有 `schema_version`。已实现的持久事件包括 `log`、`progress`、
+`stage_changed`、`job_state_changed`、`error` 和 `control_ack`。
+
+连接级 `snapshot` 不写入事件表：
+
+```json
+{
+  "event_type": "snapshot",
+  "cursor": 1842,
+  "state_version": 27,
   "request_id": null,
   "payload": {}
 }
 ```
 
-- `event_id` 是 SQLite 生成的单调递增 cursor，排序以它为准，不以客户端时间排序；
-- `state_version` 标识事件对应的 job 状态版本；
-- 业务状态变化与描述该变化的事件必须在同一个 SQLite 事务提交；
-- 进度事件限频或合并，不能按每帧高频落库；
-- 日志全文可以写文件，事件表保留 UI 与诊断需要的结构化窗口。
+## 4. 连接、重放与并发屏障
 
-目标事件类型：
+1. 服务端读取当前 watermark，并先从该 watermark 建立 SQLite 订阅；
+2. 若客户端提供旧 cursor，按 cursor 升序重放 `(after_cursor, catchup_watermark]`；
+3. 发送当前权威 snapshot；
+4. 连接建立期间产生的 live events 先按 socket 缓冲，再按 cursor 排序放行；
+5. 之后仅发送 cursor 更大的 live events。
 
-- `snapshot`：当前权威状态，含 `snapshot_event_id`；
-- `log`；
-- `progress`；
-- `stage_changed`；
-- `job_state_changed`；
-- `artifact_ready` / `artifact_removed`；
-- `error`；
-- `control_ack`；
-- `cursor_reset`。
+这套屏障防止 snapshot 与 live event 交叉造成倒退。首次连接没有 cursor 时不重放历史
+事件，只发送 snapshot 后继续 live stream。
 
-`snapshot` 与 `cursor_reset` 可以是连接级消息，不必作为新的业务事件再次持久化。
+当前事件表不自动裁剪，所以还没有“cursor 已过期”或 `cursor_reset` 分支。增加保留期
+前必须同时实现最小可用 cursor、显式 reset 和对应契约测试。
 
-## 4. Control Ack
+## 5. Control Ack
 
-`control_ack` 必须包含：
+`control_ack.payload` 包含：
 
-- `request_id`、`command`；
-- `phase`: `accepted|applied|rejected|failed`；
-- 当前 `execution_state` 和 `requested_action`；
-- 可选 `code/message/hint/retryable`。
+- `request_id`（客户端提供时）、`command`、`accepted`；
+- `phase`: `accepted|applied|rejected`；
+- `execution_state`、`requested_action`；
+- 可选 `code` 和 `reason`。
 
-`accepted` 表示命令已经持久化，不表示 worker 已经停下。pause/cancel 只有收到
-`applied` 且快照进入 paused/cancelled，UI 才能显示“已暂停／已取消”。
-
-## 5. 首次连接和重连
-
-### 5.1 无 cursor 或 cursor 已过期
-
-1. 服务端在一致读取边界取得权威 snapshot 和当前 watermark `W`；
-2. 发送 `cursor_reset`（首次连接可省略）和 snapshot，`snapshot_event_id=W`；
-3. 随后只发送 `event_id > W` 的 live events。
-
-客户端必须清空无法证明连续的增量状态，使用 snapshot 重建界面。
-
-### 5.2 cursor 仍在保留期内
-
-1. 客户端发送 `after_event_id=C`；
-2. 服务端确定一致 watermark `W` 和对应 snapshot；
-3. 按 event_id 重放 `(C, W]`；
-4. 发送 snapshot 作为最终状态校正；
-5. 随后发送 `event_id > W` 的 live events。
-
-重放可恢复日志和过程记录，最后的 snapshot 防止状态事件使 UI 倒退。重放期间产生的
-新事件在 live 阶段继续发送，不能遗漏 `W` 之后的数据。
+`accepted` 只表示控制请求已持久化。running job 的 pause/cancel 要等 worker 到安全点，
+更新状态和确认版本后才是 applied。queued/paused 等无 owner 状态的取消可在同一事务
+直接确认。
 
 ## 6. 客户端合并规则
 
-- 记住最后连续处理并确认的 `event_id`；
-- event_id 已处理的追加事件直接去重；
-- 状态更新的 `state_version` 小于当前版本时忽略；
-- 收到 snapshot 时以 snapshot 的执行状态、请求态、stage、进度和产物索引为准；
-- WS 断开时显示“正在重连／状态可能过期”，不能把旧缓存显示成实时状态；
-- 重连采用有限退避；待确认命令可复用原 `request_id` 重发查询结果。
+- 保存最后处理的 cursor，重连作为 `after_cursor`；
+- 非 snapshot 事件的 cursor 小于等于当前 cursor 时忽略；
+- 状态事件的 `state_version` 小于当前版本时只推进 cursor，不覆盖状态；
+- snapshot 覆盖当前状态字段，但不让 cursor 倒退；
+- 断线时显示离线状态并自动重连，不回退到 HTTP snapshot 轮询；
+- 待确认命令在断线时失败，由调用方决定是否复用原 request ID 重试。
 
-## 7. 服务端读取与推送
+## 7. 服务端可靠性与缺口
 
-- SQLite `job_events` 是可靠事件源；进程内通知只用于唤醒读取循环；
-- API 按 cursor 批量读取，不依赖 Redis Pub/Sub/Streams；
-- 每个连接设置发送队列上限。慢客户端超限时断开并要求 cursor 重连，不能无限占内存；
-- 事件设置明确保留期／上限。删除历史前记录每个 job 可用的最小 cursor；
-- 权限变更或会话失效时关闭订阅，不能继续推送任务内容。
-
-## 8. Failure Semantics
-
-- SQLite 暂时 busy：受限退避重试，不能丢弃已接受命令；
-- 事件序列出现缺口：发送 `cursor_reset`，不得假装连续；
-- payload 无法解析：发送协议错误并保留原事件用于诊断；
-- WebSocket 发送失败不回滚已经提交的业务状态；客户端通过 cursor 恢复；
-- 生产事件不得把 mock、占位文本或 provider 失败包装为成功 artifact。
+- SQLite `job_events` 是恢复来源；`InMemoryEventBus` 只用于测试或明确嵌入；
+- SQLite 订阅遇到暂时数据库错误会重连；单个 handler 异常不会毒死后续 cursor；
+- WebSocket 发送失败不回滚已提交状态，客户端通过 cursor 恢复；
+- 生产事件不得把 mock、占位文本或 provider 失败包装为成功 artifact；
+- 每连接发送队列上限、慢客户端断开策略、事件保留期和会话级授权撤销仍待实现。

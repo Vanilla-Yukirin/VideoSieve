@@ -14,7 +14,7 @@
 - `outputs/clean_transcript.md`
 - `outputs/illustrated_notes.md`
 - `outputs/summary.json`
-- `outputs/export.html` (optional)
+- `outputs/deliverables.ready.json`（最后发布的 generation readiness manifest）
 
 ## Options
 
@@ -35,7 +35,11 @@
 - missing chunk ratio
 - output length/section count
 
-## Failure & Fallback
+## Publishing and Failure
 
-- regenerate failed sections by chunk
-- keep partial outputs with explicit warnings
+- 严格校验 timeline 与 frame evidence 的 schema、身份、时间范围、引用和 source id；
+- clean transcript、illustrated notes 和可选 summary 先写 generation staging 文件；
+- 全部文件及其 SHA-256/大小通过后，逐个发布 canonical 文件，最后发布 manifest；
+- 任一步失败会删除 manifest、canonical 和 staging，API 不把半套或旧输出列为 ready；
+- `summary.json` 保存输入、配置、prompt、provider/model、覆盖率和调用轮次 provenance，
+  不保存 API key。

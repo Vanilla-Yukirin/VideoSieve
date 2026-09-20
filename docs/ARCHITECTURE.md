@@ -55,9 +55,9 @@ FunASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md
 ```text
 浏览器
   │
-  ├─ HTTP：页面/会话引导、上传、下载、健康检查
+  ├─ HTTP：认证、设置、项目/任务创建、上传、下载、健康检查
   │
-  └─ WebSocket：业务快照、命令、确认、进度、日志、产物事件
+  └─ WebSocket：job 快照、控制、确认、进度、日志、错误事件
                │
             FastAPI
                │
@@ -72,28 +72,32 @@ FunASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md
 
 ### 3.1 Next.js Web
 
-- 建立会话后，通过 WebSocket 获取项目／任务快照、发送业务命令并接收增量事件；
+- 任务页通过 WebSocket 获取 job 快照、发送控制命令并接收增量事件；
 - 使用事件游标和状态版本处理重连、去重及乱序；
-- 通过 HTTP 上传源文件、播放／下载大文件，并访问健康检查或初始登录引导；
+- 通过 HTTP 完成认证、设置、项目/任务创建、上传、播放、下载和健康检查；
 - 明确展示“请求已接收”和“worker 已确认生效”的区别。
 
 ### 3.2 FastAPI
 
 - 管理认证、WebSocket 会话、命令校验与持久化；
-- 创建项目和 job 时，原子写入配置快照引用与排队记录；
+- 创建 job 时先完整写入配置快照，再提交可领取的排队记录；
 - 从 SQLite 读取一致快照与持久事件，向 WebSocket 客户端重放和推送；
 - 提供受路径约束的上传、播放和产物下载；
 - 不在 API 进程内执行媒体流水线。
 
 ### 3.3 SQLite
 
-SQLite 是单机上的协调与事实存储，保存：
+SQLite 是单机上的协调与事实存储。当前 schema 保存：
 
-- `projects`、`jobs` 和 `job_stages`；
-- 控制请求及其 accepted/applied/rejected 状态；
-- `job_attempts`、worker 心跳和结束原因；
+- `projects` 和 `jobs`；job 行包含 stage、progress、错误、owner、attempt 计数与心跳；
+- 当前控制命令、request ID、版本以及 worker 确认版本；
 - 带单调游标的 `job_events`；
-- 产物索引、配置版本和操作记录。
+- 设置、认证用户、Cookie Vault、游客冷却和操作记录。
+
+当前没有独立的 `job_stages`、`job_attempts` 或 `artifacts` 表。阶段检查点和配置快照
+位于 workspace；最终产物由 `deliverables.ready.json` 索引，API 会核对文件大小和
+SHA-256 后才暴露。attempt 历史若以后需要，须另做 schema 迁移，不能从当前 attempt
+计数推导完整审计记录。
 
 数据库不保存视频、音频、图片或大段模型输入输出。长耗时下载、解码、推理和网络
 调用不得占用数据库事务。
@@ -103,7 +107,7 @@ SQLite 是单机上的协调与事实存储，保存：
 - 以短事务原子领取一个 queued job；
 - 从不可变 job 配置快照构建流水线；
 - 在昂贵调用前后、阶段边界和长循环内检查控制请求；
-- 保存 attempt、stage、状态、事件和产物引用；
+- 在 job 行保存当前 attempt、stage、状态与心跳，并持久化事件；
 - 崩溃或进程终止后留下可识别的 `interrupted` 证据，等待人工或受控恢复；
 - 不承载业务算法，算法继续位于 `packages/*`。
 
@@ -113,40 +117,34 @@ SQLite 是单机上的协调与事实存储，保存：
 ### 3.5 本地 workspace
 
 重数据按 project/job 隔离，规范以
-[workspace-layout.md](10_system/workspace-layout.md) 为准。产物先写 attempt 专属临时路径，
-校验完整后再原子发布，并在短事务内记录产物索引与成功事件。
+[workspace-layout.md](10_system/workspace-layout.md) 为准。当前 deliverables 先写同目录
+generation 临时文件，全部校验后逐个原子替换 canonical 文件，并把 readiness manifest
+最后发布。其它中间阶段尚未统一成 attempt 专属临时目录。
 
 ## 4. 端到端信息流
 
-1. 浏览器建立 WebSocket 会话，发送带 `request_id` 的创建命令；本地文件本体先通过
-   HTTP 上传，命令只引用已经确认的上传对象。
-2. API 校验输入和模型能力配置，冻结 job 配置快照，在同一短事务中写入 queued job、
-   命令结果和事件。
+1. 浏览器通过 HTTP 创建项目或任务；本地文件先上传到该项目的受限 staging 目录，
+   创建请求只引用服务端返回的 staging 路径。
+2. API 校验输入，冻结 job 配置快照；快照写入成功后才在 SQLite 提交 queued job。
 3. worker 通过条件更新原子领取 job，创建 attempt，将确认状态改为 running。
 4. worker 执行固定流水线：
    `ingest -> hotwords -> asr -> keyframes -> frame_summary -> fusion -> deliverables`。
-5. 每个阶段把重数据写入 workspace，把状态、进度、错误和产物引用写入 SQLite；
+5. 每个阶段把重数据写入 workspace，把状态、进度和错误写入 SQLite；
    进度事件需要限频或合并。
 6. API 按 `event_id` 读取持久事件并通过 WebSocket 推送。内存通知可以减少轮询延迟，
    但不能成为可靠性或恢复的前提。
-7. 浏览器重连时携带最后确认的事件游标。服务端重放仍在保留期内的事件，并发送
-   权威快照；若游标已过期则明确要求从快照重置。
+7. 浏览器重连时携带最后确认的事件游标。服务端重放该 cursor 之后的现存事件，再发送
+   权威快照。当前事件表不裁剪；实现保留期时必须补 cursor reset 协议。
 
 ## 5. 接口边界
 
-目标协议中，HTTP 只承担：
+当前接口边界是：
 
-- Web 页面、静态资源及初始认证／会话引导；
-- 本地媒体上传；
-- 源视频播放和产物下载；
-- liveness/readiness 健康检查。
-
-以下业务交互统一使用 WebSocket：
-
-- 项目和 job 的列表、详情与当前快照；
-- 创建 job、更新业务设置和阶段重跑；
-- pause/resume/cancel/delete；
-- 日志、进度、状态、错误与产物索引增量。
+- HTTP：认证、设置、项目与 job 的创建/查询/删除、Cookie Vault、上传、媒体/产物下载，
+  以及当前仅表示 API 进程存活的 `/healthz`；
+- WebSocket：单个 job 的权威 snapshot、cursor 重放、实时进度/日志/错误和
+  pause/resume/cancel/delete 控制；
+- 项目列表和设置目前仍是 HTTP，不把尚未实现的全业务 WS 写成现状。
 
 HTTP 文件传输和 WebSocket 控制共享同一认证与授权规则。不要通过 WebSocket 传输
 大视频或产物文件，也不要把下载 URL 当作业务状态真相。
@@ -170,11 +168,10 @@ job 的执行状态只表示系统已经确认的事实；请求态独立记录�
 
 ## 7. 事件与断线恢复
 
-事件保存在 SQLite，`event_id` 单调递增并作为 cursor。事件信封至少包含：
-
-- `schema_version`、`event_id`、`event_type`；
-- `project_id`、`job_id`、`state_version`；
-- `ts`、`payload`，命令相关事件另含 `request_id`。
+事件保存在 SQLite，`event_id` 单调递增并作为 cursor。数据库行包含 channel、
+project/job、event type、payload、timestamp、state version 和可选 request ID。当前
+WebSocket 信封发送 `event_type`、`cursor`、`state_version`、`request_id` 和 `payload`；
+`schema_version` 尚未加入线上信封。
 
 快照是状态事实，持久事件用于增量、审计和有限期重放；两者都通过 WebSocket 传给
 已建立会话的客户端。`state_version` 小于客户端当前版本的状态更新必须被忽略，日志等
@@ -189,8 +186,8 @@ job 的执行状态只表示系统已经确认的事实；请求态独立记录�
 - 启用 WAL、每连接 `foreign_keys=ON` 和合理的 `busy_timeout`；
 - API 与 worker 使用独立连接，只做短事务；
 - 业务状态变化与对应持久事件必须在同一事务提交，不能出现“状态已变但没有 cursor”窗口；
-- API 负责会话、命令、job 创建和业务配置写入；
-- worker 负责领取、attempt、stage、执行状态、产物和执行事件写入；
+- API 负责会话、控制命令、job 创建和业务配置写入；
+- worker 负责领取、当前 attempt、stage、执行状态和执行事件写入；
 - 写冲突必须按受限退避重试，耗尽后产生明确错误；
 - checkpoint 只是 WAL 维护，不等于任务崩溃恢复；
 - 外部模型调用无法承诺 exactly-once，必须保存已确认分块并展示不确定调用。

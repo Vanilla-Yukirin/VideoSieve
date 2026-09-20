@@ -33,10 +33,14 @@ uv sync --extra dev
 常用命令：
 
 ```powershell
-uv run pytest
+uv run python scripts/verify.py --profile quick
+uv run python scripts/verify.py --profile integration
 uv run ruff check .
 uv run mypy apps packages workers
 ```
+
+`pyproject.toml` 让裸 `uv run pytest` 覆盖 unit、contract 和 integration Python 测试；
+它仍不包含前端、静态检查和真实模型验收。日常完整检查使用上面的 harness 入口。
 
 当前 FunASR / PyTorch 已在主依赖中，`asr_local` extra 为空，无需额外安装该 extra。
 真实转写的生产默认 provider 为：

@@ -2,17 +2,18 @@
 
 ## Repository reality (checked 2026-09-20)
 
-- This is an implemented but incomplete prototype. API, Web, business packages,
-  workers, Python/TypeScript tests and dependency lockfiles already exist.
-- FastAPI jobs currently execute in API daemon threads. `workers/celery_app.py`
-  is a plain Python adapter, not a running Celery worker.
-- `RedisEventBus` only implements in-memory delivery; live Redis methods raise
-  `NotImplementedError`. Celery and Redis are not active runtime services.
-- Real FunASR and Qwen-compatible frame-summary adapters exist. ASR defaults to a
-  mock, frame-summary errors can become placeholders, and final summary generation
-  concatenates text. Do not describe this as a production-ready model pipeline.
-- Target scope confirmed by the user: one computer/server, one or a few users.
-  SQLite plus a separate Python worker is proposed, not yet implemented.
+- This is an implemented single-host application with incomplete real-provider acceptance.
+  API, Web, business packages, an independent worker, tests and lockfiles exist.
+- FastAPI only persists queued jobs. `workers/single_host.py` claims them from SQLite;
+  `workers/runtime.py` is the thin execution adapter. Celery and Redis are not used.
+- SQLite persists queue ownership, attempts, progress, control versions and cursor events.
+  `InMemoryEventBus` is an explicit test/embedding adapter, never the default runtime bus.
+- Production ASR defaults to real local FunASR. Frame-summary and overall-summary failures
+  are explicit; test doubles live under `tests/`. Final deliverables publish a hashed
+  readiness manifest only after the complete generation is ready.
+- Target scope confirmed by the user: one computer/server, one or a few users. The
+  SQLite plus separate Python worker architecture is implemented; real video/provider
+  output and target-host service supervision still require acceptance evidence.
 - `.cursor/rules/`, `.cursorrules`, and `.github/copilot-instructions.md` were absent
   at this check. Read applicable rule files if added later.
 
@@ -32,7 +33,7 @@ Use `uv` and `.venv`; conda activation is not required. `.python-version` select
 Python 3.12; `pyproject.toml` allows Python >=3.11. Follow the checked-in pin for
 local setup. Check an existing environment before recreating it.
 
-These commands are defined by current config/docs, not a claim that they passed:
+These commands are the current repository entrypoints; report the result of each run:
 
 ```powershell
 uv sync --extra dev
@@ -46,10 +47,11 @@ npm --prefix apps/web run build
 npm --prefix apps/web test -- --runInBand
 ```
 
-The frontend lint script exists, but dependency compatibility needs verification.
-FunASR/PyTorch are currently main dependencies; `asr_local` is an empty extra.
-See `how_to_run.md` for current startup and configuration. A standalone queue
-worker command does not exist yet. Do not prescribe Redis/Celery startup.
+Bare `uv run pytest` discovers unit, contract and integration Python suites. The harness
+also runs frontend and static checks. FunASR/PyTorch are currently main dependencies;
+`asr_local` is an empty extra. See `how_to_run.md` for startup and configuration. Start
+the independent worker with `uv run python -m workers.single_host --data-dir runtime/api`.
+Do not prescribe Redis/Celery startup.
 
 ## Implementation conventions
 
@@ -67,11 +69,11 @@ worker command does not exist yet. Do not prescribe Redis/Celery startup.
   `code/message/hint/retryable` envelope where applicable. Preserve exception causes.
 - New or changed production paths must not turn missing configuration, provider
   failures or malformed responses into successful mock content. Test doubles belong
-  in tests. Existing fallback paths are tracked as rebuild defects.
+  in tests.
 - Preserve raw transcripts and evidence separately from model-written outputs.
 - Interruption is cooperative: check before/after expensive operations and within
   long loops. Requested pause/cancel and confirmed stopped states are distinct.
-- HTTP snapshots are authoritative; live events incrementally refresh the UI.
+- Job WebSocket snapshots are authoritative; persisted cursor events incrementally refresh the UI.
 - Keep secrets out of Git, logs, snapshots and generated deliverables.
 
 ## Verification and completion

@@ -1,7 +1,7 @@
 # App: web
 
-状态：当前页面已实现 REST + WS 混合流程；目标协议改为 WebSocket 业务快照、命令和
-增量事件。下列 `[已实现]` 只描述迁移前当前代码。
+状态：当前页面使用 REST 完成认证、设置、项目/任务创建和文件传输；job 实时快照、
+控制与增量事件使用 WebSocket。下列 `[已实现]` 描述当前代码路径。
 
 ## Purpose
 
@@ -61,24 +61,17 @@ Web 应用负责“用户看到什么 + 前端如何做决策”，覆盖：
 
 ## Realtime Model
 
-当前实现：
-
-- **[已实现]** 任务页先拉 `GET /jobs/{job_id}/snapshot`，再连接
-  `/ws/jobs/{job_id}` 接收增量；
-- **[已实现]** WS 断开时回退 HTTP snapshot 轮询。
-
-目标契约：
-
-- **[规划中]** 会话建立后，通过 WS 获得权威 snapshot，业务状态不再依赖 HTTP 轮询；
-- **[规划中]** 客户端保存最后连续 `event_id`，重连发送 `after_event_id`；
-- **[规划中]** 服务端重放后发送 snapshot 校正；cursor 过期时明确发送 `cursor_reset`；
-- **[规划中]** 状态更新按 `state_version` 防倒退，追加事件按 `event_id` 去重；
-- **[规划中]** 命令携带稳定 `request_id`，断线重发不会重复执行；
+- **[已实现]** 任务页连接 `/ws/jobs/{job_id}`，服务端先在 barrier 内重放缺失事件，
+  再发送权威 snapshot，随后放行连接建立期间缓存的 live events；
+- **[已实现]** 客户端保存最后 cursor，重连发送 `after_cursor`；重复或较旧 cursor 被忽略；
+- **[已实现]** 状态更新按 `state_version` 防倒退，追加事件按 cursor 去重；
+- **[已实现]** 命令携带 `request_id`，后端持久化当前请求 ID 与控制版本以保证重复提交幂等；
 - **[已实现]** 控制命令通过 WebSocket 返回 accepted/applied phase；UI 在 worker 确认前
   保持原执行状态并显示等待提示，收到 `job_state_changed` 后再显示 paused/cancelled；
-- **[规划中]** 断线期间显示状态可能过期，不把本地缓存冒充实时结果。
+- **[已实现]** WS 断开时显示连接状态并自动重连，不回退到 HTTP snapshot 轮询；
+- **[规划中]** 事件保留期与 `cursor_reset` 尚未实现；当前事件表不主动裁剪。
 
-HTTP 在目标架构中保留给页面／初始会话、上传、播放／下载和健康检查。视频与产物
+HTTP 保留给认证、设置、项目/任务 CRUD、上传、播放/下载和健康检查。视频与产物
 本体不通过 WebSocket 传输。
 
 ## i18n

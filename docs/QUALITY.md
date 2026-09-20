@@ -19,11 +19,23 @@ uv run python scripts/verify.py --profile quick
 uv run python scripts/verify.py --profile integration
 ```
 
-准备发布时必须提供与当前 Git revision 一致的真实模型验收记录：
+裸 `uv run pytest` 会执行 unit、contract 和 integration Python 测试，但不会执行前端、
+静态检查或真实模型验收，因此不能代替 harness。
+
+Ruff 排除 `packages/asr/vendor` 和 `tests/funasr_bug_validation`：两处是上游派生代码或
+需要真实 GPU/音频的手工复现脚本，不属于维护中的应用与自动测试 gate。普通 unit、
+contract 和 integration 套件仍全部进入 Ruff 与 pytest。
+
+准备发布时必须保证所有 tracked 文件与 `HEAD` 一致，并提供与当前 Git revision 一致的
+真实模型验收记录：
 
 ```powershell
 uv run python scripts/verify.py --profile release `
   --real-evidence D:\evidence\videosieve-real-model.json
 ```
+
+release 会重新计算输入媒体和三类模型产物的 SHA-256，以 `ffprobe` 复核媒体时长，并要求
+每个模型阶段记录 provider、model 以及 request ID 或同一次验收的 run ID。仅填写声明、
+仅指向非空文件或使用名称含 `test`/`mock`/`placeholder` 的配置都不能通过。
 
 旧的人工打分表只能用于视觉体验讨论，不是合并或发布依据。

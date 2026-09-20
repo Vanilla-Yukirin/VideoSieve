@@ -22,7 +22,8 @@
 
 - `language_hint` (default `None`)
 - `provider` (default `QwenFrameSummaryProvider`)
-- `QWEN_API_KEY` / `QWEN_BASE_URL` / `VLM_MODEL` / `VLM_TIMEOUT_SECONDS`
+- `QWEN_API_KEY`（secret 环境变量）
+- job snapshot 中冻结的 base URL、model、prompt、concurrency、RPM
 
 ## Metrics
 
@@ -30,6 +31,9 @@
 - per-frame latency
 - non-empty description ratio
 
-## Failure & Fallback
+## Failure Semantics
 
-- network/API failure returns offline placeholder text and keeps pipeline moving
+- 缺配置、缺 key、网络、HTTP、畸形响应和空响应均产生带 code/hint/retryable 的失败；
+- 不写 offline placeholder，也不把失败帧包装成成功 JSONL；
+- 输出先写临时文件，全部请求成功并校验后再替换 canonical 文件；
+- test provider 只能通过测试依赖注入使用。

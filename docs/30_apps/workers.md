@@ -1,7 +1,7 @@
 # App: workers
 
 状态：已实现。`workers/single_host.py` 是 SQLite 队列的独立进程入口；
-`workers/celery_app.py` 只保留薄适配器名称，不表示存在 Celery 运行时。自动化测试覆盖
+`workers/runtime.py` 是薄执行适配器，不表示存在 Celery 运行时。自动化测试覆盖
 跨进程领取与恢复，真实媒体执行仍按 harness 单独验收。
 
 ## Purpose
@@ -15,14 +15,14 @@ uv run python -m workers.single_host --data-dir runtime/api
 
 ## Responsibilities
 
-- 启动时取得 OS 级单实例锁并注册 worker identity；
+- 启动时取得 OS 级单实例锁并生成 worker identity；
 - 通过短事务原子领取 queued job，创建唯一 attempt；
 - 读取并校验不可变 job config snapshot；
 - 调用 pipeline stage，不在入口层实现业务算法；
-- 更新心跳、stage、执行确认态、持久事件和产物索引；
+- 更新心跳、stage、持久进度、执行确认态和持久事件；
 - 检查 pause/cancel/delete 请求并在安全点应用；
-- 受控管理 FFmpeg、yt-dlp、本地模型等子进程；
-- 优雅退出时停止领取新任务，处理当前 attempt 并留下明确结束原因。
+- 调用 ingest/provider 层管理 FFmpeg、yt-dlp 和本地模型；
+- 所有状态和进度写入按 worker identity + attempt fence，旧尝试失去租约后不能覆盖新状态。
 
 ## Claim Loop
 
@@ -56,23 +56,21 @@ API 写入请求只产生 `accepted` ack。worker 到达安全点、保存恢复
 
 ## Artifact Publishing
 
-- 写入 attempt 专属临时目录；
-- fsync／关闭文件后执行格式、完整性和引用校验；
-- 在同一文件系统内原子重命名到 canonical path；
-- 再用短事务登记 artifact 和 `artifact_ready`；
-- 启动恢复时检查“文件已发布但数据库未提交”的窗口，不能直接宣布成功。
+- deliverables 先写 canonical 目录中的 generation 临时文件；
+- 关闭文件后执行输入、格式、引用和 provenance 校验；
+- 在同一文件系统内逐个原子替换 canonical 文件；
+- 最后发布带文件大小与 SHA-256 的 `deliverables.ready.json`；
+- API 只有在 manifest 与 canonical 文件一致时才暴露最终产物。
+
+当前尚未对所有中间阶段实现 attempt 专属临时目录或显式 fsync；这两项不能作为现有
+崩溃一致性保证。
 
 ## Shutdown
 
-收到服务停止信号后：
-
-1. 停止领取新 job；
-2. 请求当前 stage 在安全点结束；
-3. 在宽限期内保存状态并释放子进程；
-4. 无法安全完成时把 attempt 标记 interrupted，保留诊断信息；
-5. 释放单实例锁。
-
-强制杀进程不是普通 pause/cancel 实现。
+当前入口捕获空闲轮询期间的 `KeyboardInterrupt`，关闭 SQLite/event bus 并释放单实例锁。
+active pipeline 的完整优雅停机、宽限期和受管理子进程树尚未实现；服务管理器终止 active
+worker 后，依靠 heartbeat 超时与显式恢复处理。强制杀进程不是普通 pause/cancel 实现，
+部署时不得把收到停止信号直接写成已安全暂停。
 
 ## Verification
 

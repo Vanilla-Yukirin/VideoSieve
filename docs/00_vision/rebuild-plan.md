@@ -61,15 +61,20 @@ API 与 worker 分进程，API 重启不应杀死正在运行的计算任务。
 - WebSocket 沿用现有前端通道。API 按事件游标批量读取 SQLite 后推送；
   内存通知最多用于加速，不承担可靠性。无需另换 SSE 才能移除 Redis。
 
-### 3.1 最小持久化模型
+### 3.1 当前最小持久化模型
 
-在现有 projects/jobs/settings 基础上，通过版本化迁移补齐：
+当前实现复用并扩展现有表，没有创建规划稿中的独立 stage/attempt/artifact 表：
 
-- `jobs`：排队顺序、实际状态、期望动作、配置快照、当前执行标识、重试时间。
-- `job_stages`：阶段状态、输入指纹、尝试次数、错误、进度和输出引用。
-- `job_attempts`：worker 身份、开始时间、心跳、结束原因，关联一次执行。
-- `job_events`：单调递增 ID、job、事件类型、必要内容与时间，用于恢复和追踪。
-- `artifacts`：产物类型、路径、校验信息、来源阶段及所属执行。
+- `jobs`：排队顺序、实际状态、当前 stage/progress、错误、worker ID、attempt 计数、
+  心跳、控制请求/确认版本和 state version；
+- `job_events`：单调递增 ID、job、事件类型、必要内容、state version 与 request ID；
+- `projects`、settings、auth、Cookie Vault、游客冷却和操作记录继续保存在 SQLite；
+- job 配置、阶段 checkpoint 和重数据保存在 workspace；
+- 最终 deliverables 的路径、大小和 SHA-256 保存在最后发布的
+  `outputs/deliverables.ready.json`，API 每次暴露前重新核对。
+
+因此当前 `attempt` 只是当前领取代数，不能回答完整 attempt 历史；阶段恢复信息也不是
+数据库行。需要完整审计时再新增版本化表迁移，不能在文档里提前把它写成已交付。
 
 详细日志可继续写文件；必要事件落库。进度限频合并，事件和日志设置保留策略。
 不把每一帧的高频数据都写成数据库事件。
@@ -84,8 +89,9 @@ API 与 worker 分进程，API 重启不应杀死正在运行的计算任务。
    再派发仍可能运行的任务。确认旧执行及子进程退出后，才能恢复或重试。
 5. worker 崩溃后的任务标记为 interrupted 并给出恢复入口，排队任务保留。
    已有成功阶段只有在输入/配置指纹及产物校验匹配时才可复用。
-6. 产物先写执行专属临时路径，完整写入后原子发布，再提交数据库产物引用与
-   阶段成功事件。启动恢复时处理“文件已发布但数据库未提交”的窗口。
+6. 当前 deliverables 先写同目录 generation 临时文件，校验后逐个原子替换 canonical
+   文件，并最后发布 readiness manifest。API 以 manifest 为可见性提交点。其它中间阶段
+   尚未统一使用 attempt 专属目录，仍需继续收敛。
 7. 外部模型调用不承诺 exactly-once；响应返回前后发生崩溃可能导致重复调用和费用。
    保存已确认的分块结果，并在恢复时说明不确定的调用。
 

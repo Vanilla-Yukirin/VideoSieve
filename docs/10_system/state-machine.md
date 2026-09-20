@@ -1,12 +1,12 @@
 # Job State Machine
 
-状态：目标契约，独立 worker 迁移完成前不得标记为已实现。
+状态：job 执行与控制主路径已实现；attempt 历史和 stage 级 interrupted 仍是缺口。
 
 ## 1. 三类状态不能混用
 
-### 1.1 执行确认态 `execution_state`
+### 1.1 执行确认态 `status`
 
-`execution_state` 只记录系统已经确认的执行事实：
+`status` 只记录系统已经确认的执行事实：
 
 - `queued`：已持久入队，当前没有 worker owner；
 - `running`：某个 attempt 已原子领取并正在执行；
@@ -19,37 +19,34 @@
 `queued/running/paused` 是执行确认态。`pause_requested`、`cancel_requested` 等不是
 执行结果，不能写入同一字段伪装成已停止。
 
-### 1.2 请求态 `requested_action`
+### 1.2 当前控制请求
 
-控制意图独立保存：
+控制意图与执行状态使用独立列保存。当前 job 行只保留最新命令：
 
-- `none`；
-- `pause_requested`；
-- `resume_requested`；
-- `cancel_requested`；
-- `delete_requested`；
-- `recover_requested`。
+- `pause`；
+- `resume`；
+- `cancel`；
+- 删除等待另由 `delete_pending` 表示。
 
-每条控制请求还拥有独立生命周期：
+`control_version` 与 `control_ack_version` 区分请求和 worker 确认，snapshot 映射为：
 
 - `accepted`：已持久化且当前语义合法；
 - `applied`：负责执行的一方已确认动作生效；
 - `rejected`：命令不合法或与当前状态冲突；
-- `failed`：命令合法并被接受，但执行动作失败。
+- `failed` 仍是协议保留值，当前控制路径没有独立失败历史表。
+
+当前仅保存最新请求，不是 append-only control history。重复 `request_id` 幂等；不同请求
+在并发状态变化时通过 expected status/state version 条件更新拒绝陈旧写入。
 
 `accepted` 不能当作 `applied`。UI 可把 `running + pause_requested` 显示为“正在暂停”，
 但不得显示为“已暂停”。
 
-### 1.3 Attempt 状态
+### 1.3 Attempt 所有权
 
-一次领取产生一个不可复用的 `attempt_id`：
-
-- `active`：worker 持有 job；
-- `completed`：正常结束；
-- `interrupted`：异常失联或进程退出；
-- `abandoned`：恢复流程确认旧执行已终止并放弃该 attempt。
-
-新 attempt 不能复用旧 attempt 的临时输出目录。
+一次领取递增 job 行的整数 `attempt`，同时写 `worker_id/claimed_at/heartbeat_at`。worker
+更新状态、进度、心跳和释放所有权时都以 worker ID + attempt 做 fence。当前没有独立
+attempt ID、历史状态表或 attempt 临时目录，因此只能证明陈旧 owner 不能覆盖新状态，
+不能提供完整 attempt 审计。
 
 ## 2. 执行状态转换
 
@@ -58,7 +55,7 @@ create -> queued -> running -> succeeded
                     |   |
                     |   +-> failed
                     |   +-> cancelled
-                    |   +-> paused -> queued -> running
+                    |   +-> paused -> running
                     |
                     +-> interrupted -> queued    (显式恢复并确认旧执行已停止)
                                   \-> failed
@@ -70,9 +67,9 @@ paused -> cancelled
 
 规则：
 
-1. `queued -> running` 只能由 worker 的原子领取事务完成，并创建新 attempt。
+1. `queued -> running` 只能由 worker 的原子领取事务完成，并递增 attempt。
 2. `running -> paused` 只能由当前 owner 在安全点保存检查点并释放执行后完成。
-3. `paused -> queued` 是已接受 resume 的应用结果；随后由新 attempt 领取。
+3. paused job 接受 resume 后仍保持 paused；worker 原子领取时直接转为 running。
 4. `running -> cancelled` 必须先停止后续工作并清理受管理子进程。
 5. `succeeded/failed/cancelled` 是终态；重跑创建新 job，不复活旧 job。
 6. `interrupted` 阻止普通领取。只有显式恢复流程确认旧 worker 和子进程已退出、
@@ -90,11 +87,13 @@ paused -> cancelled
 
 模型请求或本地推理不能立即中断时，job 保持 running，UI 显示“正在暂停”。
 
-### Resume
+### Resume / interrupted recovery
 
-1. 仅 paused job 可接受 `resume_requested`。
-2. 协调逻辑校验检查点和配置指纹后，将 job 置为 queued，并把请求标记 applied。
-3. worker 下一次领取创建新 attempt；领取前不显示 running。
+1. paused job 接受 resume 后保持 paused，worker 下一次领取时进入 running 并确认命令；
+2. interrupted job 也复用 resume 命令显式恢复为 queued；条件更新保证状态版本未变化；
+3. 当前恢复入口没有记录“旧进程已停止”的外部证据，也未完整校验所有阶段产物，调用者
+   和部署流程必须先确认旧 worker 已退出；
+4. worker 下一次领取递增 attempt；领取前不显示 running。
 
 ### Cancel
 
@@ -107,38 +106,34 @@ paused -> cancelled
 delete 是两阶段动作：先达到 succeeded/failed/cancelled 等可清理状态，再删除 workspace
 与关联数据。清理完成前保持 `delete_requested`，并返回 `DELETE_PENDING_CLEANUP`。
 
-### Recover
-
-recover 只允许用于 interrupted job。恢复流程必须记录操作者／监督器、旧 attempt、
-进程终止证据、产物校验结果和新的恢复边界。
-
 ## 4. Command × ExecutionState
 
 `ALLOW` 表示可以创建请求；`NOOP` 表示返回现有结果；`ERROR` 表示拒绝。
 
-| ExecutionState | pause | resume | cancel | delete | recover |
-| --- | --- | --- | --- | --- | --- |
-| `queued` | `ERROR` | `ERROR` | `ALLOW` | `ALLOW` | `ERROR` |
-| `running` | `ALLOW` | `ERROR` | `ALLOW` | `ALLOW` | `ERROR` |
-| `paused` | `NOOP` | `ALLOW` | `ALLOW` | `ALLOW` | `ERROR` |
-| `interrupted` | `ERROR` | `ERROR` | `ALLOW` | `ALLOW` | `ALLOW` |
-| `succeeded` | `ERROR` | `ERROR` | `NOOP` | `ALLOW` | `ERROR` |
-| `failed` | `ERROR` | `ERROR` | `NOOP` | `ALLOW` | `ERROR` |
-| `cancelled` | `ERROR` | `ERROR` | `NOOP` | `ALLOW` | `ERROR` |
+| ExecutionState | pause | resume | cancel | delete |
+| --- | --- | --- | --- | --- |
+| `queued` | `NOOP` | `ERROR` | `ALLOW` | `ALLOW` |
+| `running` | `ALLOW` | `NOOP` | `ALLOW` | `ALLOW` |
+| `paused` | `NOOP` | `ALLOW` | `ALLOW` | `ALLOW` |
+| `interrupted` | `NOOP` | `ALLOW` | `ALLOW` | `ALLOW` |
+| `succeeded` | `NOOP` | `NOOP` | `NOOP` | `ALLOW` |
+| `failed` | `NOOP` | `NOOP` | `NOOP` | `ALLOW` |
+| `cancelled` | `NOOP` | `NOOP` | `NOOP` | `ALLOW` |
 
-同一 job 已存在未完成控制请求时，新请求必须按命令组合规则去重、合并或返回
-`CONTROL_CONFLICT`，不能通过后写覆盖先写隐藏竞争。
+同一 request ID 必须幂等。当前 schema 只保存最新控制请求；不同 request ID 在状态版本
+仍匹配时可以由后一个命令取代前一个，完整命令历史和显式冲突矩阵尚未实现。
 
 ## 5. Stage 状态
 
 stage 状态为：
 
-`pending -> running -> succeeded|failed|skipped|interrupted`
+`pending -> running -> succeeded|failed|skipped`
 
 - `skipped` 只用于配置明确禁用或依赖规则明确跳过的阶段；
 - provider 失败、空响应或缺少必要配置不能标记 skipped；
 - 恢复只能复用输入指纹、配置指纹和产物校验全部匹配的 succeeded stage；
-- running attempt 异常终止时，当前 stage 标记 interrupted，不伪装为 pending 或 failed。
+- running worker 异常终止时，job 标记 interrupted；当前 checkpoint 没有独立 stage
+  interrupted 值。
 
 ## 6. 版本、幂等与错误
 
@@ -153,7 +148,7 @@ stage 状态为：
 - `ALREADY_IN_TARGET_STATE`；
 - `JOB_NOT_ACTIVE`；
 - `DELETE_PENDING_CLEANUP`；
-- `CONTROL_CONFLICT`；
-- `STALE_STATE_VERSION`；
-- `ATTEMPT_OWNERSHIP_LOST`；
-- `RECOVERY_REQUIRES_STOP_CONFIRMATION`。
+- `CONTROL_CONFLICT`（已注册，当前控制路径尚未返回）；
+
+后续新增错误码时必须先进入 `packages/core/error_codes.py` 或对应模块的稳定错误注册表，
+不能只在文档中声明。

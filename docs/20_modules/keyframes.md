@@ -53,5 +53,6 @@
 
 ## Failure & Fallback
 
-- auto relax threshold when output too small
-- fallback to periodic sampling
+- 算法选择失败时可退回周期时间点，但仍必须从真实源视频提取每张图片；
+- 源视频缺失、OpenCV 不可用、选择为空或任一图片未落盘会使 stage 明确失败；
+- 不再写只有 JSONL 元数据、没有实际图片的成功结果。

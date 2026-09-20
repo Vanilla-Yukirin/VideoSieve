@@ -1,7 +1,8 @@
 # App: api
 
-状态：SQLite 队列与任务 WebSocket 控制面已实现。现有 REST 路由仍承担认证、设置、
-创建、上传和下载等迁移接口；标为 `implemented` 只表示代码路径存在，不代替运行验收。
+状态：SQLite 队列与 job WebSocket 控制面已实现。REST 路由承担认证、设置、项目与
+任务创建、上传和下载；这就是当前接口边界，不再把它描述成等待全量迁移到 WS 的旧接口。
+标为 `implemented` 只表示代码路径存在，不代替运行验收。
 
 ## Purpose
 
@@ -24,14 +25,14 @@
 ## Interfaces
 
 Current runtime exposes REST endpoints for auth/settings/project/job/config/artifact and a
-job WebSocket channel. The target split is:
+job WebSocket channel. The implemented split is:
 
-- HTTP: page/session bootstrap, upload, media/artifact download and health only;
-- WebSocket: business list/detail snapshots, create/update/control commands and cursor events;
+- HTTP: authentication, settings, project/job CRUD, upload, media/artifact download and health;
+- WebSocket: one job's authoritative snapshot, control commands and cursor events;
 - large binary files never travel inside WebSocket messages.
 
-The exact target WS route and command registry must be versioned with
-`docs/10_system/events-and-websocket.md`; current `/ws/jobs/{job_id}` remains a migration surface.
+The `/ws/jobs/{job_id}` route and command registry are versioned with
+`docs/10_system/events-and-websocket.md`.
 
 Status markers used below:
 - `implemented`: code path observed in the rebuild audit; runtime/E2E validation is separate.
@@ -44,6 +45,8 @@ Key REST endpoints:
 - `implemented` `GET /guest/cooldown`: global cooldown state (`active`, `remaining_seconds`, `cooldown_seconds`).
 - `implemented` `POST /ingest/probe`: URL format probe only (no download).
 - `implemented` `POST /jobs`: create a job snapshot and persist a queued job in the audited REST path.
+- `implemented` `POST /projects/{project_id}/jobs/upload`: stage an upload inside the project's
+  workspace, then create a job; rejected job creation removes the staged file.
 - `implemented` `GET /jobs/{job_id}/source-video`: returns workspace `media/source.mp4` for player/download.
 - `implemented` Cookie Vault: `POST /me/cookies`, `GET /me/cookies`, `PATCH /me/cookies/{cookie_id}`, `DELETE /me/cookies/{cookie_id}`.
 - `implemented` `POST /me/cookies/{cookie_id}/validate`: validate cookie against a concrete video page URL.
@@ -60,8 +63,9 @@ Cookie validate notes:
 - `implemented` homepage/root URLs (for example `https://www.bilibili.com` or `https://bilibili.com/`) are rejected to avoid false-negative validation.
 
 Artifact exposure notes:
-- `implemented` `GET /jobs/{job_id}/artifacts` returns artifact metadata list (`path`, `size_bytes`).
-- `planned` generic per-artifact download routes and signed URLs are documented in artifact realtime expansion plan.
+- `implemented` `GET /jobs/{job_id}/artifacts` only returns final deliverables whose readiness
+  manifest matches project/job identity and whose file size/SHA-256 still matches.
+- `implemented` constrained download routes expose individual artifacts and the keyframe archive.
 
 ## Control Semantics
 
@@ -74,8 +78,9 @@ Artifact exposure notes:
 ## Notes
 
 - API 不直接实现算法，算法由 `packages/*` 提供
-- target state truth is a WebSocket snapshot backed by SQLite; increments use persisted event cursor
+- job state truth is a WebSocket snapshot backed by SQLite; increments use persisted event cursor
 - process-local notifications may wake the gateway but are never the recovery source
+- `/healthz` currently proves API liveness only; DB/workspace/worker readiness is not yet implemented.
 - `APP_SECRET_KEY` is a startup precondition for API runtime; missing key fails fast at startup.
 - `implemented` API error semantics in runtime:
   - `auth_required`, `invalid_credentials`, `bootstrap_required`

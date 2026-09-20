@@ -6,7 +6,8 @@ It is contract-oriented (meaning and boundaries), not implementation-oriented (S
 ## 1. Contract Principles
 
 - Heavy data stays on workspace storage; persistence stores indexes, state snapshots, and references.
-- All contracts include `schema_version`.
+- 持久 JSON/JSONL 媒体产物包含 `schema_version`。当前 API snapshot 与 WS 信封尚未
+  统一加入该字段，不能把目标版本字段写成线上事实。
 - Field evolution is additive-first; breaking changes require migration notes.
 - Naming remains stable across modules: `project` (long-lived container) vs `job` (single run).
 - Contract descriptions use explicit `required` / `optional` labels.
@@ -42,54 +43,53 @@ Example:
 }
 ```
 
-### 2.2 Job [当前基础已存在；目标字段待迁移]
+### 2.2 Job [当前实现]
 
 - Purpose: one execution run bound to a project.
-- Required:
-  - `schema_version`
-  - `job_id`
-  - `project_id`
-  - `config_snapshot_path`
-  - `execution_state`
-  - `requested_action`
-  - `state_version`
-- Optional:
-  - `started_at`
-  - `finished_at`
+- Snapshot required: `project_id`, `job_id`, `state_version`, `status`, `attempt`, `progress`,
+  `latest_logs`, `artifacts`.
+- Snapshot optional: `current_stage`, `requested_action`, `control_phase`, `control_request_id`,
+  `error_code`, `error_message`.
+- SQLite job rows additionally retain worker ownership/heartbeat and control request/ack versions.
+- Immutable execution config is stored at `meta/config.snapshot.json`; the current SQLite row does
+  not duplicate its path.
 
 Example:
 ```json
 {
-  "schema_version": "1.0",
   "job_id": "j_20260208_001",
   "project_id": "p_20260208_001",
-  "config_snapshot_path": "workspaces/p_20260208_001/jobs/j_20260208_001/meta/config.snapshot.json",
-  "execution_state": "running",
-  "requested_action": "pause_requested",
+  "status": "running",
+  "requested_action": "pause",
   "state_version": 27,
-  "started_at": "2026-02-08T10:00:05Z",
-  "finished_at": null
+  "attempt": 2,
+  "progress": 42.5,
+  "latest_logs": [],
+  "artifacts": []
 }
 ```
 
-Current code still exposes a legacy `status` shape in places. It must be migrated atomically with
-the state-machine and WebSocket contracts; documentation does not make the target fields available.
+`status` is the canonical current snapshot field. A future rename to `execution_state` would require
+a versioned migration; this document does not make that planned name available today.
 
-### 2.3 JobAttempt [目标契约（target）]
+### 2.3 JobAttempt [future schema]
 
 - Required: `attempt_id`, `job_id`, `worker_id`, `status`, `started_at`, `heartbeat_at`
 - Optional: `finished_at`, `end_reason`, `resume_from`, `parent_attempt_id`
-- A heartbeat timeout may set the attempt/job to interrupted, but cannot create a replacement attempt.
+- Current SQLite stores only the current worker ID, numeric attempt counter and heartbeat on `jobs`;
+  it does not retain a separate attempt history.
+- A heartbeat timeout may set the job to interrupted, but cannot create a replacement attempt.
 
-### 2.4 ControlRequest [目标契约（target）]
+### 2.4 ControlRequest [当前最小实现]
 
-- Required: `request_id`, `job_id`, `command`, `phase`, `requested_at`
-- Optional: `applied_at`, `code`, `message`, `actor_id`
+- The job row stores the latest `request_id`, command, request/ack versions and timestamps.
+- WebSocket `control_ack` exposes `request_id`, command outcome and `accepted|applied|rejected` phase.
+- A separate append-only control-request history table is not implemented.
 - `phase` is `accepted|applied|rejected|failed`; accepted never proves computation stopped.
 
-### 2.5 StageState [已实现基础；恢复字段待迁移]
+### 2.5 StageState [workspace checkpoint]
 
-- Purpose: per-stage state snapshot under a job.
+- Purpose: pipeline checkpoint 中的 per-stage 状态；当前没有 `job_stages` 数据库表。
 - Required:
   - `schema_version`
   - `project_id`
@@ -100,12 +100,13 @@ the state-machine and WebSocket contracts; documentation does not make the targe
 - Optional:
   - `pct` (0-100)
 
-### 2.6 Snapshot and Event Baseline [目标契约（target）]
+### 2.6 Snapshot and Event Baseline [当前实现]
 
 - `snapshot`: point-in-time state record, delivered through WebSocket after session establishment.
 - `event`: SQLite-persisted append record with a monotonically increasing `event_id` cursor.
 - Snapshot is authoritative for current state; retained events restore incremental history.
-- Reconnect uses `after_event_id`; an expired or discontinuous cursor requires explicit reset.
+- Reconnect uses `after_cursor`. Event expiry and explicit `cursor_reset` are not implemented because
+  current `job_events` rows are not automatically pruned.
 
 ## 3. Media and Processing Artifacts
 
@@ -144,29 +145,24 @@ Example JSONL line:
 - Optional per chunk:
   - `transcript_refs[]`, `frame_refs[]`, `frame_summary_refs[]`
 
-### 3.5 ArtifactDescriptor [规划中（planned）]
+### 3.5 ArtifactDescriptor [当前 final deliverables]
 
-- Purpose: unified description for produced artifacts across APIs/events/UI.
-- Required:
-  - `project_id`
-  - `job_id`
-  - `artifact_type` (for example `clean_transcript`, `illustrated_notes`, `summary`, `export_html`)
-  - `path_or_url`
-  - `snapshot_at`
-- Optional:
-  - `size_bytes`
-  - `mime_type`
-  - `checksum`
+- `deliverables.ready.json` requires project/job identity, generation ID, source/config hashes,
+  coverage/provenance and an artifact list.
+- Each artifact entry requires `artifact_type`, job-relative `path`, `size_bytes` and `sha256`.
+- API returns only entries whose manifest and canonical file still match.
 
-### 3.6 Artifact realtime semantics [规划中（planned）]
+### 3.6 Artifact realtime semantics [部分实现]
 
 - `artifact_ready` is an event signal only; durability is confirmed by artifact snapshot/read API.
 - Repeated `artifact_ready` for the same artifact is idempotent and acceptable.
 - Client/UI should converge to latest snapshot if event loss occurs.
+- A dedicated `artifact_ready` publication for every deliverable remains incomplete; snapshot/API
+  manifest validation is the current readiness authority.
 
 ## 4. Event Envelope and Error Envelope
 
-### 4.1 EventEnvelope [目标契约（target）]
+### 4.1 EventEnvelope [当前实现]
 
 - Required:
   - `schema_version`
@@ -190,8 +186,9 @@ Known `event_type` values:
 - `artifact_ready`
 - `artifact_removed`
 
-Connection-level messages include `snapshot` and `cursor_reset`; they do not need a new persisted
-event row. Ordering and deduplication use `event_id`, not timestamps.
+Connection-level `snapshot` is not a persisted event row. `cursor_reset` is reserved but not yet
+implemented. Ordering and deduplication use the persisted `event_id`, exposed to WS clients as
+`cursor`, not timestamps.
 
 ### 4.2 ErrorEnvelope [规划中（planned）]
 

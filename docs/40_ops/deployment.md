@@ -12,8 +12,7 @@
 - 同一主机上的 SQLite 数据库和 workspace 本地磁盘。
 
 不启动 Redis、Celery worker 或 broker。独立 worker 入口为
-`python -m workers.single_host`；`workers/celery_app.py` 的历史文件名不代表 Celery
-已被采用。
+`python -m workers.single_host`；薄执行适配器位于 `workers/runtime.py`。
 
 可以先用本机进程运行，也可以分别容器化 API/Web/worker。无论采用哪种方式，SQLite
 文件与 workspace 必须位于同一主机的可靠本地文件系统。
@@ -21,7 +20,7 @@
 ## 2. Process Isolation
 
 - API 和 worker 是独立进程，API 重启不能终止媒体任务；
-- worker 使用 OS 服务管理器和单实例锁，首版禁止多个实例同时运行；
+- worker 入口已经使用单实例文件锁；正式部署还需配置 OS 服务管理器；
 - API 与 worker 使用各自 SQLite 连接，启用 WAL、`foreign_keys=ON` 和 busy timeout；
 - 长计算和网络调用在事务外执行；
 - API 与 worker 必须解析到同一个 canonical workspace root；
@@ -65,12 +64,10 @@ worker 最低启动配置包括：
 
 ## 5. Health and Readiness
 
-HTTP 健康检查只报告服务运行与依赖就绪，不充当业务状态查询：
-
-- API liveness：事件循环可响应；
-- API readiness：数据库可读写、迁移版本匹配、workspace 可访问；
-- worker heartbeat：最近心跳、当前 attempt 和单实例锁 owner；
-- Web health：静态资源可提供。
+当前 `GET /healthz` 只返回 API liveness。它不检查数据库可写、schema、workspace、
+worker 或 provider，因此不能作为 readiness 证明。active job 行会保存 worker ID、当前
+attempt 和 heartbeat；仓库目前没有独立 worker registry，也没有空闲 worker heartbeat
+或 readiness endpoint。部署验收需要另外检查 worker 进程/锁，并创建受控任务观察领取。
 
 worker 心跳超时只触发告警并把 active job 标记为 interrupted／需要恢复，不能自动
 重新领取可能仍在执行的任务。
@@ -79,13 +76,13 @@ worker 心跳超时只触发告警并把 active job 标记为 interrupted／需�
 
 1. 校验备份／迁移前置条件；
 2. 初始化或迁移 SQLite schema；
-3. 启动 API 并通过 readiness；
-4. 启动单个 worker，确认锁和 heartbeat；
+3. 启动 API，检查 liveness，并另行验证数据库与 workspace；
+4. 启动单个 worker，确认第二实例会被锁拒绝，再用受控任务验证领取与 heartbeat；
 5. 启动 Web 或开放入口；
 6. 用 WebSocket 建连、snapshot 和 cursor 重连检查验证控制面。
 
-若 worker 尚未就绪，API 可以接受浏览和下载，但创建 job 必须明确显示排队原因或拒绝，
-不能在 API 内悄悄回退为后台线程执行。
+若 worker 尚未启动，API 当前仍会接受 job 并保持 queued；它不会在 API 内回退为后台
+线程，也还不会显示“无 worker”的专用排队原因。
 
 ## 7. Upgrade and Recovery
 
@@ -103,7 +100,8 @@ worker 心跳超时只触发告警并把 active job 标记为 interrupted／需�
 
 - 冷启动和重启后 queued job 保留；
 - API 单独重启时 worker 当前任务继续；
-- worker 异常退出后 job 进入 interrupted，不出现双执行；
+- worker heartbeat 超时后，另一个正在运行的 worker 轮询会把 job 标为 interrupted；
+  若没有 worker 进程，状态不会自行推进，部署监控必须检测进程退出；
 - WebSocket 断线后通过递增 cursor 恢复；
 - HTTP 上传／下载与 WS 业务控制使用一致的访问权限；
 - SQLite busy、磁盘满、凭据缺失、模型失败都有明确健康或任务错误；

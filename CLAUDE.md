@@ -2,16 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Current status and conventions: read `AGENTS.md`. The proposed single-host rebuild is
-in `docs/00_vision/rebuild-plan.md`; it is not implemented. Commands below are declared
-entrypoints, not evidence of passing checks. `.python-version` currently pins 3.12.
+Current status and conventions: read `AGENTS.md`. The single-host SQLite worker rebuild is
+implemented; `docs/00_vision/rebuild-plan.md` records the migration and remaining real-model
+acceptance work. Commands below are entrypoints, not evidence until actually run.
+`.python-version` currently pins 3.12.
 
 ## Commands
 
 ### Python (via uv)
 
 ```bash
-uv run pytest                          # all unit tests
+uv run pytest                          # unit + contract + integration Python tests
 uv run pytest tests/unit/test_foo.py::test_bar  # single test
 uv run ruff check .                    # lint
 uv run ruff check . --fix              # lint + auto-fix
@@ -32,7 +33,10 @@ npx --prefix apps/web tsc --noEmit    # TypeScript check
 # Terminal 1 — backend
 uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
 
-# Terminal 2 — frontend
+# Terminal 2 — independent worker
+uv run python -m workers.single_host --data-dir runtime/api
+
+# Terminal 3 — frontend
 npm --prefix apps/web run dev
 ```
 
@@ -49,11 +53,11 @@ For VLM (frame summaries): set `QWEN_API_KEY` in `.env.local`. Base URL / model 
 ### Layer boundaries
 
 ```
-apps/api      → FastAPI HTTP + WebSocket. Owns auth, SQLite R/W, job dispatch via daemon threads.
+apps/api      → FastAPI HTTP + WebSocket. Owns auth, durable queue/control/event R/W.
 apps/web      → Next.js. Communicates with api only via NEXT_PUBLIC_API_ORIGIN.
 packages/*    → Reusable business logic and provider adapters; some adapters perform HTTP/DB access.
-workers/      → Plain Python adapter. Delegates to packages/pipeline/orchestrator.py.
-infra/        → Concrete adapters: SQLiteJobRepository, FileSystemWorkspaceStore, RedisEventBus.
+workers/      → Independent SQLite queue process plus a thin runtime adapter.
+infra/        → Concrete adapters: SQLiteJobRepository, SQLiteEventBus, FileSystemWorkspaceStore.
 ```
 
 `infra/` above means `packages/infra`. Keep dependencies directed from entrypoints to
@@ -65,13 +69,12 @@ or workers; infrastructure adapters must not depend on business modules.
 `ingest → hotwords → asr → keyframes → frame_summary → fusion → deliverables`
 
 Orchestrated by `packages/pipeline/orchestrator.py`. Each stage writes artifacts to the workspace,
-then publishes in-memory events: **API task thread → event bus → WebSocket → frontend**.
-`RedisEventBus` has no live Redis implementation.
+persists state/progress and publishes cursor events: **worker → SQLite → WebSocket → frontend**.
+`InMemoryEventBus` exists only for explicit tests and embedding.
 
-Control commands enter through **frontend → POST /jobs/{id}/control/{cmd} → API**.
-The API changes SQLite state; the orchestrator also has instance-local control sets.
-Pause/resume execution semantics need repair and real integration checks; no Redis flags exist.
-See the rebuild plan for durable control and recovery requirements.
+Control commands enter through **frontend → `/ws/jobs/{id}` → API → SQLite**. The worker
+acknowledges a versioned request at a safety point. Queue claims and worker writes are fenced by
+worker identity and attempt. Interrupted jobs require explicit recovery; no Redis flags exist.
 
 ### Workspace layout (per job)
 
@@ -83,18 +86,25 @@ workspaces/{project_id}/jobs/{job_id}/
     images/slide_000001.jpg     # frame_id "frame_000001" → image "slide_000001.jpg"
   frame_summary/frame_summary.jsonl  # {frame_id, description_text, lang, provider}
   fusion/timeline.json          # merged timeline
-  outputs/                      # deliverables (md, json, html)
+  outputs/
+    clean_transcript.md
+    illustrated_notes.md
+    summary.json                # only when model summary is enabled
+    deliverables.ready.json     # published last; hashes the ready generation
 ```
 
 ### Settings (SQLite key-value store)
 
-Mutable runtime settings live in SQLite via `get_setting`/`set_setting` in `apps/api/service.py`. Constants like `SETTING_VLM_BASE_URL` are defined there and mirrored in `packages/pipeline/orchestrator.py` as `_SETTING_*` strings. When adding a new setting, update both files, `apps/api/models.py`, and `apps/web/lib/api/types.ts`.
-
-The pattern for reading a setting in the orchestrator is `_read_vlm_str`/`_read_vlm_int` — these read from the DB without writing back (unlike the API-side helpers which lazy-init on first read).
+Mutable runtime settings live in SQLite via `get_setting`/`set_setting` in `apps/api/service.py`.
+Creating a job freezes non-secret VLM and summary configuration into its immutable snapshot;
+the worker reads that snapshot. When adding a setting, update the API models, snapshot builder,
+pipeline reader and Web types together.
 
 ### Frontend data fetching
 
-The job detail page polls job status; `DeliverablesTabs` fetches artifact JSONL files directly via `/api/jobs/{id}/artifacts/download/{path}`. Frame summaries are polled every 4 s while the job is running (to pick up streaming writes from the concurrent VLM stage).
+The job detail page uses `/ws/jobs/{id}` for snapshot-first state, cursor replay, progress and
+control acknowledgement. HTTP remains for project/job creation, settings, upload, media playback
+and artifact download. The UI must ignore stale state versions and duplicate event cursors.
 
 ### Key files
 
@@ -103,7 +113,8 @@ The job detail page polls job status; `DeliverablesTabs` fetches artifact JSONL 
 | `apps/api/main.py` | FastAPI app factory, all route registrations |
 | `apps/api/service.py` | All business logic callable from REST/WS handlers |
 | `apps/api/models.py` | Pydantic request/response models |
-| `packages/pipeline/orchestrator.py` | Stage dispatch loop, reads settings from DB |
+| `packages/pipeline/orchestrator.py` | Stage dispatch loop, reads immutable job config |
+| `workers/single_host.py` | SQLite claim/heartbeat loop and process lock |
 | `packages/frame_summary/service.py` | Concurrent VLM calls with RPM rate limiter |
 | `apps/web/components/DeliverablesTabs.tsx` | 3-tab results preview (raw / polished / summary) |
 | `apps/web/lib/i18n/messages.ts` | All UI strings; add `MessageKey` union here first |

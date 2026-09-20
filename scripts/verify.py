@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +21,16 @@ Status = Literal["PASS", "FAIL", "NOT-RUN"]
 ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = ROOT / "apps" / "web"
 HARNESS_TEMP = ROOT / "workspaces" / ".harness-temp"
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+FORBIDDEN_EVIDENCE_TOKENS = {
+    "baseline",
+    "dummy",
+    "fake",
+    "mock",
+    "offline",
+    "placeholder",
+    "test",
+}
 
 
 @dataclass(frozen=True)
@@ -208,6 +221,110 @@ def _read_nonempty(path: Path, label: str) -> str:
     return content
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _require_sha256(value: object, *, label: str) -> str:
+    digest = str(value or "").strip().lower()
+    if SHA256_PATTERN.fullmatch(digest) is None:
+        raise ValueError(f"{label} must be a 64-character hexadecimal SHA-256")
+    return digest
+
+
+def _positive_finite_float(value: object, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, str | int | float):
+        raise ValueError(f"{label} must be a positive finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a positive finite number") from exc
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f"{label} must be a positive finite number")
+    return number
+
+
+def _resolve_evidence_path(value: object, *, evidence_path: Path, label: str) -> Path:
+    raw_path = str(value or "").strip()
+    if not raw_path:
+        raise ValueError(f"{label} path is required")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = evidence_path.parent / path
+    return path.resolve()
+
+
+def _verify_file_hash(path: Path, expected: object, *, label: str) -> str:
+    if not path.is_file():
+        raise ValueError(f"{label} does not exist: {path}")
+    expected_digest = _require_sha256(expected, label=f"{label}.sha256")
+    actual_digest = _sha256_file(path)
+    if actual_digest != expected_digest:
+        raise ValueError(f"{label}.sha256 does not match the file: {path}")
+    return actual_digest
+
+
+def _require_real_identifier(value: object, *, label: str) -> str:
+    identifier = str(value or "").strip()
+    if not identifier:
+        raise ValueError(f"{label} is required")
+    tokens = {token for token in re.split(r"[^a-z0-9]+", identifier.lower()) if token}
+    forbidden = sorted(tokens & FORBIDDEN_EVIDENCE_TOKENS)
+    if forbidden:
+        raise ValueError(f"{label} contains forbidden test/mock marker: {forbidden[0]}")
+    return identifier
+
+
+def _probe_media_duration(path: Path) -> float:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe is None:
+        raise ValueError("ffprobe is required to verify input.duration_seconds")
+    completed = _run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"ffprobe could not read input media: {_tail_output(completed)}")
+    try:
+        duration = float(completed.stdout.strip())
+    except ValueError as exc:
+        raise ValueError("ffprobe returned an invalid input duration") from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("ffprobe returned a non-positive or non-finite input duration")
+    return duration
+
+
+def _tracked_worktree_gate() -> GateResult:
+    name = "tracked-worktree-clean"
+    try:
+        completed = _run(["git", "status", "--porcelain", "--untracked-files=no"])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return GateResult(name, "NOT-RUN", f"could not inspect the worktree: {exc}")
+    if completed.returncode != 0:
+        return GateResult(name, "FAIL", _tail_output(completed))
+    dirty = completed.stdout.strip()
+    if dirty:
+        return GateResult(
+            name,
+            "FAIL",
+            "release requires a clean tracked worktree:\n" + dirty,
+        )
+    return GateResult(name, "PASS", "tracked files match HEAD")
+
+
 def _real_model_gate(evidence_path: Path | None, *, required: bool) -> GateResult:
     name = "real-model-acceptance"
     if evidence_path is None:
@@ -219,8 +336,8 @@ def _real_model_gate(evidence_path: Path | None, *, required: bool) -> GateResul
         )
     try:
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != "1.0":
-            raise ValueError("schema_version must be '1.0'")
+        if payload.get("schema_version") != "1.1":
+            raise ValueError("schema_version must be '1.1'")
         revision = str(payload.get("revision", "")).strip()
         if not revision:
             raise ValueError("revision is required")
@@ -228,29 +345,78 @@ def _real_model_gate(evidence_path: Path | None, *, required: bool) -> GateResul
         if head.returncode != 0 or revision != head.stdout.strip():
             raise ValueError("evidence revision does not match the current HEAD")
 
-        source = payload.get("input")
-        if not isinstance(source, dict) or float(source.get("duration_seconds", 0)) <= 0:
-            raise ValueError("input.duration_seconds must be positive")
-        duration = float(source["duration_seconds"])
-        if not str(source.get("sha256", "")).strip():
-            raise ValueError("input.sha256 is required")
+        run_id = _require_real_identifier(payload.get("run_id"), label="run_id")
 
+        source = payload.get("input")
+        if not isinstance(source, dict):
+            raise ValueError("input evidence is required")
+        declared_duration = _positive_finite_float(
+            source.get("duration_seconds"),
+            label="input.duration_seconds",
+        )
+        source_path = _resolve_evidence_path(
+            source.get("artifact"),
+            evidence_path=evidence_path,
+            label="input.artifact",
+        )
+        _verify_file_hash(source_path, source.get("sha256"), label="input")
+        duration = _probe_media_duration(source_path)
+        tolerance = max(1.0, duration * 0.01)
+        if abs(declared_duration - duration) > tolerance:
+            raise ValueError(
+                "input.duration_seconds does not match ffprobe "
+                f"({declared_duration} declared, {duration} measured)"
+            )
+
+        artifact_paths: set[Path] = set()
         for section_name in ("asr", "frame_summary", "summary"):
             section = payload.get(section_name)
             if not isinstance(section, dict):
                 raise ValueError(f"{section_name} evidence is required")
-            provider = str(section.get("provider", "")).strip().lower()
-            if not provider or "mock" in provider or "offline" in provider:
-                raise ValueError(f"{section_name}.provider must identify a real provider")
-            artifact = Path(str(section.get("artifact", ""))).expanduser()
+            _require_real_identifier(section.get("provider"), label=f"{section_name}.provider")
+            _require_real_identifier(section.get("model"), label=f"{section_name}.model")
+            section_run_id = str(section.get("run_id") or "").strip()
+            request_id = str(section.get("request_id") or "").strip()
+            if not section_run_id and not request_id:
+                raise ValueError(f"{section_name}.request_id or run_id is required")
+            if section_run_id:
+                validated_run_id = _require_real_identifier(
+                    section_run_id,
+                    label=f"{section_name}.run_id",
+                )
+                if validated_run_id != run_id:
+                    raise ValueError(f"{section_name}.run_id must match the top-level run_id")
+            if request_id:
+                _require_real_identifier(request_id, label=f"{section_name}.request_id")
+            artifact = _resolve_evidence_path(
+                section.get("artifact"),
+                evidence_path=evidence_path,
+                label=f"{section_name}.artifact",
+            )
+            if artifact == source_path or artifact in artifact_paths:
+                raise ValueError(f"{section_name}.artifact must identify a distinct output file")
+            artifact_paths.add(artifact)
+            _verify_file_hash(artifact, section.get("sha256"), label=section_name)
             _read_nonempty(artifact, section_name)
 
         asr = payload["asr"]
         summary = payload["summary"]
-        if float(asr.get("source_coverage_end_seconds", 0)) < duration * 0.8:
+        asr_coverage = _positive_finite_float(
+            asr.get("source_coverage_end_seconds"),
+            label="asr.source_coverage_end_seconds",
+        )
+        summary_coverage = _positive_finite_float(
+            summary.get("source_coverage_end_seconds"),
+            label="summary.source_coverage_end_seconds",
+        )
+        if asr_coverage < duration * 0.8:
             raise ValueError("ASR evidence does not cover the final 20% of the input")
-        if float(summary.get("source_coverage_end_seconds", 0)) < duration * 0.8:
+        if summary_coverage < duration * 0.8:
             raise ValueError("summary evidence does not cover the final 20% of the input")
+        if asr_coverage > duration + tolerance:
+            raise ValueError("ASR source coverage exceeds the measured input duration")
+        if summary_coverage > duration + tolerance:
+            raise ValueError("summary source coverage exceeds the measured input duration")
 
         reviews = payload.get("human_review")
         required_reviews = (
@@ -268,40 +434,45 @@ def _real_model_gate(evidence_path: Path | None, *, required: bool) -> GateResul
 
 
 def _gates(profile: str, evidence_path: Path | None) -> list[Callable[[], GateResult]]:
-    gates: list[Callable[[], GateResult]] = [
-        lambda: _command_gate("diff-hygiene", ["git", "diff", "--check"], tool="git"),
-        lambda: _uv_tool_gate(
-            "python-lint",
-            "ruff",
-            [
-                "check",
-                "apps",
-                "packages",
-                "workers",
-                "tests/unit",
-                "tests/contract",
-                "tests/integration",
-                "scripts/verify.py",
-            ],
-        ),
-        lambda: _uv_tool_gate(
-            "python-types",
-            "mypy",
-            ["apps", "packages", "workers", "scripts/verify.py"],
-        ),
-        lambda: _node_script_gate(
-            "frontend-lint",
-            "node_modules/eslint/bin/eslint.js",
-            [".", "--max-warnings=0"],
-        ),
-        lambda: _node_script_gate(
-            "frontend-types",
-            "node_modules/typescript/bin/tsc",
-            ["--noEmit"],
-        ),
-        lambda: _pytest_gate("python-unit-contract", ["tests/unit", "tests/contract"]),
-        _frontend_unit_gate,
-    ]
+    gates: list[Callable[[], GateResult]] = []
+    if profile == "release":
+        gates.append(_tracked_worktree_gate)
+    gates.extend(
+        [
+            lambda: _command_gate("diff-hygiene", ["git", "diff", "--check"], tool="git"),
+            lambda: _uv_tool_gate(
+                "python-lint",
+                "ruff",
+                [
+                    "check",
+                    "apps",
+                    "packages",
+                    "workers",
+                    "tests/unit",
+                    "tests/contract",
+                    "tests/integration",
+                    "scripts/verify.py",
+                ],
+            ),
+            lambda: _uv_tool_gate(
+                "python-types",
+                "mypy",
+                ["apps", "packages", "workers", "scripts/verify.py"],
+            ),
+            lambda: _node_script_gate(
+                "frontend-lint",
+                "node_modules/eslint/bin/eslint.js",
+                [".", "--max-warnings=0"],
+            ),
+            lambda: _node_script_gate(
+                "frontend-types",
+                "node_modules/typescript/bin/tsc",
+                ["--noEmit"],
+            ),
+            lambda: _pytest_gate("python-unit-contract", ["tests/unit", "tests/contract"]),
+            _frontend_unit_gate,
+        ]
+    )
     if profile in {"integration", "release"}:
         gates.append(lambda: _pytest_gate("process-integration", ["tests/integration"]))
         gates.append(

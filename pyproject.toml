@@ -67,7 +67,7 @@ include = [
 target-version = "py311"
 line-length = 100
 src = ["apps", "packages", "workers", "tests"]
-exclude = ["packages/asr/vendor"]
+exclude = ["packages/asr/vendor", "tests/funasr_bug_validation"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -84,7 +84,7 @@ warn_return_any = true
 
 [tool.pytest.ini_options]
 addopts = "-q"
-testpaths = ["tests/unit"]
+testpaths = ["tests/unit", "tests/contract", "tests/integration"]
 pythonpath = [
   ".",
   "packages",

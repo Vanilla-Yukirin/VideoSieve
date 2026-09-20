@@ -1172,6 +1172,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "tiktoken" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
     { name = "yt-dlp" },
 ]
 
@@ -1197,6 +1198,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.41.0" },
+    { name = "websockets", specifier = ">=16.0" },
     { name = "yt-dlp", specifier = ">=2025.1.0" },
 ]
 provides-extras = ["dev"]

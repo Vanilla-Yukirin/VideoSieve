@@ -17,6 +17,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "tiktoken>=0.7.0",
   "uvicorn[standard]>=0.41.0",
+  "websockets>=16.0",
   "yt-dlp>=2025.1.0",
 ]
 

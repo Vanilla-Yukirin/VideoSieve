@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from io import BufferedRandom
 from pathlib import Path
 
-from asr import create_asr_provider_from_env
+from asr import create_asr_provider_from_config
 from contracts import JobStatus, StageName
 from infra import (
     FileSystemWorkspaceStore,
@@ -280,11 +280,12 @@ class SingleHostWorker:
         }:
             return
         message = str(exc) or exc.__class__.__name__
+        error_code = str(getattr(exc, "code", "WORKER_EXECUTION_FAILED"))
         updated = self._repository.update_job_status(
             job_id,
             status=JobStatus.FAILED.value,
             stage=latest.stage,
-            error_code="WORKER_EXECUTION_FAILED",
+            error_code=error_code,
             error_message=message,
             expected_worker_id=self._worker_id,
             expected_attempt=attempt,
@@ -313,7 +314,7 @@ class SingleHostWorker:
                 job_id=job_id,
                 payload={
                     "stage": latest.stage or "dispatch",
-                    "code": "WORKER_EXECUTION_FAILED",
+                    "code": error_code,
                     "message": message,
                 },
             ),
@@ -348,13 +349,15 @@ class SingleHostWorker:
         local_video_context = _optional_str(snapshot.get("local_video_context")) or ""
         if local_video_path and not ingest_config:
             ingest_config = {"source_path": local_video_path}
+        raw_asr_config = snapshot.get("asr")
+        asr_config = raw_asr_config if isinstance(raw_asr_config, dict) else {}
 
         runtime = WorkerRuntime(
             PipelineOrchestrator(
                 repository=self._repository,
                 workspace=self._workspace,
                 event_bus=self._event_bus,
-                asr_provider=create_asr_provider_from_env(),
+                asr_provider=create_asr_provider_from_config(asr_config),
                 worker_id=self._worker_id,
                 worker_attempt=worker_attempt,
             )

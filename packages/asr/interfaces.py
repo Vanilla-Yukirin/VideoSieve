@@ -10,9 +10,17 @@ from .models import ASRRequest, ASRResult
 class ASRProviderError(RuntimeError):
     """Actionable external-provider failure preserved by the pipeline."""
 
-    def __init__(self, code: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        hint: str = "Check the external ASR endpoint and retry the job.",
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.hint = hint
         self.retryable = retryable
 
 

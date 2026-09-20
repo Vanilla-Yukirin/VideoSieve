@@ -169,6 +169,6 @@ def test_real_worker_cli_claims_job_persists_failure_and_releases_lease(
     assert job.status == "failed"
     assert job.worker_id is None
     assert job.attempt == 1
-    assert job.error_code == "PIPELINE_STAGE_FAILED"
+    assert job.error_code == "ASR_PROVIDER_UNCONFIGURED"
     assert verified.list_job_events("jobs:job-cli")
     verified.close()

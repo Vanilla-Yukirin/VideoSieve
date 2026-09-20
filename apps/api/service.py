@@ -69,6 +69,12 @@ PROJECT_DELETE_POLL_SECONDS = 0.2
 DEFAULT_COOKIE_USER_ID = "default_user"
 SETTING_GUEST_MODE_ENABLED = "guest_mode_enabled"
 SETTING_GUEST_ALLOW_COOKIE_INPUT = "guest_allow_cookie_input"
+SETTING_ASR_PROVIDER = "asr_provider"
+SETTING_ASR_TRANSPORT = "asr_transport"
+SETTING_ASR_ENDPOINT = "asr_endpoint"
+SETTING_ASR_LANGUAGE = "asr_language"
+SETTING_ASR_CONTEXT = "asr_context"
+SETTING_ASR_TIMEOUT_SECONDS = "asr_timeout_seconds"
 SETTING_VLM_BASE_URL = "vlm_base_url"
 SETTING_VLM_MODEL = "vlm_model"
 SETTING_VLM_FRAME_PROMPT_ZH = "vlm_frame_prompt_zh"
@@ -95,6 +101,12 @@ _DEFAULT_VLM_PROMPT_EN = (
 )
 _DEFAULT_VLM_CONCURRENCY = 5
 _DEFAULT_VLM_RPM = 30
+_DEFAULT_ASR_PROVIDER = "unconfigured"
+_DEFAULT_ASR_TRANSPORT = "websocket"
+_DEFAULT_ASR_ENDPOINT = ""
+_DEFAULT_ASR_LANGUAGE = "auto"
+_DEFAULT_ASR_CONTEXT = ""
+_DEFAULT_ASR_TIMEOUT_SECONDS = 900
 _DEFAULT_SUMMARY_BASE_URL = (
     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 )
@@ -422,6 +434,13 @@ class ApiControlPlane:
         return SystemSettingsResponse(
             guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
             guest_allow_cookie_input=bool(settings[SETTING_GUEST_ALLOW_COOKIE_INPUT]),
+            asr_provider=str(settings[SETTING_ASR_PROVIDER]),
+            asr_transport=str(settings[SETTING_ASR_TRANSPORT]),
+            asr_endpoint=str(settings[SETTING_ASR_ENDPOINT]),
+            asr_language=str(settings[SETTING_ASR_LANGUAGE]),
+            asr_context=str(settings[SETTING_ASR_CONTEXT]),
+            asr_timeout_seconds=int(str(settings[SETTING_ASR_TIMEOUT_SECONDS])),
+            asr_token_configured=bool(os.getenv("CAPSWRITER_TOKEN", "").strip()),
             vlm_base_url=str(settings[SETTING_VLM_BASE_URL]),
             vlm_model=str(settings[SETTING_VLM_MODEL]),
             vlm_frame_prompt_zh=str(settings[SETTING_VLM_FRAME_PROMPT_ZH]),
@@ -473,6 +492,55 @@ class ApiControlPlane:
                 message="GUEST_COOKIE_KEY is required when guest cookie input is enabled",
                 status_code=422,
             )
+        next_asr_provider = (
+            payload.asr_provider.strip().lower()
+            if payload.asr_provider is not None
+            else str(current[SETTING_ASR_PROVIDER])
+        ) or _DEFAULT_ASR_PROVIDER
+        if next_asr_provider not in {"unconfigured", "capswriter"}:
+            raise ApiError(
+                code="asr_provider_invalid",
+                message=f"unsupported ASR provider: {next_asr_provider}",
+                status_code=422,
+            )
+        next_asr_transport = (
+            payload.asr_transport.strip().lower()
+            if payload.asr_transport is not None
+            else str(current[SETTING_ASR_TRANSPORT])
+        ) or _DEFAULT_ASR_TRANSPORT
+        if next_asr_transport not in {"websocket", "http"}:
+            raise ApiError(
+                code="asr_transport_invalid",
+                message=f"unsupported CapsWriter transport: {next_asr_transport}",
+                status_code=422,
+            )
+        next_asr_endpoint = (
+            payload.asr_endpoint.strip()
+            if payload.asr_endpoint is not None
+            else str(current[SETTING_ASR_ENDPOINT])
+        )
+        if next_asr_provider == "capswriter" and not next_asr_endpoint:
+            raise ApiError(
+                code="asr_endpoint_required",
+                message="CapsWriter endpoint is required",
+                status_code=422,
+            )
+        next_asr_language = (
+            payload.asr_language.strip()
+            if payload.asr_language is not None
+            else str(current[SETTING_ASR_LANGUAGE])
+        ) or _DEFAULT_ASR_LANGUAGE
+        next_asr_context = (
+            payload.asr_context
+            if payload.asr_context is not None
+            else str(current[SETTING_ASR_CONTEXT])
+        )[:2000]
+        next_asr_timeout_seconds = max(
+            1,
+            payload.asr_timeout_seconds
+            if payload.asr_timeout_seconds is not None
+            else int(str(current[SETTING_ASR_TIMEOUT_SECONDS])),
+        )
         next_vlm_base_url = (
             payload.vlm_base_url.strip()
             if payload.vlm_base_url is not None
@@ -536,6 +604,15 @@ class ApiControlPlane:
         self._repository.set_setting(
             SETTING_GUEST_ALLOW_COOKIE_INPUT, json.dumps(next_allow_cookie)
         )
+        self._repository.set_setting(SETTING_ASR_PROVIDER, json.dumps(next_asr_provider))
+        self._repository.set_setting(SETTING_ASR_TRANSPORT, json.dumps(next_asr_transport))
+        self._repository.set_setting(SETTING_ASR_ENDPOINT, json.dumps(next_asr_endpoint))
+        self._repository.set_setting(SETTING_ASR_LANGUAGE, json.dumps(next_asr_language))
+        self._repository.set_setting(SETTING_ASR_CONTEXT, json.dumps(next_asr_context))
+        self._repository.set_setting(
+            SETTING_ASR_TIMEOUT_SECONDS,
+            json.dumps(next_asr_timeout_seconds),
+        )
         self._repository.set_setting(SETTING_VLM_BASE_URL, json.dumps(next_vlm_base_url))
         self._repository.set_setting(SETTING_VLM_MODEL, json.dumps(next_vlm_model))
         self._repository.set_setting(SETTING_VLM_FRAME_PROMPT_ZH, json.dumps(next_prompt_zh))
@@ -560,6 +637,13 @@ class ApiControlPlane:
         return SystemSettingsResponse(
             guest_mode_enabled=next_guest_mode,
             guest_allow_cookie_input=next_allow_cookie,
+            asr_provider=next_asr_provider,
+            asr_transport=next_asr_transport,
+            asr_endpoint=next_asr_endpoint,
+            asr_language=next_asr_language,
+            asr_context=next_asr_context,
+            asr_timeout_seconds=next_asr_timeout_seconds,
+            asr_token_configured=bool(os.getenv("CAPSWRITER_TOKEN", "").strip()),
             vlm_base_url=next_vlm_base_url,
             vlm_model=next_vlm_model,
             vlm_frame_prompt_zh=next_prompt_zh,
@@ -838,6 +922,35 @@ class ApiControlPlane:
             default=self._read_bool_env("GUEST_ALLOW_COOKIE_INPUT", default=False),
         )
         _ = self._read_setting_str(
+            SETTING_ASR_PROVIDER,
+            default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
+        )
+        _ = self._read_setting_str(
+            SETTING_ASR_TRANSPORT,
+            default=os.getenv("VIDEOSIEVE_ASR_TRANSPORT") or _DEFAULT_ASR_TRANSPORT,
+        )
+        _ = self._read_setting_str(
+            SETTING_ASR_ENDPOINT,
+            default=os.getenv("VIDEOSIEVE_ASR_ENDPOINT") or _DEFAULT_ASR_ENDPOINT,
+        )
+        _ = self._read_setting_str(
+            SETTING_ASR_LANGUAGE,
+            default=os.getenv("VIDEOSIEVE_ASR_LANGUAGE") or _DEFAULT_ASR_LANGUAGE,
+        )
+        _ = self._read_setting_str(
+            SETTING_ASR_CONTEXT,
+            default=os.getenv("VIDEOSIEVE_ASR_CONTEXT") or _DEFAULT_ASR_CONTEXT,
+        )
+        asr_timeout_raw = os.getenv("VIDEOSIEVE_ASR_TIMEOUT_SECONDS", "")
+        try:
+            asr_timeout_default = max(1, int(asr_timeout_raw))
+        except ValueError:
+            asr_timeout_default = _DEFAULT_ASR_TIMEOUT_SECONDS
+        _ = self._read_setting_int(
+            SETTING_ASR_TIMEOUT_SECONDS,
+            default=asr_timeout_default,
+        )
+        _ = self._read_setting_str(
             SETTING_VLM_BASE_URL,
             default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
         )
@@ -897,6 +1010,30 @@ class ApiControlPlane:
             ),
             SETTING_VLM_RPM: self._read_setting_int(
                 SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM
+            ),
+            SETTING_ASR_PROVIDER: self._read_setting_str(
+                SETTING_ASR_PROVIDER,
+                default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
+            ),
+            SETTING_ASR_TRANSPORT: self._read_setting_str(
+                SETTING_ASR_TRANSPORT,
+                default=os.getenv("VIDEOSIEVE_ASR_TRANSPORT") or _DEFAULT_ASR_TRANSPORT,
+            ),
+            SETTING_ASR_ENDPOINT: self._read_setting_str(
+                SETTING_ASR_ENDPOINT,
+                default=os.getenv("VIDEOSIEVE_ASR_ENDPOINT") or _DEFAULT_ASR_ENDPOINT,
+            ),
+            SETTING_ASR_LANGUAGE: self._read_setting_str(
+                SETTING_ASR_LANGUAGE,
+                default=os.getenv("VIDEOSIEVE_ASR_LANGUAGE") or _DEFAULT_ASR_LANGUAGE,
+            ),
+            SETTING_ASR_CONTEXT: self._read_setting_str(
+                SETTING_ASR_CONTEXT,
+                default=os.getenv("VIDEOSIEVE_ASR_CONTEXT") or _DEFAULT_ASR_CONTEXT,
+            ),
+            SETTING_ASR_TIMEOUT_SECONDS: self._read_setting_int(
+                SETTING_ASR_TIMEOUT_SECONDS,
+                default=_DEFAULT_ASR_TIMEOUT_SECONDS,
             ),
             SETTING_SUMMARY_BASE_URL: self._read_setting_str(
                 SETTING_SUMMARY_BASE_URL,
@@ -1039,6 +1176,15 @@ class ApiControlPlane:
                 "job_id": job_id,
             }
             runtime_settings = self._current_settings()
+            config["asr"] = {
+                "provider": runtime_settings[SETTING_ASR_PROVIDER],
+                "transport": runtime_settings[SETTING_ASR_TRANSPORT],
+                "endpoint": runtime_settings[SETTING_ASR_ENDPOINT],
+                "language": runtime_settings[SETTING_ASR_LANGUAGE],
+                "context": runtime_settings[SETTING_ASR_CONTEXT],
+                "timeout_seconds": runtime_settings[SETTING_ASR_TIMEOUT_SECONDS],
+                "token_env": "CAPSWRITER_TOKEN",
+            }
             config["frame_summary"] = {
                 "base_url": runtime_settings[SETTING_VLM_BASE_URL],
                 "model": runtime_settings[SETTING_VLM_MODEL],

@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from asr import ASRProviderError, create_asr_provider_from_config, create_asr_provider_from_env
+from asr import (
+    ASRProviderError,
+    CapsWriterHTTPProvider,
+    CapsWriterWebSocketProvider,
+    create_asr_provider_from_config,
+    create_asr_provider_from_env,
+)
 
 
 def test_factory_defaults_to_explicit_unconfigured_error(monkeypatch) -> None:
@@ -27,3 +33,27 @@ def test_factory_rejects_empty_config() -> None:
         create_asr_provider_from_config({})
 
     assert exc_info.value.code == "ASR_PROVIDER_UNCONFIGURED"
+
+
+def test_factory_defaults_capswriter_to_upstream_websocket(monkeypatch) -> None:
+    monkeypatch.delenv("CAPSWRITER_TOKEN", raising=False)
+
+    provider = create_asr_provider_from_config(
+        {"provider": "capswriter", "endpoint": "ws://localhost:6016"}
+    )
+
+    assert isinstance(provider, CapsWriterWebSocketProvider)
+
+
+def test_factory_supports_http_extension_and_optional_token(monkeypatch) -> None:
+    monkeypatch.setenv("CAPSWRITER_TOKEN", "server-secret")
+
+    provider = create_asr_provider_from_config(
+        {
+            "provider": "capswriter",
+            "transport": "http",
+            "endpoint": "http://localhost:6018",
+        }
+    )
+
+    assert isinstance(provider, CapsWriterHTTPProvider)

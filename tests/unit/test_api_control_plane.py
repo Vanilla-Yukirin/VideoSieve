@@ -744,6 +744,15 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
 
     assert payload["job_id"] == job_id
     assert payload["summary_enabled"] is False
+    assert payload["asr"] == {
+        "provider": "unconfigured",
+        "transport": "websocket",
+        "endpoint": "",
+        "language": "auto",
+        "context": "",
+        "timeout_seconds": 900,
+        "token_env": "CAPSWRITER_TOKEN",
+    }
     assert payload["dedupe_applied_estimate"] is False
     assert ingest["source_url"] == "https://www.bilibili.com/video/BV1demo"
     assert ingest["analysis_asset"] == {"video_format_id": "30032", "audio_format_id": "30280"}
@@ -821,6 +830,9 @@ def test_auth_bootstrap_login_and_settings_flow(
     me_settings = get_system_settings(control_plane, token)
     assert "guest_mode_enabled" in me_settings
     assert "guest_allow_cookie_input" in me_settings
+    assert me_settings["asr_provider"] == "unconfigured"
+    assert me_settings["asr_transport"] == "websocket"
+    assert me_settings["asr_token_configured"] is False
 
     patched = patch_system_settings(
         control_plane,
@@ -834,6 +846,49 @@ def test_auth_bootstrap_login_and_settings_flow(
     login = post_auth_login(control_plane, {"username": "admin", "password": "password123"})
     assert login["username"] == "admin"
     assert repository.list_recent_operation_logs(limit=5)
+
+
+def test_settings_persists_capswriter_without_requiring_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("CAPSWRITER_TOKEN", raising=False)
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
+        "token"
+    ]
+
+    patched = patch_system_settings(
+        control_plane,
+        token,
+        {
+            "asr_provider": "capswriter",
+            "asr_transport": "websocket",
+            "asr_endpoint": "ws://capswriter.local:6016",
+            "asr_language": "auto",
+            "asr_context": "课程背景",
+            "asr_timeout_seconds": 1200,
+        },
+    )
+
+    assert patched["asr_provider"] == "capswriter"
+    assert patched["asr_token_configured"] is False
+    assert repository.get_setting("asr_endpoint") == '"ws://capswriter.local:6016"'
+
+
+def test_settings_rejects_capswriter_without_endpoint(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
+        "token"
+    ]
+
+    with pytest.raises(Exception) as exc_info:
+        patch_system_settings(
+            control_plane,
+            token,
+            {"asr_provider": "capswriter", "asr_endpoint": ""},
+        )
+
+    assert getattr(exc_info.value, "code", None) == "asr_endpoint_required"
 
 
 def test_guest_cooldown_rejects_second_submit(

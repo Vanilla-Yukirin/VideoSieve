@@ -86,6 +86,14 @@ class SystemSettingsResponse(ApiModel):
 
     guest_mode_enabled: bool
     guest_allow_cookie_input: bool
+    # ASR routing. Credentials remain in the worker environment.
+    asr_provider: str
+    asr_transport: str
+    asr_endpoint: str
+    asr_language: str
+    asr_context: str
+    asr_timeout_seconds: int
+    asr_token_configured: bool
     # VLM configuration (mutable via PATCH)
     vlm_base_url: str
     vlm_model: str
@@ -117,6 +125,12 @@ class SystemSettingsPatchRequest(ApiModel):
 
     guest_mode_enabled: bool | None = None
     guest_allow_cookie_input: bool | None = None
+    asr_provider: str | None = None
+    asr_transport: str | None = None
+    asr_endpoint: str | None = None
+    asr_language: str | None = None
+    asr_context: str | None = None
+    asr_timeout_seconds: int | None = None
     vlm_base_url: str | None = None
     vlm_model: str | None = None
     vlm_frame_prompt_zh: str | None = None
@@ -136,6 +150,12 @@ class SystemSettingsPatchRequest(ApiModel):
             for v in [
                 self.guest_mode_enabled,
                 self.guest_allow_cookie_input,
+                self.asr_provider,
+                self.asr_transport,
+                self.asr_endpoint,
+                self.asr_language,
+                self.asr_context,
+                self.asr_timeout_seconds,
                 self.vlm_base_url,
                 self.vlm_model,
                 self.vlm_frame_prompt_zh,

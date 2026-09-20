@@ -53,13 +53,39 @@ describe("jobReducer", () => {
     expect(newState.current_stage).toBe("asr");
   });
 
+  it("should ignore duplicate cursors and stale state versions", () => {
+    const state: RealtimeState = {
+      ...initialState,
+      status: "running",
+      state_version: 8,
+      lastCursor: 12,
+    };
+    const duplicate = jobReducer(state, {
+      type: "EVENT",
+      eventType: "job_state_changed",
+      payload: { to: "failed" },
+      cursor: 12,
+      stateVersion: 9,
+    });
+    expect(duplicate).toBe(state);
+
+    const stale = jobReducer(state, {
+      type: "EVENT",
+      eventType: "job_state_changed",
+      payload: { to: "queued" },
+      cursor: 13,
+      stateVersion: 7,
+    });
+    expect(stale.status).toBe("running");
+    expect(stale.state_version).toBe(8);
+    expect(stale.lastCursor).toBe(13);
+  });
+
   it("should switch connection state", () => {
     let state = jobReducer(initialState, { type: "CONNECT" });
     expect(state.isConnected).toBe(true);
-    expect(state.isPolling).toBe(false);
 
     state = jobReducer(state, { type: "DISCONNECT" });
     expect(state.isConnected).toBe(false);
-    expect(state.isPolling).toBe(false);
   });
 });

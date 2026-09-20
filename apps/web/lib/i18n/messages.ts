@@ -13,7 +13,6 @@ export type MessageKey =
   | "home.logout"
   | "home.leaveGuest"
   | "home.cookieHint"
-  | "home.mockMode"
   | "home.empty"
   | "home.createFirst"
   | "home.newProjectTitlePrefix"
@@ -225,7 +224,6 @@ export const messages: Record<Locale, MessageMap> = {
     "home.logout": "退出登录",
     "home.leaveGuest": "退出游客",
     "home.cookieHint": "私有视频需要登录 Cookie。登录后可在 Cookie Vault 管理。",
-    "home.mockMode": "当前为本地 mock 模式。启动后端并设置 NEXT_PUBLIC_API_MODE=remote 可切换到真实 API。",
     "home.empty": "本地索引中还没有项目。",
     "home.createFirst": "创建第一个项目",
     "home.newProjectTitlePrefix": "新项目",
@@ -434,7 +432,6 @@ export const messages: Record<Locale, MessageMap> = {
     "home.logout": "Logout",
     "home.leaveGuest": "Leave Guest",
     "home.cookieHint": "Private videos may require login cookies. Manage them in Cookie Vault when signed in.",
-    "home.mockMode": "Running in local mock mode. Start backend and set NEXT_PUBLIC_API_MODE=remote for live API.",
     "home.empty": "No projects found in local index.",
     "home.createFirst": "Create your first project",
     "home.newProjectTitlePrefix": "New Project",

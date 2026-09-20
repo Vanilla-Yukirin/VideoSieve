@@ -24,7 +24,6 @@ export default function Home() {
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isGuest, setIsGuest] = useState(false);
-  const runtimeMode = api.getRuntimeMode();
 
   useEffect(() => {
     let cancelled = false;
@@ -144,12 +143,6 @@ export default function Home() {
       <div className="rounded-md border bg-muted/20 p-3 text-sm">
         {t("home.cookieHint")}
       </div>
-
-      {runtimeMode === "mock" ? (
-        <div className="rounded-lg border border-amber-400/50 bg-amber-400/12 p-3 text-sm text-amber-200">
-          {t("home.mockMode")}
-        </div>
-      ) : null}
 
       {projectIds.length === 0 ? (
         <div className="text-center py-20 border-2 border-dashed rounded-lg">

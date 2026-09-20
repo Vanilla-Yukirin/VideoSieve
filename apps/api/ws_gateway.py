@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import threading
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -21,6 +23,17 @@ class WebSocketLike(Protocol):
         """Send one JSON event payload to client."""
 
 
+@dataclass(slots=True)
+class _PendingConnection:
+    """Buffer live events until replay and the authoritative snapshot finish."""
+
+    socket: WebSocketLike
+    cursor: int = 0
+    ready: bool = False
+    buffered_events: list[InfraEvent] = field(default_factory=list)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
 class JobWebSocketGateway:
     """Fanout gateway with snapshot-first reconnect semantics."""
 
@@ -28,7 +41,7 @@ class JobWebSocketGateway:
         self._control_plane = control_plane
         self._event_bus = event_bus
         self._connections: dict[str, set[WebSocketLike]] = defaultdict(set)
-        self._subscriptions: dict[str, EventSubscription] = {}
+        self._subscriptions: dict[str, dict[WebSocketLike, EventSubscription]] = defaultdict(dict)
 
     def connect(
         self, *, job_id: str, socket: WebSocketLike, after_cursor: int | None = None
@@ -37,40 +50,80 @@ class JobWebSocketGateway:
 
         if after_cursor is not None and after_cursor < 0:
             raise ValueError("after_cursor must be non-negative")
-        self._connections[job_id].add(socket)
-        self._control_plane.ensure_job_tracking(job_id)
+        if self._control_plane.get_job(job_id) is None:
+            raise KeyError(f"job not found: {job_id}")
+        if socket in self._connections.get(job_id, ()):
+            raise ValueError("socket is already connected")
+
         channel = f"jobs:{job_id}"
         barrier_cursor = self._event_bus.latest_cursor(channel)
-        replay_cursor = after_cursor
-        while replay_cursor is not None:
-            events = self._event_bus.list_after(
+        if after_cursor is not None and after_cursor > barrier_cursor:
+            raise ValueError("after_cursor is ahead of the persistent event stream")
+
+        pending = _PendingConnection(socket=socket, cursor=barrier_cursor)
+
+        def _handler(event: InfraEvent) -> None:
+            self._deliver_live_event(pending, event)
+
+        subscription: EventSubscription | None = None
+        tracking_started = False
+        try:
+            # Subscribe at the first barrier before replay. Events published during
+            # setup are buffered for this socket and cannot overtake its snapshot.
+            subscription = self._event_bus.subscribe(
                 channel,
-                after_cursor=replay_cursor,
-                limit=1000,
+                _handler,
+                after_cursor=barrier_cursor,
             )
-            if not events:
-                break
-            for event in events:
-                if event.event_id is None or event.event_id > barrier_cursor:
-                    break
-                socket.send_json(self._event_payload(event))
-                replay_cursor = int(event.event_id or replay_cursor)
-            if replay_cursor >= barrier_cursor or len(events) < 1000:
-                break
-        snapshot = self._control_plane.get_job_snapshot(job_id)
-        socket.send_json(
-            {
-                "event_type": "snapshot",
-                "cursor": barrier_cursor,
-                "state_version": snapshot.state_version,
-                "request_id": None,
-                "payload": snapshot.model_dump(mode="json"),
-            }
-        )
-        self._ensure_ws_subscription(job_id, after_cursor=barrier_cursor)
+            catchup_cursor = self._event_bus.latest_cursor(channel)
+            replay_cursor = barrier_cursor if after_cursor is None else after_cursor
+            self._send_replay(
+                channel=channel,
+                socket=socket,
+                after_cursor=replay_cursor,
+                barrier_cursor=catchup_cursor,
+            )
+
+            tracking_started = True
+            snapshot = self._control_plane.get_job_snapshot(job_id)
+            socket.send_json(
+                {
+                    "event_type": "snapshot",
+                    "cursor": catchup_cursor,
+                    "state_version": snapshot.state_version,
+                    "request_id": None,
+                    "payload": snapshot.model_dump(mode="json"),
+                }
+            )
+            self._activate_connection(pending, cursor=catchup_cursor)
+            self._connections[job_id].add(socket)
+            self._subscriptions[job_id][socket] = subscription
+        except Exception:
+            if subscription is not None:
+                subscription.unsubscribe()
+            sockets = self._connections.get(job_id)
+            if sockets is not None:
+                sockets.discard(socket)
+                if not sockets:
+                    self._connections.pop(job_id, None)
+            subscriptions = self._subscriptions.get(job_id)
+            if subscriptions is not None:
+                subscriptions.pop(socket, None)
+                if not subscriptions:
+                    self._subscriptions.pop(job_id, None)
+            if tracking_started and not self._connections.get(job_id):
+                self._control_plane.release_job_tracking(job_id)
+            raise
 
     def disconnect(self, *, job_id: str, socket: WebSocketLike) -> None:
         """Detach one websocket and clean idle subscriptions."""
+
+        subscriptions = self._subscriptions.get(job_id)
+        subscription = subscriptions.pop(socket, None) if subscriptions is not None else None
+        if subscription is not None:
+            subscription.unsubscribe()
+        if subscriptions is not None and not subscriptions:
+            self._subscriptions.pop(job_id, None)
 
         sockets = self._connections.get(job_id)
         if sockets is None:
@@ -80,9 +133,6 @@ class JobWebSocketGateway:
             return
 
         self._connections.pop(job_id, None)
-        subscription = self._subscriptions.pop(job_id, None)
-        if subscription is not None:
-            subscription.unsubscribe()
         self._control_plane.release_job_tracking(job_id)
 
     def handle_command(self, *, job_id: str, payload: dict[str, Any]) -> dict[str, str | bool]:
@@ -113,9 +163,7 @@ class JobWebSocketGateway:
                 "phase": phase,
                 "confirmed": phase == "applied",
                 "execution_state": snapshot.status if snapshot is not None else "deleted",
-                "requested_action": (
-                    snapshot.requested_action if snapshot is not None else None
-                ),
+                "requested_action": (snapshot.requested_action if snapshot is not None else None),
             }
         )
         self._event_bus.publish(
@@ -134,23 +182,58 @@ class JobWebSocketGateway:
         )
         return ack
 
-    def _ensure_ws_subscription(self, job_id: str, *, after_cursor: int | None = None) -> None:
-        if job_id in self._subscriptions:
+    def _send_replay(
+        self,
+        *,
+        channel: str,
+        socket: WebSocketLike,
+        after_cursor: int,
+        barrier_cursor: int,
+    ) -> None:
+        cursor = after_cursor
+        while cursor < barrier_cursor:
+            events = self._event_bus.list_after(channel, after_cursor=cursor, limit=1000)
+            if not events:
+                return
+            previous_cursor = cursor
+            for event in events:
+                event_cursor = int(event.event_id or 0)
+                if event_cursor <= cursor:
+                    continue
+                if event_cursor > barrier_cursor:
+                    return
+                socket.send_json(self._event_payload(event))
+                cursor = event_cursor
+            if cursor == previous_cursor or len(events) < 1000:
+                return
+
+    def _deliver_live_event(self, pending: _PendingConnection, event: InfraEvent) -> None:
+        event_cursor = int(event.event_id or 0)
+        if event_cursor <= 0:
             return
+        with pending.lock:
+            if event_cursor <= pending.cursor:
+                return
+            if not pending.ready:
+                pending.buffered_events.append(event)
+                return
+            pending.socket.send_json(self._event_payload(event))
+            pending.cursor = event_cursor
 
-        def _handler(event: InfraEvent) -> None:
-            self._fanout(event)
-
-        self._subscriptions[job_id] = self._event_bus.subscribe(
-            f"jobs:{job_id}",
-            _handler,
-            after_cursor=after_cursor,
-        )
-
-    def _fanout(self, event: InfraEvent) -> None:
-        payload = self._event_payload(event)
-        for socket in list(self._connections.get(event.job_id, ())):
-            socket.send_json(payload)
+    def _activate_connection(self, pending: _PendingConnection, *, cursor: int) -> None:
+        with pending.lock:
+            pending.cursor = max(pending.cursor, cursor)
+            for event in sorted(
+                pending.buffered_events,
+                key=lambda item: int(item.event_id or 0),
+            ):
+                event_cursor = int(event.event_id or 0)
+                if event_cursor <= pending.cursor:
+                    continue
+                pending.socket.send_json(self._event_payload(event))
+                pending.cursor = event_cursor
+            pending.buffered_events.clear()
+            pending.ready = True
 
     def _event_payload(self, event: InfraEvent) -> dict[str, Any]:
         return {

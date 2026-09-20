@@ -78,13 +78,26 @@ export function useJobRealtime(jobId: string) {
           const data = JSON.parse(event.data) as {
             event_type?: string;
             cursor?: number;
+            state_version?: number;
             payload?: Record<string, unknown>;
           };
-          if (typeof data.cursor === "number") {
-            cursorRef.current = Math.max(cursorRef.current, data.cursor);
+          const previousCursor = cursorRef.current;
+          if (
+            data.event_type !== "snapshot" &&
+            typeof data.cursor === "number" &&
+            data.cursor <= previousCursor
+          ) {
+            return;
+          }
+          if (typeof data.cursor === "number" && data.cursor > previousCursor) {
+            cursorRef.current = data.cursor;
           }
           if (data.event_type === "snapshot" && data.payload) {
-            dispatch({ type: "SNAPSHOT", payload: data.payload as unknown as JobSnapshot });
+            dispatch({
+              type: "SNAPSHOT",
+              payload: data.payload as unknown as JobSnapshot,
+              cursor: data.cursor,
+            });
             return;
           }
           if (data.event_type === "control_ack" && data.payload) {
@@ -99,7 +112,13 @@ export function useJobRealtime(jobId: string) {
             }
           }
           if (data.event_type && data.payload) {
-            dispatch({ type: "EVENT", eventType: data.event_type, payload: data.payload });
+            dispatch({
+              type: "EVENT",
+              eventType: data.event_type,
+              payload: data.payload,
+              cursor: data.cursor,
+              stateVersion: data.state_version,
+            });
           }
         } catch (error) {
           console.error("WS parse error", error);

@@ -35,6 +35,8 @@ export interface JobSnapshot {
   control_request_id: string | null;
   attempt: number;
   progress: number;
+  error_code: string | null;
+  error_message: string | null;
   latest_logs: string[];
   artifacts: ArtifactItem[];
 }

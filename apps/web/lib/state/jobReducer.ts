@@ -107,14 +107,6 @@ export function jobReducer(state: RealtimeState, action: Action): RealtimeState 
             typeof payload.message === "string" ? payload.message : state.error_message,
         };
       }
-      if (eventType === "snapshot") {
-         return {
-            ...state,
-            ...payload,
-            lastCursor: nextCursor,
-            latest_logs: payload.latest_logs || [],
-         }
-      }
       return {
         ...state,
         state_version: nextStateVersion,

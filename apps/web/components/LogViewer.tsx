@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { isNearScrollBottom } from "@/lib/logs/scroll";
 
 interface LogViewerProps {
   logs: string[];
@@ -57,14 +58,22 @@ function levelLabelKey(level: LogLevel): "logs.level.info" | "logs.level.warning
 
 export function LogViewer({ logs, className }: LogViewerProps) {
   const { t } = useI18n();
-  const endRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const shouldFollowTailRef = useRef(true);
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (container && shouldFollowTailRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [logs]);
 
   return (
     <div
+      ref={containerRef}
+      onScroll={(event) => {
+        shouldFollowTailRef.current = isNearScrollBottom(event.currentTarget);
+      }}
       className={cn(
         "log-scroll overflow-y-auto rounded-md border border-zinc-700/70 bg-zinc-950/95 p-4 text-sm text-zinc-100",
         className,
@@ -105,7 +114,6 @@ export function LogViewer({ logs, className }: LogViewerProps) {
           );
         })
       )}
-      <div ref={endRef} />
     </div>
   );
 }

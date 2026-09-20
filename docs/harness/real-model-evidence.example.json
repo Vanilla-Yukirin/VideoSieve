@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "revision": "replace-with-git-rev-parse-head",
+  "recorded_at": "2026-09-20T00:00:00+08:00",
+  "input": {
+    "source": "local acceptance video",
+    "sha256": "replace-with-64-hex-sha256",
+    "duration_seconds": 600.0
+  },
+  "asr": {
+    "provider": "funasr_local",
+    "artifact": "D:\\evidence\\transcript.jsonl",
+    "source_coverage_end_seconds": 599.0
+  },
+  "frame_summary": {
+    "provider": "qwen_frame_summary",
+    "artifact": "D:\\evidence\\frame_summary.jsonl"
+  },
+  "summary": {
+    "provider": "replace-with-real-llm-provider",
+    "artifact": "D:\\evidence\\summary.md",
+    "source_coverage_end_seconds": 599.0
+  },
+  "human_review": {
+    "transcript_content_and_timestamps": true,
+    "frame_descriptions": true,
+    "final_summary_fidelity": true
+  }
+}

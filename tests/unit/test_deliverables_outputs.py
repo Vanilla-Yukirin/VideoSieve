@@ -45,22 +45,16 @@ def test_deliverables_writes_expected_files_and_content(tmp_path: Path) -> None:
 
     assert result.clean_transcript_path == str(clean_path)
     assert result.illustrated_notes_path == str(notes_path)
-    assert result.summary_path == str(summary_path)
+    assert result.summary_path is None
 
     assert clean_path.exists()
     assert notes_path.exists()
-    assert summary_path.exists()
+    assert not summary_path.exists()
 
     assert "first chunk" in clean_path.read_text(encoding="utf-8")
     notes_text = notes_path.read_text(encoding="utf-8")
     assert "[[frame:slide_000001]]" in notes_text
     assert "first chunk" in notes_text
-
-    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert set(summary_payload.keys()) == {"schema_version", "title", "summary"}
-    assert summary_payload["schema_version"] == "1.0"
-    assert "first chunk" in summary_payload["summary"]
-
 
 def test_deliverables_missing_or_empty_timeline_behavior(tmp_path: Path) -> None:
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
@@ -87,6 +81,7 @@ def test_deliverables_missing_or_empty_timeline_behavior(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    service.run(project_id, job_id=job_id)
-    assert "(empty)" in store.clean_transcript_file(project_id, job_id).read_text(encoding="utf-8")
-    assert "(empty)" in store.illustrated_notes_file(project_id, job_id).read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="DELIVERABLES_INPUT_EMPTY"):
+        service.run(project_id, job_id=job_id)
+    assert not store.clean_transcript_file(project_id, job_id).exists()
+    assert not store.illustrated_notes_file(project_id, job_id).exists()

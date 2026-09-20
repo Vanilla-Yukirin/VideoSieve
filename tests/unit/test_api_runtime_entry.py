@@ -6,6 +6,8 @@ from typing import Any, cast
 
 import pytest
 
+from infra import RedisEventBus, SQLiteEventBus, SQLiteJobRepository
+
 
 @pytest.fixture(autouse=True)
 def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -249,6 +251,30 @@ def test_runtime_ws_connect_immediately_receives_snapshot(tmp_path: Path) -> Non
             assert first["payload"]["job_id"] == job_id
 
 
+def test_runtime_ws_control_ack_uses_versioned_envelope_and_request_id(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        project_id = client.post("/projects", json={"title": "demo"}).json()["project_id"]
+        job_id = client.post("/jobs", json={"project_id": project_id}).json()["job_id"]
+        claim_repository = SQLiteJobRepository(tmp_path / "runtime" / "infra.db")
+        try:
+            claimed = claim_repository.claim_next_job("runtime-test-worker")
+            assert claimed is not None
+        finally:
+            claim_repository.close()
+
+        with client.websocket_connect(f"/ws/jobs/{job_id}") as ws:
+            snapshot = ws.receive_json()
+            assert snapshot["event_type"] == "snapshot"
+            ws.send_json({"command": "pause", "request_id": "runtime-command-1"})
+            control_ack = ws.receive_json()
+
+        assert control_ack["event_type"] == "control_ack"
+        assert control_ack["request_id"] == "runtime-command-1"
+        assert isinstance(control_ack["cursor"], int)
+        assert isinstance(control_ack["state_version"], int)
+        assert control_ack["payload"]["confirmed"] is False
+
+
 def test_runtime_startup_fails_when_app_secret_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -439,20 +465,21 @@ def test_runtime_public_access_flags_matches_private_settings(tmp_path: Path) ->
         assert "guest_allow_cookie_input" not in payload
 
 
-@pytest.mark.parametrize("raw_value,expected", [("true", True), ("false", False)])
-def test_runtime_event_bus_stub_mode_is_configurable(
+@pytest.mark.parametrize("override", [None, False, True])
+def test_runtime_event_bus_stub_is_explicit_test_only_override(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    raw_value: str,
-    expected: bool,
+    override: bool | None,
 ) -> None:
     pytest.importorskip("fastapi")
     from apps.api.main import create_app
     from fastapi.testclient import TestClient
 
-    monkeypatch.setenv("VIDEOSIEVE_EVENTBUS_STUB_MODE", raw_value)
-    app = create_app(data_dir=tmp_path / "runtime")
+    app = create_app(data_dir=tmp_path / "runtime", event_bus_stub_mode=override)
     with TestClient(app) as client:
         _ = client.get("/healthz")
         runtime = cast(Any, client.app).state.runtime
-        assert runtime.event_bus._stub_mode is expected
+        if override is True:
+            assert isinstance(runtime.event_bus, RedisEventBus)
+            assert runtime.event_bus._stub_mode is True
+        else:
+            assert isinstance(runtime.event_bus, SQLiteEventBus)

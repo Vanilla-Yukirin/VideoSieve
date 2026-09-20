@@ -78,7 +78,7 @@ def test_ws_primary_channel_reconnect_uses_snapshot_source_of_truth(tmp_path: Pa
 
 
 def test_ws_forwards_events_and_handles_job_control_command(tmp_path: Path) -> None:
-    _, gateway, project_id, job_id, bus, _ = _bootstrap(tmp_path)
+    _, gateway, project_id, job_id, bus, repository = _bootstrap(tmp_path)
     socket = _FakeSocket()
     gateway.connect(job_id=job_id, socket=socket)
 
@@ -97,3 +97,11 @@ def test_ws_forwards_events_and_handles_job_control_command(tmp_path: Path) -> N
     assert any(message["event_type"] == "log" for message in socket.messages)
     assert ack["command"] == "cancel"
     assert ack["accepted"] is True
+    control_events = [
+        message for message in socket.messages if message["event_type"] == "control_ack"
+    ]
+    assert control_events[-1]["payload"]["phase"] == "applied"
+    assert control_events[-1]["payload"]["confirmed"] is True
+    job = repository.get_job(job_id)
+    assert job is not None
+    assert job.control_ack_version == job.control_version

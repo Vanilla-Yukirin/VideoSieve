@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from asr import BaselineASRProvider
 from contracts import ControlCommandType, JobStatus
 from core import INVALID_STATE_TRANSITION
 from infra import FileSystemWorkspaceStore, InfraEvent, RedisEventBus, SQLiteJobRepository
@@ -20,6 +21,7 @@ def _make_orchestrator(
         repository=repository,
         workspace=FileSystemWorkspaceStore(tmp_path / "workspaces"),
         event_bus=bus,
+        asr_provider=BaselineASRProvider(),
     )
     return orchestrator, repository, bus
 
@@ -60,6 +62,9 @@ def test_pause_command_is_applied_at_next_safety_point(tmp_path: Path) -> None:
     assert ack["accepted"] is True
     assert "reason" not in ack
     assert "code" not in ack
+    requested = repository.get_job("j1")
+    assert requested is not None
+    assert requested.status == JobStatus.RUNNING.value
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")
@@ -92,7 +97,9 @@ def test_publish_log_does_not_raise_when_worker_log_write_fails(tmp_path: Path) 
     assert received[1].payload == {"level": "info", "message": "hello"}
 
 
-def test_cancel_command_sets_cancel_requested_state(tmp_path: Path) -> None:
+def test_cancel_command_waits_for_safety_point_before_execution_state_changes(
+    tmp_path: Path,
+) -> None:
     orchestrator, repository, _ = _make_orchestrator(tmp_path)
     repository.update_project_status("p1", JobStatus.RUNNING.value)
     repository.update_job_status("j1", status=JobStatus.RUNNING.value, stage="ingest")
@@ -104,6 +111,9 @@ def test_cancel_command_sets_cancel_requested_state(tmp_path: Path) -> None:
     )
     assert ack["command"] == "cancel"
     assert ack["accepted"] is True
+    requested = repository.get_job("j1")
+    assert requested is not None
+    assert requested.status == JobStatus.RUNNING.value
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"video")

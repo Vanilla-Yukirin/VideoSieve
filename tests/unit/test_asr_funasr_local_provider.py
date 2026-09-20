@@ -11,11 +11,13 @@ from asr.funasr_local import FunASRLocalProvider, _as_seconds, _segments_from_wo
 
 
 def test_funasr_local_provider_maps_generate_result(monkeypatch, tmp_path: Path) -> None:
-    observed: dict[str, object] = {}
+    observed: dict[str, object] = {"init": []}
 
     class _FakeAutoModel:
         def __init__(self, **kwargs) -> None:
-            observed["init"] = kwargs
+            init_calls = observed["init"]
+            assert isinstance(init_calls, list)
+            init_calls.append(kwargs)
 
         def generate(self, **kwargs):
             observed["generate"] = kwargs
@@ -40,14 +42,19 @@ def test_funasr_local_provider_maps_generate_result(monkeypatch, tmp_path: Path)
         )
     )
 
-    assert observed["init"] is not None
-    init_kwargs = observed["init"]
+    init_calls = observed["init"]
+    assert isinstance(init_calls, list)
+    assert len(init_calls) == 2
+    init_kwargs = init_calls[0]
     assert isinstance(init_kwargs, dict)
     assert init_kwargs["model"] == "FunAudioLLM/Fun-ASR-Nano-2512"
     assert init_kwargs["hub"] == "ms"
     assert init_kwargs["device"] == "cpu"
-    remote_code_path = str(init_kwargs["remote_code"]).replace("\\", "/")
-    assert remote_code_path.endswith("packages/asr/vendor/fun_asr/model.py")
+    assert init_kwargs["remote_code"] == "fun_asr/model.py"
+    assert init_kwargs["vad_model"] == "fsmn-vad"
+    vad_kwargs = init_calls[1]
+    assert isinstance(vad_kwargs, dict)
+    assert vad_kwargs["model"] == "fsmn-vad"
 
     assert len(result.segments) == 2
     assert result.segments[0].start == 0.0

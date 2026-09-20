@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from asr import BaselineASRProvider
 from contracts import ControlCommandType, JobStatus
 from core import DELETE_PENDING_CLEANUP
 from infra import FileSystemWorkspaceStore, RedisEventBus, SQLiteJobRepository
@@ -19,6 +20,7 @@ def test_delete_is_two_phase_and_returns_pending_cleanup_when_not_terminal(tmp_p
         repository=repository,
         workspace=workspace,
         event_bus=RedisEventBus(stub_mode=True),
+        asr_provider=BaselineASRProvider(),
     )
 
     ack = orchestrator.handle_control_command(

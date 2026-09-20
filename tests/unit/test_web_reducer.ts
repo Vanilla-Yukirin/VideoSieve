@@ -42,6 +42,17 @@ describe("jobReducer", () => {
     expect(newState.current_stage).toBe("asr");
   });
 
+  it("should update execution state from websocket events", () => {
+    const state = { ...initialState, status: "running", current_stage: "asr" };
+    const newState = jobReducer(state, {
+      type: "EVENT",
+      eventType: "job_state_changed",
+      payload: { from: "running", to: "paused", stage: "asr" },
+    });
+    expect(newState.status).toBe("paused");
+    expect(newState.current_stage).toBe("asr");
+  });
+
   it("should switch connection state", () => {
     let state = jobReducer(initialState, { type: "CONNECT" });
     expect(state.isConnected).toBe(true);

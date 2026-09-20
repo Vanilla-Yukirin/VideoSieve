@@ -4,7 +4,6 @@ import json
 import threading
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
 import apps.api.service as api_service
@@ -17,13 +16,12 @@ from apps.api.rest import (
     create_project,
     delete_project,
     get_auth_bootstrap_status,
-    get_project,
     get_guest_cooldown,
     get_job_snapshot,
     get_public_access_flags,
     get_system_settings,
-    list_project_jobs,
     list_job_artifacts,
+    list_project_jobs,
     patch_system_settings,
     post_auth_bootstrap,
     post_auth_login,
@@ -750,49 +748,9 @@ def test_create_job_backward_compatible_without_format_selection(tmp_path: Path)
     assert "audio_format_id" not in ingest
 
 
-def test_create_job_dispatch_advances_status_and_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import pipeline.orchestrator as orchestrator_module
-    from contracts import SourceType
-    from ingest import IngestMeta, IngestRequest, IngestResult
-
+def test_create_job_stays_queued_until_independent_worker_claims(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(tmp_path)
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
-
-    def _fake_run_ingest(
-        workspace: FileSystemWorkspaceStore,
-        request: IngestRequest,
-        *,
-        cancel_checker: Callable[[], bool] | None = None,
-    ) -> IngestResult:
-        _ = cancel_checker
-        workspace.ensure_job_layout(request.project_id, request.job_id)
-        source_path = workspace.source_video_file(request.project_id, request.job_id)
-        source_path.write_bytes(b"video")
-        meta = IngestMeta(
-            project_id=request.project_id,
-            job_id=request.job_id,
-            source_type=SourceType.BILIBILI_URL,
-            source_ref=request.source_url or "https://example.invalid/video",
-            title=request.title or "demo",
-            description=request.description,
-            tags=request.tags,
-            language_hint=request.language_hint,
-            ingested_at=datetime.now(UTC),
-        )
-        workspace.job_meta_file(request.project_id, request.job_id).write_text(
-            meta.model_dump_json(indent=2), encoding="utf-8"
-        )
-        return IngestResult(
-            project_id=request.project_id,
-            job_id=request.job_id,
-            source_video_path=str(source_path),
-            meta_path=str(workspace.job_meta_file(request.project_id, request.job_id)),
-            meta=meta,
-        )
-
-    monkeypatch.setattr(orchestrator_module, "run_ingest", _fake_run_ingest)
 
     job_id = create_job(
         control_plane,
@@ -806,37 +764,14 @@ def test_create_job_dispatch_advances_status_and_snapshot(
         },
     )["job_id"]
 
-    progressed = _wait_until(
-        lambda: (
-            (repository.get_job(job_id) is not None)
-            and (repository.get_job(job_id).status != JobStatus.QUEUED.value)
-        )
-    )
-    assert progressed
-
-    settled = _wait_until(
-        lambda: (
-            lambda snap: (
-                (snap["current_stage"] is not None)
-                or (snap["status"] in {JobStatus.FAILED.value, JobStatus.CANCELLED.value})
-            )
-        )(get_job_snapshot(control_plane, job_id))
-    )
-    assert settled
-
+    job = repository.get_job(job_id)
+    assert job is not None
+    assert job.status == JobStatus.QUEUED.value
+    assert job.worker_id is None
     snapshot = get_job_snapshot(control_plane, job_id)
-    progress_value = snapshot["progress"]
-    assert isinstance(progress_value, (int, float))
-    progress = float(progress_value)
-    assert snapshot["status"] in {
-        JobStatus.RUNNING.value,
-        JobStatus.SUCCEEDED.value,
-        JobStatus.FAILED.value,
-        JobStatus.CANCELLED.value,
-    }
-    if snapshot["status"] in {JobStatus.RUNNING.value, JobStatus.SUCCEEDED.value}:
-        assert snapshot["current_stage"] is not None
-    assert progress >= 0.0
+    assert snapshot["status"] == JobStatus.QUEUED.value
+    assert snapshot["current_stage"] is None
+    assert snapshot["progress"] == 0.0
 
 
 def test_create_job_dispatch_allows_retrigger_for_custom_dispatcher(tmp_path: Path) -> None:

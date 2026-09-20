@@ -38,6 +38,9 @@ Thumbs.db
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.codex-test-*/
+.pytest-tmp-*/
+harness-tmp/
 
 # Data
 *.db

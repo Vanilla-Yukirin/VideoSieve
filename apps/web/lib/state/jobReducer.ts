@@ -36,7 +36,7 @@ export function jobReducer(state: RealtimeState, action: Action): RealtimeState 
     case "CONNECT":
       return { ...state, isConnected: true, isPolling: false };
     case "DISCONNECT":
-      return { ...state, isConnected: false, isPolling: true };
+      return { ...state, isConnected: false, isPolling: false };
     case "POLL_START":
       return { ...state, isPolling: true };
     case "POLL_END":

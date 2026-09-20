@@ -1,12 +1,14 @@
 {
   "preset": "ts-jest",
   "testEnvironment": "node",
+  "moduleDirectories": ["node_modules", "<rootDir>/node_modules"],
   "roots": [
     "<rootDir>",
     "<rootDir>/../../tests/unit"
   ],
   "testMatch": [
-    "**/test_web_*.ts"
+    "**/test_web_*.ts",
+    "**/test_web_*.tsx"
   ],
   "transform": {
     "^.+\\.tsx?$": "ts-jest"

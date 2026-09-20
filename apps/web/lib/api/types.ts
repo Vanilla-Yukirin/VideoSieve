@@ -39,6 +39,7 @@ export interface ControlAck {
   accepted: boolean;
   reason?: string;
   code?: string;
+  request_id?: string;
 }
 
 export type ControlCommandType = "pause" | "resume" | "cancel" | "delete";

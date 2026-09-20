@@ -1,19 +1,23 @@
 import React, { useState } from "react";
 import { ControlCommandType } from "@/lib/api/types";
-import { api } from "@/lib/api/client";
 import { Button } from "./Button";
-import { Square, Trash2 } from "lucide-react";
+import { Pause, Play, Square, Trash2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/lib/toast/ToastProvider";
 
 interface ControlPanelProps {
-  jobId: string;
   status: string;
+  sendCommand: (command: ControlCommandType) => Promise<{
+    command: string;
+    accepted: boolean;
+    reason?: string;
+    code?: string;
+  }>;
   onDeleted?: () => void;
   onDeletePending?: () => void;
 }
 
-export function ControlPanel({ jobId, status, onDeleted, onDeletePending }: ControlPanelProps) {
+export function ControlPanel({ status, sendCommand, onDeleted, onDeletePending }: ControlPanelProps) {
   const { t } = useI18n();
   const { pushToast } = useToast();
   const [loadingCmd, setLoadingCmd] = useState<ControlCommandType | null>(null);
@@ -39,7 +43,7 @@ export function ControlPanel({ jobId, status, onDeleted, onDeletePending }: Cont
     }
     setLoadingCmd(cmd);
     try {
-      const ack = await api.controlJob(jobId, cmd);
+      const ack = await sendCommand(cmd);
       if (!ack.accepted) {
         const message = t("control.reject", { reason: ack.reason ?? "-" });
         pushToast({ level: "error", message });
@@ -79,20 +83,39 @@ export function ControlPanel({ jobId, status, onDeleted, onDeletePending }: Cont
   };
 
   const isTerminal = ["succeeded", "failed", "cancelled"].includes(status);
-  const isInterrupting = status === "cancel_requested";
-  const canInterrupt = !isTerminal && !isInterrupting;
+  const canPause = status === "running";
+  const canResume = status === "paused" || status === "interrupted";
+  const canInterrupt = !isTerminal;
   const canDelete = true;
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
         <Button
+          variant="outline"
+          onClick={() => handleCommand("pause")}
+          isLoading={loadingCmd === "pause"}
+          disabled={!canPause}
+        >
+          <Pause className="mr-2 h-4 w-4" /> {t("control.pause")}
+        </Button>
+
+        <Button
+          variant="outline"
+          onClick={() => handleCommand("resume")}
+          isLoading={loadingCmd === "resume"}
+          disabled={!canResume}
+        >
+          <Play className="mr-2 h-4 w-4" /> {t("control.resume")}
+        </Button>
+
+        <Button
           variant="destructive"
           onClick={() => handleCommand("cancel")}
           isLoading={loadingCmd === "cancel"}
           disabled={!canInterrupt}
         >
-          <Square className="mr-2 h-4 w-4" /> {isInterrupting ? t("control.cancelling") : t("control.cancel")}
+          <Square className="mr-2 h-4 w-4" /> {t("control.cancel")}
         </Button>
 
         {/* Always allow delete, even if running (it will cancel first) */}

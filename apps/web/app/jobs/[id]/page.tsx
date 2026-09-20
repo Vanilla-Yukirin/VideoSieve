@@ -24,7 +24,6 @@ import {
 import { DeliverablesTabs } from "@/components/DeliverablesTabs";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { ApiClientError, api } from "@/lib/api/client";
 import { useToast } from "@/lib/toast/ToastProvider";
 
 function encodeArtifactPath(path: string): string {
@@ -171,16 +170,13 @@ export default function JobDetail() {
     const delayMs = deleteRetryCount < 3 ? 500 : deleteRetryCount < 8 ? 1000 : 2000;
     const timer = window.setTimeout(async () => {
       try {
-        const ack = await api.controlJob(jobId, "delete");
+        const ack = await state.sendCommand("delete");
         if (ack.reason === "job deleted") {
           handleDeleted();
           return;
         }
-      } catch (error) {
-        if (error instanceof ApiClientError && error.code === "not_found") {
-          handleDeleted();
-          return;
-        }
+      } catch {
+        // A disconnected socket will retry through the hook before the next command.
       }
       setDeleteRetryCount((count) => count + 1);
     }, delayMs);
@@ -194,6 +190,7 @@ export default function JobDetail() {
     pushToast,
     t,
     handleDeleted,
+    state.sendCommand,
   ]);
   const showPrev = () => {
     setPreviewIndex((current) => {
@@ -262,8 +259,8 @@ export default function JobDetail() {
          </div>
           <div className="space-y-1 text-right">
             <ControlPanel
-              jobId={jobId}
               status={state.status}
+              sendCommand={state.sendCommand}
               onDeleted={handleDeleted}
               onDeletePending={handleDeletePending}
             />

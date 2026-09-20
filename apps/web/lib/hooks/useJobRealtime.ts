@@ -1,191 +1,139 @@
-import { useEffect, useRef, useReducer, useState } from "react";
-import { ApiClientError, api } from "../api/client";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { ControlAck, ControlCommandType, JobSnapshot } from "../api/types";
 import { jobReducer, initialState } from "../state/jobReducer";
 
 const API_ORIGIN = (process.env.NEXT_PUBLIC_API_ORIGIN || "http://127.0.0.1:8040").replace(/\/+$/, "");
+const COMMAND_TIMEOUT_MS = 10_000;
+const RECONNECT_DELAY_MS = 2_000;
 
 function toWebSocketOrigin(origin: string): string {
-  if (origin.startsWith("https://")) {
-    return `wss://${origin.slice("https://".length)}`;
-  }
-  if (origin.startsWith("http://")) {
-    return `ws://${origin.slice("http://".length)}`;
-  }
+  if (origin.startsWith("https://")) return `wss://${origin.slice("https://".length)}`;
+  if (origin.startsWith("http://")) return `ws://${origin.slice("http://".length)}`;
   return origin;
 }
 
 const WS_ORIGIN = toWebSocketOrigin(API_ORIGIN);
-const SNAPSHOT_INTERVAL_MS = 2000;
-const WS_HEARTBEAT_SNAPSHOT_MS = 5000;
-const RESYNC_DEBOUNCE_MS = 350;
 
-function isTerminalStatus(status: string): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
-}
+type PendingCommand = {
+  resolve: (ack: ControlAck) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
 
 export function useJobRealtime(jobId: string) {
   const [state, dispatch] = useReducer(jobReducer, initialState);
   const [isMissing, setIsMissing] = useState(false);
-
   const wsRef = useRef<WebSocket | null>(null);
-  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const resyncTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const latestStatusRef = useRef<string>(initialState.status);
+  const cursorRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCommandsRef = useRef(new Map<string, PendingCommand>());
 
-  useEffect(() => {
-    latestStatusRef.current = state.status;
-  }, [state.status]);
+  const sendCommand = useCallback(
+    (command: ControlCommandType): Promise<ControlAck> => {
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return Promise.reject(new Error("job websocket is not connected"));
+      }
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return new Promise<ControlAck>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingCommandsRef.current.delete(requestId);
+          reject(new Error(`control command timed out: ${command}`));
+        }, COMMAND_TIMEOUT_MS);
+        pendingCommandsRef.current.set(requestId, { resolve, reject, timer });
+        socket.send(JSON.stringify({ command, request_id: requestId }));
+      });
+    },
+    [],
+  );
 
-  // WebSocket & Polling Logic
   useEffect(() => {
     if (!jobId) return;
+    cursorRef.current = 0;
+    let active = true;
 
-    let isMounted = true;
+    const rejectPending = (message: string) => {
+      pendingCommandsRef.current.forEach((pending) => {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(message));
+      });
+      pendingCommandsRef.current.clear();
+    };
 
-    const requestSnapshot = () => {
-      api.getJobSnapshot(jobId)
-        .then((snap) => {
-          if (!isMounted) return;
-          setIsMissing(false);
-          dispatch({ type: "SNAPSHOT", payload: snap });
-        })
-        .catch((e) => {
-          if (e instanceof ApiClientError && e.code === "not_found") {
-            if (isMounted) {
-              setIsMissing(true);
-            }
+    const connect = () => {
+      if (!active || wsRef.current) return;
+      const cursorQuery = cursorRef.current > 0 ? `?after_cursor=${cursorRef.current}` : "";
+      const socket = new WebSocket(`${WS_ORIGIN}/ws/jobs/${jobId}${cursorQuery}`);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        if (!active) return;
+        setIsMissing(false);
+        dispatch({ type: "CONNECT" });
+      };
+
+      socket.onmessage = (event) => {
+        if (!active) return;
+        try {
+          const data = JSON.parse(event.data) as {
+            event_type?: string;
+            cursor?: number;
+            payload?: Record<string, unknown>;
+          };
+          if (typeof data.cursor === "number") {
+            cursorRef.current = Math.max(cursorRef.current, data.cursor);
+          }
+          if (data.event_type === "snapshot" && data.payload) {
+            dispatch({ type: "SNAPSHOT", payload: data.payload as unknown as JobSnapshot });
             return;
           }
-          if (isMounted) {
-            console.error("Snapshot error", e);
+          if (data.event_type === "control_ack" && data.payload) {
+            const ack = data.payload as unknown as ControlAck;
+            if (ack.request_id) {
+              const pending = pendingCommandsRef.current.get(ack.request_id);
+              if (pending) {
+                clearTimeout(pending.timer);
+                pendingCommandsRef.current.delete(ack.request_id);
+                pending.resolve(ack);
+              }
+            }
           }
-        });
-    };
-
-    const scheduleResync = () => {
-      if (resyncTimerRef.current) return;
-      resyncTimerRef.current = setTimeout(() => {
-        resyncTimerRef.current = null;
-        requestSnapshot();
-      }, RESYNC_DEBOUNCE_MS);
-    };
-
-    requestSnapshot();
-
-    if (api.getRuntimeMode() === "mock") {
-      const timer = setInterval(() => {
-        if (isTerminalStatus(latestStatusRef.current)) {
-          return;
-        }
-        requestSnapshot();
-      }, SNAPSHOT_INTERVAL_MS);
-      return () => {
-        isMounted = false;
-        clearInterval(timer);
-      };
-    }
-    const wsUrl = `${WS_ORIGIN}/ws/jobs/${jobId}`;
-    let heartbeatTimer: NodeJS.Timeout | null = null;
-
-    function connect() {
-      if (wsRef.current) return;
-      
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (!isMounted) return;
-        console.log("WS Connected");
-        dispatch({ type: "CONNECT" });
-        stopPolling();
-      };
-
-      ws.onmessage = (event) => {
-        if (!isMounted) return;
-        try {
-          const data = JSON.parse(event.data);
-          dispatch({ type: "EVENT", eventType: data.event_type, payload: data.payload });
-          if (
-            data.event_type === "snapshot" ||
-            data.event_type === "stage_changed" ||
-            data.event_type === "progress"
-          ) {
-            scheduleResync();
+          if (data.event_type && data.payload) {
+            dispatch({ type: "EVENT", eventType: data.event_type, payload: data.payload });
           }
-        } catch (e) {
-          console.error("WS parse error", e);
+        } catch (error) {
+          console.error("WS parse error", error);
         }
       };
 
-      ws.onclose = () => {
-        if (!isMounted) return;
-        console.log("WS Closed");
-        wsRef.current = null;
+      socket.onclose = (event) => {
+        if (wsRef.current === socket) wsRef.current = null;
+        rejectPending("job websocket disconnected");
+        if (!active) return;
         dispatch({ type: "DISCONNECT" });
-        startPolling();
-        // Retry connection in 3s
-        setTimeout(() => {
-            if(isMounted && !wsRef.current) connect();
-        }, 3000);
-      };
-
-      ws.onerror = (e) => {
-        console.error("WS Error", e);
-        // Close will trigger onclose
-      };
-    }
-
-    function startPolling() {
-      if (pollTimerRef.current) return;
-      console.log("Starting polling fallback");
-      dispatch({ type: "POLL_START" });
-      pollTimerRef.current = setInterval(() => {
-        if (isTerminalStatus(latestStatusRef.current)) {
+        if (event.code === 4404) {
+          setIsMissing(true);
           return;
         }
-        requestSnapshot();
-      }, SNAPSHOT_INTERVAL_MS);
-    }
+        reconnectTimerRef.current = setTimeout(connect, RECONNECT_DELAY_MS);
+      };
 
-    function stopPolling() {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-        dispatch({ type: "POLL_END" });
-      }
-    }
+      socket.onerror = () => {
+        socket.close();
+      };
+    };
 
     connect();
-    heartbeatTimer = setInterval(() => {
-      if (isTerminalStatus(latestStatusRef.current)) {
-        return;
-      }
-      const socket = wsRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        requestSnapshot();
-      }
-    }, WS_HEARTBEAT_SNAPSHOT_MS);
-
     return () => {
-      isMounted = false;
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (resyncTimerRef.current) {
-        clearTimeout(resyncTimerRef.current);
-        resyncTimerRef.current = null;
-      }
-      stopPolling();
+      active = false;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+      const socket = wsRef.current;
+      wsRef.current = null;
+      if (socket) socket.close();
+      rejectPending("job websocket closed");
     };
   }, [jobId]);
 
-  return {
-    ...state,
-    isMissing,
-  };
+  return { ...state, isMissing, sendCommand };
 }

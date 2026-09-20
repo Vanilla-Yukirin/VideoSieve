@@ -49,6 +49,6 @@ describe("jobReducer", () => {
 
     state = jobReducer(state, { type: "DISCONNECT" });
     expect(state.isConnected).toBe(false);
-    expect(state.isPolling).toBe(true);
+    expect(state.isPolling).toBe(false);
   });
 });

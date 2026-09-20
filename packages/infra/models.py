@@ -76,6 +76,17 @@ class UserCookieRecord:
 
 
 @dataclass(slots=True)
+class ProviderSecretRecord:
+    """One encrypted, versioned provider credential."""
+
+    id: str
+    kind: str
+    secret_encrypted: str
+    created_at: str
+    superseded_at: str | None
+
+
+@dataclass(slots=True)
 class SystemSettingRecord:
     """Runtime-configurable setting persisted in SQLite."""
 

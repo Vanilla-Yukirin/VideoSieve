@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from .capswriter import CapsWriterWebSocketProvider
 from .interfaces import ASRProvider, ASRProviderError
 
+_TOKEN_UNSET = object()
+
 
 def _config_str(config: Mapping[str, object], key: str, default: str = "") -> str:
     value = config.get(key)
@@ -34,7 +36,9 @@ def _config_nonnegative_float(config: Mapping[str, object], key: str, default: f
         return default
 
 
-def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider:
+def create_asr_provider_from_config(
+    config: Mapping[str, object], *, token: str | None | object = _TOKEN_UNSET
+) -> ASRProvider:
     """Create an ASR adapter from a job snapshot without persisting credentials."""
 
     provider = str(config.get("provider") or "").strip().lower()
@@ -51,8 +55,8 @@ def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider
                 "CapsWriter endpoint is required",
                 hint="Set the CapsWriter endpoint in system settings.",
             )
-        token_env = _config_str(config, "token_env", "CAPSWRITER_TOKEN")
-        token = os.getenv(token_env, "").strip() or None
+        token_value = os.getenv("CAPSWRITER_TOKEN", "") if token is _TOKEN_UNSET else token
+        resolved_token = token_value.strip() or None if isinstance(token_value, str) else None
         language = _config_str(config, "language", "auto") or "auto"
         context = _config_str(config, "context")
         timeout_seconds = _config_positive_int(config, "timeout_seconds", 900)
@@ -65,7 +69,7 @@ def create_asr_provider_from_config(config: Mapping[str, object]) -> ASRProvider
             )
         return CapsWriterWebSocketProvider(
             endpoint=endpoint,
-            token=token,
+            token=resolved_token,
             language=language,
             context=context,
             timeout_seconds=timeout_seconds,

@@ -44,6 +44,31 @@ def test_factory_defaults_capswriter_to_upstream_websocket(monkeypatch) -> None:
     assert isinstance(provider, CapsWriterWebSocketProvider)
 
 
+def test_factory_ignores_snapshot_selected_environment_variable(monkeypatch) -> None:
+    monkeypatch.setenv("CAPSWRITER_TOKEN", "approved-fallback")
+    monkeypatch.setenv("UNRELATED_SECRET", "must-not-be-read")
+
+    provider = create_asr_provider_from_config(
+        {
+            "provider": "capswriter",
+            "endpoint": "ws://localhost:6016",
+            "token_env": "UNRELATED_SECRET",
+        }
+    )
+    explicitly_injected = create_asr_provider_from_config(
+        {"provider": "capswriter", "endpoint": "ws://localhost:6016"},
+        token="database-token",
+    )
+    explicitly_empty = create_asr_provider_from_config(
+        {"provider": "capswriter", "endpoint": "ws://localhost:6016"},
+        token=None,
+    )
+
+    assert provider._token == "approved-fallback"
+    assert explicitly_injected._token == "database-token"
+    assert explicitly_empty._token is None
+
+
 def test_factory_rejects_non_websocket_capswriter_transport() -> None:
     with pytest.raises(ASRProviderError) as exc_info:
         create_asr_provider_from_config(

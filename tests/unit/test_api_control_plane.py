@@ -751,7 +751,7 @@ def test_create_job_persists_ingest_format_selection_in_snapshot(tmp_path: Path)
         "language": "auto",
             "context": "",
             "timeout_seconds": 900,
-            "token_env": "CAPSWRITER_TOKEN",
+            "credential_ref": None,
             "segment_seconds": 60.0,
             "overlap_seconds": 4.0,
         }
@@ -873,6 +873,103 @@ def test_settings_persists_capswriter_without_requiring_token(
     assert patched["asr_provider"] == "capswriter"
     assert patched["asr_token_configured"] is False
     assert repository.get_setting("asr_endpoint") == '"ws://capswriter.local:6016"'
+
+
+def test_settings_configured_flags_do_not_treat_legacy_env_as_new_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CAPSWRITER_TOKEN", "legacy-asr")
+    monkeypatch.setenv("QWEN_API_KEY", "legacy-vlm")
+    monkeypatch.setenv("SUMMARY_API_KEY", "legacy-summary")
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(
+        control_plane, {"username": "admin", "password": "password123"}
+    )["token"]
+
+    settings = get_system_settings(control_plane, token)
+
+    assert settings["asr_token_configured"] is False
+    assert settings["vlm_api_key_configured"] is False
+    assert settings["summary_api_key_configured"] is False
+
+
+def test_settings_persists_encrypted_provider_secrets_and_snapshots_refs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for env_name in ("CAPSWRITER_TOKEN", "QWEN_API_KEY", "SUMMARY_API_KEY"):
+        monkeypatch.delenv(env_name, raising=False)
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(
+        control_plane, {"username": "admin", "password": "password123"}
+    )["token"]
+
+    patched = patch_system_settings(
+        control_plane,
+        token,
+        {
+            "asr_token": "asr-secret",
+            "vlm_api_key": "vlm-secret",
+            "summary_api_key": "summary-secret",
+        },
+    )
+    assert patched["asr_token_configured"] is True
+    assert patched["vlm_api_key_configured"] is True
+    assert patched["summary_api_key_configured"] is True
+    assert "asr_token" not in patched
+    assert "vlm_api_key" not in patched
+    assert "summary_api_key" not in patched
+
+    asr_secret = repository.get_active_provider_secret("capswriter_token")
+    vlm_secret = repository.get_active_provider_secret("vlm_api_key")
+    summary_secret = repository.get_active_provider_secret("summary_api_key")
+    assert asr_secret is not None
+    assert vlm_secret is not None
+    assert summary_secret is not None
+    assert "asr-secret" not in asr_secret.secret_encrypted
+    assert "vlm-secret" not in vlm_secret.secret_encrypted
+    assert "summary-secret" not in summary_secret.secret_encrypted
+
+    project_id = create_project(control_plane, {"title": "provider refs"})["project_id"]
+    job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
+    snapshot_path = FileSystemWorkspaceStore(tmp_path / "workspaces").config_snapshot_file(
+        project_id, job_id
+    )
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["asr"]["credential_ref"] == asr_secret.id
+    assert snapshot["frame_summary"]["credential_ref"] == vlm_secret.id
+    assert snapshot["overall_summary"]["credential_ref"] == summary_secret.id
+    assert "asr-secret" not in snapshot_path.read_text(encoding="utf-8")
+    assert "vlm-secret" not in snapshot_path.read_text(encoding="utf-8")
+    assert "summary-secret" not in snapshot_path.read_text(encoding="utf-8")
+
+    _ = patch_system_settings(
+        control_plane,
+        token,
+        {"vlm_api_key": "replacement-vlm-secret"},
+    )
+    replacement = repository.get_active_provider_secret("vlm_api_key")
+    assert replacement is not None
+    assert replacement.id != vlm_secret.id
+    assert repository.get_provider_secret(vlm_secret.id, expected_kind="vlm_api_key") is not None
+
+    cleared = patch_system_settings(control_plane, token, {"clear_vlm_api_key": True})
+    assert cleared["vlm_api_key_configured"] is False
+
+
+def test_settings_rejects_replacing_and_clearing_same_secret(tmp_path: Path) -> None:
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    token = post_auth_bootstrap(
+        control_plane, {"username": "admin", "password": "password123"}
+    )["token"]
+
+    with pytest.raises(ApiError) as exc_info:
+        patch_system_settings(
+            control_plane,
+            token,
+            {"vlm_api_key": "new-secret", "clear_vlm_api_key": True},
+        )
+
+    assert exc_info.value.code == "provider_secret_patch_conflict"
 
 
 def test_settings_rejects_capswriter_without_endpoint(tmp_path: Path) -> None:

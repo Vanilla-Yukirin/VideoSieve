@@ -9,7 +9,6 @@ import shutil
 import threading
 import time
 import uuid
-from base64 import urlsafe_b64encode
 from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -18,7 +17,7 @@ from math import ceil
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from cryptography.fernet import Fernet, InvalidToken
+from pydantic import SecretStr
 
 from contracts import ControlCommandType, JobStatus
 from core import DELETE_PENDING_CLEANUP
@@ -31,6 +30,7 @@ from infra import (
     UserCookieRecord,
     WorkspaceStore,
 )
+from infra.secrets import SecretCipherError, decrypt_secret, encrypt_secret
 from ingest import IngestRequest, probe_url_formats
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
 from overall_summary import OpenAICompatibleSummaryProvider
@@ -85,6 +85,9 @@ SETTING_SUMMARY_MODEL = "summary_model"
 SETTING_SUMMARY_PROMPT_ZH = "summary_prompt_zh"
 SETTING_SUMMARY_PROMPT_EN = "summary_prompt_en"
 SETTING_SUMMARY_MAX_INPUT_CHARS = "summary_max_input_chars"
+PROVIDER_SECRET_ASR_TOKEN = "capswriter_token"
+PROVIDER_SECRET_VLM_API_KEY = "vlm_api_key"
+PROVIDER_SECRET_SUMMARY_API_KEY = "summary_api_key"
 
 # Must match QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH / DEFAULT_PROMPT_EN exactly
 _DEFAULT_VLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
@@ -451,13 +454,16 @@ class ApiControlPlane:
             asr_language=str(settings[SETTING_ASR_LANGUAGE]),
             asr_context=str(settings[SETTING_ASR_CONTEXT]),
             asr_timeout_seconds=int(str(settings[SETTING_ASR_TIMEOUT_SECONDS])),
-            asr_token_configured=bool(os.getenv("CAPSWRITER_TOKEN", "").strip()),
+            asr_token_configured=self._provider_secret_configured(PROVIDER_SECRET_ASR_TOKEN),
             vlm_base_url=str(settings[SETTING_VLM_BASE_URL]),
             vlm_model=str(settings[SETTING_VLM_MODEL]),
             vlm_frame_prompt_zh=str(settings[SETTING_VLM_FRAME_PROMPT_ZH]),
             vlm_frame_prompt_en=str(settings[SETTING_VLM_FRAME_PROMPT_EN]),
             vlm_concurrency=int(str(settings[SETTING_VLM_CONCURRENCY])),
             vlm_rpm=int(str(settings[SETTING_VLM_RPM])),
+            vlm_api_key_configured=self._provider_secret_configured(
+                PROVIDER_SECRET_VLM_API_KEY
+            ),
             vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
             vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
             summary_base_url=str(settings[SETTING_SUMMARY_BASE_URL]),
@@ -465,6 +471,9 @@ class ApiControlPlane:
             summary_prompt_zh=str(settings[SETTING_SUMMARY_PROMPT_ZH]),
             summary_prompt_en=str(settings[SETTING_SUMMARY_PROMPT_EN]),
             summary_max_input_chars=int(str(settings[SETTING_SUMMARY_MAX_INPUT_CHARS])),
+            summary_api_key_configured=self._provider_secret_configured(
+                PROVIDER_SECRET_SUMMARY_API_KEY
+            ),
             summary_prompt_zh_default=_DEFAULT_SUMMARY_PROMPT_ZH,
             summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
@@ -480,6 +489,17 @@ class ApiControlPlane:
     ) -> SystemSettingsResponse:
         username = self._require_user_from_token(token)
         current = self._current_settings()
+        next_asr_token = self._validate_provider_secret_patch(
+            payload.asr_token, payload.clear_asr_token, field_name="asr_token"
+        )
+        next_vlm_api_key = self._validate_provider_secret_patch(
+            payload.vlm_api_key, payload.clear_vlm_api_key, field_name="vlm_api_key"
+        )
+        next_summary_api_key = self._validate_provider_secret_patch(
+            payload.summary_api_key,
+            payload.clear_summary_api_key,
+            field_name="summary_api_key",
+        )
         next_guest_mode = (
             payload.guest_mode_enabled
             if payload.guest_mode_enabled is not None
@@ -632,6 +652,21 @@ class ApiControlPlane:
             SETTING_SUMMARY_MAX_INPUT_CHARS,
             json.dumps(next_summary_max_input_chars),
         )
+        self._persist_provider_secret_patch(
+            kind=PROVIDER_SECRET_ASR_TOKEN,
+            value=next_asr_token,
+            clear=payload.clear_asr_token is True,
+        )
+        self._persist_provider_secret_patch(
+            kind=PROVIDER_SECRET_VLM_API_KEY,
+            value=next_vlm_api_key,
+            clear=payload.clear_vlm_api_key is True,
+        )
+        self._persist_provider_secret_patch(
+            kind=PROVIDER_SECRET_SUMMARY_API_KEY,
+            value=next_summary_api_key,
+            clear=payload.clear_summary_api_key is True,
+        )
         self._append_operation_log(event="settings.patch", actor=username, outcome="accepted")
         return SystemSettingsResponse(
             guest_mode_enabled=next_guest_mode,
@@ -641,13 +676,16 @@ class ApiControlPlane:
             asr_language=next_asr_language,
             asr_context=next_asr_context,
             asr_timeout_seconds=next_asr_timeout_seconds,
-            asr_token_configured=bool(os.getenv("CAPSWRITER_TOKEN", "").strip()),
+            asr_token_configured=self._provider_secret_configured(PROVIDER_SECRET_ASR_TOKEN),
             vlm_base_url=next_vlm_base_url,
             vlm_model=next_vlm_model,
             vlm_frame_prompt_zh=next_prompt_zh,
             vlm_frame_prompt_en=next_prompt_en,
             vlm_concurrency=next_concurrency,
             vlm_rpm=next_rpm,
+            vlm_api_key_configured=self._provider_secret_configured(
+                PROVIDER_SECRET_VLM_API_KEY
+            ),
             vlm_frame_prompt_zh_default=_DEFAULT_VLM_PROMPT_ZH,
             vlm_frame_prompt_en_default=_DEFAULT_VLM_PROMPT_EN,
             summary_base_url=next_summary_base_url,
@@ -655,6 +693,9 @@ class ApiControlPlane:
             summary_prompt_zh=next_summary_prompt_zh,
             summary_prompt_en=next_summary_prompt_en,
             summary_max_input_chars=next_summary_max_input_chars,
+            summary_api_key_configured=self._provider_secret_configured(
+                PROVIDER_SECRET_SUMMARY_API_KEY
+            ),
             summary_prompt_zh_default=_DEFAULT_SUMMARY_PROMPT_ZH,
             summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
@@ -807,22 +848,60 @@ class ApiControlPlane:
             updated_at=row.updated_at,
         )
 
-    def _get_fernet(self) -> Fernet:
-        secret = os.getenv("APP_SECRET_KEY")
-        if not secret:
-            raise ApiConfigError("APP_SECRET_KEY is required for cookie vault operations")
-        digest = sha256(secret.encode("utf-8")).digest()
-        return Fernet(urlsafe_b64encode(digest))
-
     def _encrypt_cookie(self, cookie_text: str) -> str:
-        return self._get_fernet().encrypt(cookie_text.encode("utf-8")).decode("utf-8")
+        try:
+            return cast(str, encrypt_secret(cookie_text))
+        except SecretCipherError as exc:
+            raise ApiConfigError(str(exc)) from exc
 
     def _decrypt_cookie(self, cookie_encrypted: str) -> str:
         try:
-            decoded = self._get_fernet().decrypt(cookie_encrypted.encode("utf-8"))
-        except InvalidToken as exc:
-            raise ApiConfigError("APP_SECRET_KEY does not match stored cookie encryption") from exc
-        return decoded.decode("utf-8")
+            return cast(str, decrypt_secret(cookie_encrypted))
+        except SecretCipherError as exc:
+            raise ApiConfigError(str(exc)) from exc
+
+    def _provider_secret_configured(self, kind: str) -> bool:
+        return self._repository.get_active_provider_secret(kind) is not None
+
+    def _active_provider_secret_ref(self, kind: str) -> str | None:
+        record = self._repository.get_active_provider_secret(kind)
+        return record.id if record is not None else None
+
+    def _validate_provider_secret_patch(
+        self,
+        value: SecretStr | None,
+        clear: bool | None,
+        *,
+        field_name: str,
+    ) -> str | None:
+        if value is not None and clear is True:
+            raise ApiError(
+                code="provider_secret_patch_conflict",
+                message=f"{field_name} cannot be replaced and cleared in the same request",
+                status_code=422,
+            )
+        if value is None:
+            return None
+        plaintext = value.get_secret_value().strip()
+        if not plaintext:
+            raise ApiError(
+                code="provider_secret_empty",
+                message=f"{field_name} cannot be empty",
+                status_code=422,
+            )
+        return plaintext
+
+    def _persist_provider_secret_patch(
+        self, *, kind: str, value: str | None, clear: bool
+    ) -> None:
+        if value is not None:
+            self._repository.create_provider_secret(
+                secret_id=f"s_{uuid.uuid4().hex}",
+                kind=kind,
+                secret_encrypted=encrypt_secret(value),
+            )
+        elif clear:
+            self._repository.clear_active_provider_secret(kind)
 
     def _hash_password(self, password: str) -> str:
         salt = uuid.uuid4().hex
@@ -1175,7 +1254,9 @@ class ApiControlPlane:
                 "language": runtime_settings[SETTING_ASR_LANGUAGE],
                 "context": runtime_settings[SETTING_ASR_CONTEXT],
                 "timeout_seconds": runtime_settings[SETTING_ASR_TIMEOUT_SECONDS],
-                "token_env": "CAPSWRITER_TOKEN",
+                "credential_ref": self._active_provider_secret_ref(
+                    PROVIDER_SECRET_ASR_TOKEN
+                ),
                 "segment_seconds": 60.0,
                 "overlap_seconds": 4.0,
             }
@@ -1186,6 +1267,9 @@ class ApiControlPlane:
                 "prompt_en": runtime_settings[SETTING_VLM_FRAME_PROMPT_EN],
                 "concurrency": runtime_settings[SETTING_VLM_CONCURRENCY],
                 "rpm": runtime_settings[SETTING_VLM_RPM],
+                "credential_ref": self._active_provider_secret_ref(
+                    PROVIDER_SECRET_VLM_API_KEY
+                ),
             }
             config["overall_summary"] = {
                 "base_url": runtime_settings[SETTING_SUMMARY_BASE_URL],
@@ -1193,6 +1277,9 @@ class ApiControlPlane:
                 "prompt_zh": runtime_settings[SETTING_SUMMARY_PROMPT_ZH],
                 "prompt_en": runtime_settings[SETTING_SUMMARY_PROMPT_EN],
                 "max_input_chars": runtime_settings[SETTING_SUMMARY_MAX_INPUT_CHARS],
+                "credential_ref": self._active_provider_secret_ref(
+                    PROVIDER_SECRET_SUMMARY_API_KEY
+                ),
             }
             if payload.summary_enabled is not None:
                 config["summary_enabled"] = payload.summary_enabled

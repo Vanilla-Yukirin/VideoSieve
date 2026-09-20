@@ -9,9 +9,11 @@ from .models import (
     JobRecord,
     OperationLogRecord,
     ProjectRecord,
+    ProviderSecretRecord,
     SystemSettingRecord,
     UserCookieRecord,
 )
+from .secrets import SecretCipherError, decrypt_secret, encrypt_secret
 from .sqlite_repository import SQLiteJobRepository
 from .workspace import FileSystemWorkspaceStore
 
@@ -25,6 +27,7 @@ __all__ = [
     "JobRecord",
     "JobRepository",
     "OperationLogRecord",
+    "ProviderSecretRecord",
     "ProjectRecord",
     "InMemoryEventBus",
     "SQLiteJobRepository",
@@ -32,6 +35,9 @@ __all__ = [
     "SystemSettingRecord",
     "UserCookieRecord",
     "WorkspaceStore",
+    "SecretCipherError",
+    "decrypt_secret",
+    "encrypt_secret",
     "__version__",
 ]
 

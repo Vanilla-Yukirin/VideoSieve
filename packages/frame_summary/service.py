@@ -68,8 +68,12 @@ class QwenFrameSummaryProvider:
         timeout_seconds: float | None = None,
         prompt_zh: str | None = None,
         prompt_en: str | None = None,
+        allow_env_fallback: bool = True,
     ) -> None:
-        self._api_key = (api_key or os.getenv("QWEN_API_KEY") or "").strip()
+        key_value = api_key
+        if key_value is None and allow_env_fallback:
+            key_value = os.getenv("QWEN_API_KEY")
+        self._api_key = (key_value or "").strip()
         self._endpoint = (
             endpoint
             or os.getenv("QWEN_BASE_URL")

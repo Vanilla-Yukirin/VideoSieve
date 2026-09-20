@@ -57,6 +57,9 @@ class PipelineOrchestrator:
         workspace: WorkspaceStore,
         event_bus: EventBus,
         asr_provider: ASRProvider,
+        frame_summary_api_key: str | None = None,
+        summary_api_key: str | None = None,
+        allow_provider_env_fallback: bool = True,
         worker_id: str | None = None,
         worker_attempt: int | None = None,
     ) -> None:
@@ -64,6 +67,9 @@ class PipelineOrchestrator:
         self._workspace = workspace
         self._event_bus = event_bus
         self._asr_provider = asr_provider
+        self._frame_summary_api_key = frame_summary_api_key
+        self._summary_api_key = summary_api_key
+        self._allow_provider_env_fallback = allow_provider_env_fallback
         self._worker_id = worker_id
         self._worker_attempt = worker_attempt
         self._checkpoint_store = CheckpointStore(workspace)
@@ -600,6 +606,8 @@ class PipelineOrchestrator:
             FrameSummaryService(
                 self._workspace,
                 provider=QwenFrameSummaryProvider(
+                    api_key=self._frame_summary_api_key,
+                    allow_env_fallback=self._allow_provider_env_fallback,
                     endpoint=_required_named_config_str(
                         raw_frame_config,
                         "base_url",
@@ -639,6 +647,8 @@ class PipelineOrchestrator:
                 summary_service = OverallSummaryService(
                     self._workspace,
                     OpenAICompatibleSummaryProvider(
+                        api_key=self._summary_api_key,
+                        allow_env_fallback=self._allow_provider_env_fallback,
                         base_url=_required_config_str(raw_summary_config, "base_url"),
                         model=_required_config_str(raw_summary_config, "model"),
                         prompt_zh=_optional_config_str(raw_summary_config, "prompt_zh"),

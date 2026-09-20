@@ -70,11 +70,14 @@ class OpenAICompatibleSummaryProvider:
         prompt_zh: str | None = None,
         prompt_en: str | None = None,
         timeout_seconds: float = 120.0,
+        allow_env_fallback: bool = True,
     ) -> None:
         self._base_url = base_url.strip()
         self._model = model.strip()
-        key_value = api_key if api_key is not None else os.getenv("SUMMARY_API_KEY", "")
-        self._api_key = key_value.strip()
+        key_value = api_key
+        if key_value is None and allow_env_fallback:
+            key_value = os.getenv("SUMMARY_API_KEY", "")
+        self._api_key = (key_value or "").strip()
         self._prompt_zh = (prompt_zh or self.DEFAULT_PROMPT_ZH).strip()
         self._prompt_en = (prompt_en or self.DEFAULT_PROMPT_EN).strip()
         self._timeout_seconds = timeout_seconds

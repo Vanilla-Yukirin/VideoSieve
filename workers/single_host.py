@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from io import BufferedRandom
 from pathlib import Path
+from typing import cast
 
 from dotenv import load_dotenv
 
@@ -21,9 +22,11 @@ from infra import (
     FileSystemWorkspaceStore,
     InfraEvent,
     JobRecord,
+    JobRepository,
     SQLiteEventBus,
     SQLiteJobRepository,
 )
+from infra.secrets import SecretCipherError, decrypt_secret
 from pipeline import PipelineOrchestrator
 from pipeline.dispatch import extract_ingest_config, load_job_config_snapshot
 
@@ -32,6 +35,14 @@ from .runtime import WorkerRuntime
 
 class WorkerAlreadyRunningError(RuntimeError):
     """Raised when another worker process owns the single-host lock."""
+
+
+class ProviderSecretResolutionError(RuntimeError):
+    """Raised when a job's immutable provider credential cannot be resolved."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class _SingleInstanceLock:
@@ -353,13 +364,38 @@ class SingleHostWorker:
             ingest_config = {"source_path": local_video_path}
         raw_asr_config = snapshot.get("asr")
         asr_config = raw_asr_config if isinstance(raw_asr_config, dict) else {}
+        raw_frame_config = snapshot.get("frame_summary")
+        frame_config = raw_frame_config if isinstance(raw_frame_config, dict) else {}
+        raw_summary_config = snapshot.get("overall_summary")
+        summary_config = raw_summary_config if isinstance(raw_summary_config, dict) else {}
+        asr_token = _resolve_provider_secret(
+            self._repository,
+            asr_config,
+            kind="capswriter_token",
+            fallback_env="CAPSWRITER_TOKEN",
+        )
+        frame_summary_api_key = _resolve_provider_secret(
+            self._repository,
+            frame_config,
+            kind="vlm_api_key",
+            fallback_env="QWEN_API_KEY",
+        )
+        summary_api_key = _resolve_provider_secret(
+            self._repository,
+            summary_config,
+            kind="summary_api_key",
+            fallback_env="SUMMARY_API_KEY",
+        )
 
         runtime = WorkerRuntime(
             PipelineOrchestrator(
                 repository=self._repository,
                 workspace=self._workspace,
                 event_bus=self._event_bus,
-                asr_provider=create_asr_provider_from_config(asr_config),
+                asr_provider=create_asr_provider_from_config(asr_config, token=asr_token),
+                frame_summary_api_key=frame_summary_api_key,
+                summary_api_key=summary_api_key,
+                allow_provider_env_fallback=False,
                 worker_id=self._worker_id,
                 worker_attempt=worker_attempt,
             )
@@ -422,6 +458,40 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _resolve_provider_secret(
+    repository: JobRepository,
+    config: dict[str, object],
+    *,
+    kind: str,
+    fallback_env: str,
+) -> str | None:
+    if "credential_ref" not in config:
+        return os.getenv(fallback_env, "").strip() or None
+    credential_ref = _optional_str(config.get("credential_ref"))
+    if credential_ref is None:
+        return None
+
+    record = repository.get_provider_secret(credential_ref, expected_kind=kind)
+    if record is None:
+        raise ProviderSecretResolutionError(
+            "PROVIDER_SECRET_REF_INVALID",
+            f"provider credential reference is unavailable for {kind}",
+        )
+    try:
+        value = cast(str, decrypt_secret(record.secret_encrypted)).strip()
+    except SecretCipherError as exc:
+        raise ProviderSecretResolutionError(
+            "PROVIDER_SECRET_DECRYPT_FAILED",
+            f"provider credential cannot be decrypted for {kind}",
+        ) from exc
+    if not value:
+        raise ProviderSecretResolutionError(
+            "PROVIDER_SECRET_DECRYPT_FAILED",
+            f"provider credential is empty for {kind}",
+        )
+    return value
 
 
 def _str_list(value: object) -> list[str]:

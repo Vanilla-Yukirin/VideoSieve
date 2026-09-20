@@ -14,6 +14,7 @@ from .models import (
     JobRecord,
     OperationLogRecord,
     ProjectRecord,
+    ProviderSecretRecord,
     UserCookieRecord,
     parse_iso8601,
 )
@@ -117,6 +118,21 @@ class SQLiteJobRepository(JobRepository):
               value_json TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS provider_secrets (
+              id TEXT PRIMARY KEY,
+              kind TEXT NOT NULL,
+              secret_encrypted TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              superseded_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_provider_secrets_kind
+            ON provider_secrets(kind, created_at);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_secrets_active_kind
+            ON provider_secrets(kind)
+            WHERE superseded_at IS NULL;
 
             CREATE TABLE IF NOT EXISTS auth_user (
               id TEXT PRIMARY KEY,
@@ -1193,6 +1209,69 @@ class SQLiteJobRepository(JobRepository):
         )
         self._conn.commit()
 
+    def create_provider_secret(
+        self, *, secret_id: str, kind: str, secret_encrypted: str
+    ) -> None:
+        now = _utc_now_iso()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            self._conn.execute(
+                """
+                UPDATE provider_secrets
+                SET superseded_at = ?
+                WHERE kind = ? AND superseded_at IS NULL
+                """,
+                (now, kind),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO provider_secrets (
+                  id, kind, secret_encrypted, created_at, superseded_at
+                )
+                VALUES (?, ?, ?, ?, NULL)
+                """,
+                (secret_id, kind, secret_encrypted, now),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def get_active_provider_secret(self, kind: str) -> ProviderSecretRecord | None:
+        row = self._conn.execute(
+            """
+            SELECT id, kind, secret_encrypted, created_at, superseded_at
+            FROM provider_secrets
+            WHERE kind = ? AND superseded_at IS NULL
+            """,
+            (kind,),
+        ).fetchone()
+        return self._to_provider_secret_record(row) if row is not None else None
+
+    def get_provider_secret(
+        self, secret_id: str, *, expected_kind: str
+    ) -> ProviderSecretRecord | None:
+        row = self._conn.execute(
+            """
+            SELECT id, kind, secret_encrypted, created_at, superseded_at
+            FROM provider_secrets
+            WHERE id = ? AND kind = ?
+            """,
+            (secret_id, expected_kind),
+        ).fetchone()
+        return self._to_provider_secret_record(row) if row is not None else None
+
+    def clear_active_provider_secret(self, kind: str) -> None:
+        self._conn.execute(
+            """
+            UPDATE provider_secrets
+            SET superseded_at = ?
+            WHERE kind = ? AND superseded_at IS NULL
+            """,
+            (_utc_now_iso(), kind),
+        )
+        self._conn.commit()
+
     def get_auth_user(self) -> AuthUserRecord | None:
         row = self._conn.execute(
             """
@@ -1391,4 +1470,13 @@ class SQLiteJobRepository(JobRepository):
             last_error_code=row["last_error_code"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+        )
+
+    def _to_provider_secret_record(self, row: sqlite3.Row) -> ProviderSecretRecord:
+        return ProviderSecretRecord(
+            id=str(row["id"]),
+            kind=str(row["kind"]),
+            secret_encrypted=str(row["secret_encrypted"]),
+            created_at=str(row["created_at"]),
+            superseded_at=row["superseded_at"],
         )

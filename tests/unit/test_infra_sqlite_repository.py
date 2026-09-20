@@ -174,6 +174,38 @@ def test_sqlite_repository_settings_upsert_and_get(tmp_path: Path) -> None:
     repo.close()
 
 
+def test_sqlite_repository_versions_provider_secrets(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+
+    repo.create_provider_secret(
+        secret_id="s-old",
+        kind="vlm_api_key",
+        secret_encrypted="encrypted-old",
+    )
+    first = repo.get_active_provider_secret("vlm_api_key")
+    assert first is not None
+    assert first.id == "s-old"
+
+    repo.create_provider_secret(
+        secret_id="s-new",
+        kind="vlm_api_key",
+        secret_encrypted="encrypted-new",
+    )
+    active = repo.get_active_provider_secret("vlm_api_key")
+    old = repo.get_provider_secret("s-old", expected_kind="vlm_api_key")
+    assert active is not None
+    assert active.id == "s-new"
+    assert old is not None
+    assert old.superseded_at is not None
+    assert repo.get_provider_secret("s-new", expected_kind="summary_api_key") is None
+
+    repo.clear_active_provider_secret("vlm_api_key")
+    assert repo.get_active_provider_secret("vlm_api_key") is None
+    assert repo.get_provider_secret("s-new", expected_kind="vlm_api_key") is not None
+    repo.close()
+
+
 def test_sqlite_repository_auth_user_create_and_password_update(tmp_path: Path) -> None:
     repo = SQLiteJobRepository(tmp_path / "infra.db")
     repo.ensure_schema()

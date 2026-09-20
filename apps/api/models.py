@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from contracts import ControlCommandType
 
@@ -100,6 +100,7 @@ class SystemSettingsResponse(ApiModel):
     vlm_frame_prompt_en: str
     vlm_concurrency: int
     vlm_rpm: int
+    vlm_api_key_configured: bool
     # VLM prompt defaults (read-only, always reflects code constants)
     vlm_frame_prompt_zh_default: str
     vlm_frame_prompt_en_default: str
@@ -109,6 +110,7 @@ class SystemSettingsResponse(ApiModel):
     summary_prompt_zh: str
     summary_prompt_en: str
     summary_max_input_chars: int
+    summary_api_key_configured: bool
     summary_prompt_zh_default: str
     summary_prompt_en_default: str
 
@@ -129,17 +131,23 @@ class SystemSettingsPatchRequest(ApiModel):
     asr_language: str | None = None
     asr_context: str | None = None
     asr_timeout_seconds: int | None = None
+    asr_token: SecretStr | None = None
+    clear_asr_token: bool | None = None
     vlm_base_url: str | None = None
     vlm_model: str | None = None
     vlm_frame_prompt_zh: str | None = None
     vlm_frame_prompt_en: str | None = None
     vlm_concurrency: int | None = None
     vlm_rpm: int | None = None
+    vlm_api_key: SecretStr | None = None
+    clear_vlm_api_key: bool | None = None
     summary_base_url: str | None = None
     summary_model: str | None = None
     summary_prompt_zh: str | None = None
     summary_prompt_en: str | None = None
     summary_max_input_chars: int | None = None
+    summary_api_key: SecretStr | None = None
+    clear_summary_api_key: bool | None = None
 
     @model_validator(mode="after")
     def validate_non_empty_patch(self) -> SystemSettingsPatchRequest:
@@ -153,17 +161,23 @@ class SystemSettingsPatchRequest(ApiModel):
                 self.asr_language,
                 self.asr_context,
                 self.asr_timeout_seconds,
+                self.asr_token,
+                self.clear_asr_token,
                 self.vlm_base_url,
                 self.vlm_model,
                 self.vlm_frame_prompt_zh,
                 self.vlm_frame_prompt_en,
                 self.vlm_concurrency,
                 self.vlm_rpm,
+                self.vlm_api_key,
+                self.clear_vlm_api_key,
                 self.summary_base_url,
                 self.summary_model,
                 self.summary_prompt_zh,
                 self.summary_prompt_en,
                 self.summary_max_input_chars,
+                self.summary_api_key,
+                self.clear_summary_api_key,
             ]
         ):
             raise ValueError("at least one settings field must be provided")

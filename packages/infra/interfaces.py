@@ -13,6 +13,7 @@ from .models import (
     JobRecord,
     OperationLogRecord,
     ProjectRecord,
+    ProviderSecretRecord,
     UserCookieRecord,
 )
 
@@ -266,6 +267,26 @@ class JobRepository(ABC):
     @abstractmethod
     def set_setting(self, key: str, value_json: str) -> None:
         """Upsert one setting value_json by key."""
+
+    @abstractmethod
+    def create_provider_secret(
+        self, *, secret_id: str, kind: str, secret_encrypted: str
+    ) -> None:
+        """Create and activate a new encrypted credential version."""
+
+    @abstractmethod
+    def get_active_provider_secret(self, kind: str) -> ProviderSecretRecord | None:
+        """Return the active credential for one provider kind."""
+
+    @abstractmethod
+    def get_provider_secret(
+        self, secret_id: str, *, expected_kind: str
+    ) -> ProviderSecretRecord | None:
+        """Resolve one credential version while enforcing its provider kind."""
+
+    @abstractmethod
+    def clear_active_provider_secret(self, kind: str) -> None:
+        """Deactivate the current credential while preserving referenced versions."""
 
     @abstractmethod
     def get_auth_user(self) -> AuthUserRecord | None:

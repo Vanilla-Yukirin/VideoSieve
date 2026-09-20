@@ -161,11 +161,15 @@ def test_overall_summary_splits_one_oversized_evidence_section(tmp_path: Path) -
     assert "kept:fact-a" in provider.calls[-1][0]
 
 
-def test_overall_summary_missing_credentials_is_explicit_failure(tmp_path: Path) -> None:
+def test_overall_summary_missing_credentials_is_explicit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SUMMARY_API_KEY", "legacy-env-key")
     provider = OpenAICompatibleSummaryProvider(
         base_url="https://example.invalid/v1/chat/completions",
         model="test-model",
-        api_key="",
+        api_key=None,
+        allow_env_fallback=False,
     )
 
     with pytest.raises(OverallSummaryProviderError) as exc_info:

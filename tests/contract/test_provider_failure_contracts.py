@@ -37,8 +37,11 @@ def _image(tmp_path: Path) -> Path:
     return path
 
 
-def test_frame_summary_missing_api_key_is_an_explicit_failure(tmp_path: Path) -> None:
-    provider = QwenFrameSummaryProvider(api_key="")
+def test_frame_summary_missing_api_key_is_an_explicit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QWEN_API_KEY", "legacy-env-key")
+    provider = QwenFrameSummaryProvider(api_key=None, allow_env_fallback=False)
 
     with pytest.raises(FrameSummaryProviderError, match="QWEN_API_KEY") as exc_info:
         provider.summarize_frame("frame-1", _image(tmp_path), language_hint="zh")

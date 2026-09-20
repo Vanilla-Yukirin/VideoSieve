@@ -1,5 +1,11 @@
 # VideoSieve 架构规划书
 
+> 2026-09-20 现状说明：本文包含尚未实施的旧架构规划。当前代码使用 API 后台线程
+> 执行任务与内存事件分发，未接入 Celery/Redis。用户已确认单机、少量用户范围，
+> 新建议为 SQLite 持久队列加独立 Python worker，详见
+> [单机重做方案](00_vision/rebuild-plan.md)。新方案尚未实施；本文中的能力描述不能
+> 作为运行验收证据。实施时须同步更新本文件、相关系统契约与 ADR。
+
 > 本文件是重构阶段的架构基线（Single Source of Truth）。当实现与本文件冲突时，优先更新 ADR 与本文件，再改代码。
 
 > 文档导航：详见 `docs/README.md`，跨模块契约集中在 `docs/10_system/`，模块细节集中在 `docs/20_modules/`。

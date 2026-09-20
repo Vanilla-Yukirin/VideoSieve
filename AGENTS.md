@@ -1,171 +1,85 @@
-# AGENTS.md
+# Agent guidance for VideoSieve
 
-Guidance for coding agents operating in `D:\Github\VideoSieve`.
+## Repository reality (checked 2026-09-20)
 
-This repository is currently in a documentation-first rebuild phase.
-There is no runnable app scaffold yet (`apps/`, `packages/`, `workers/` are planned in docs only).
+- This is an implemented but incomplete prototype. API, Web, business packages,
+  workers, Python/TypeScript tests and dependency lockfiles already exist.
+- FastAPI jobs currently execute in API daemon threads. `workers/celery_app.py`
+  is a plain Python adapter, not a running Celery worker.
+- `RedisEventBus` only implements in-memory delivery; live Redis methods raise
+  `NotImplementedError`. Celery and Redis are not active runtime services.
+- Real FunASR and Qwen-compatible frame-summary adapters exist. ASR defaults to a
+  mock, frame-summary errors can become placeholders, and final summary generation
+  concatenates text. Do not describe this as a production-ready model pipeline.
+- Target scope confirmed by the user: one computer/server, one or a few users.
+  SQLite plus a separate Python worker is proposed, not yet implemented.
+- `.cursor/rules/`, `.cursorrules`, and `.github/copilot-instructions.md` were absent
+  at this check. Read applicable rule files if added later.
 
-## 1) Repository Reality Check
+## Read before changing behavior
 
-- Current source of truth: `docs/ARCHITECTURE.md`
-- Doc index: `docs/README.md`
-- Planned stack: FastAPI + Celery + Redis + Next.js + SQLite
-- Current state: no `pyproject.toml`, no `package.json`, no CI scripts, no tests
+- `docs/README.md`: documentation index.
+- `docs/ARCHITECTURE.md`: existing architecture baseline, including unimplemented plans.
+- `docs/00_vision/rebuild-plan.md`: current findings and proposed single-host rebuild.
+- Relevant `docs/10_system/*` contracts and `docs/20_modules/*` module documents.
 
-## 2) Rule Files (Cursor/Copilot)
+Distinguish observed implementation, proposed design and verified runtime behavior.
+Update contracts and ADRs with architectural changes; a proposal is not shipped code.
 
-Checked locations:
-- `.cursor/rules/` -> not present
-- `.cursorrules` -> not present
-- `.github/copilot-instructions.md` -> not present
+## Environment and commands
 
-If any of the above are added later, treat them as higher-priority local policy and update this file.
+Use `uv` and `.venv`; conda activation is not required. `.python-version` selects
+Python 3.12; `pyproject.toml` allows Python >=3.11. Follow the checked-in pin for
+local setup. Check an existing environment before recreating it.
 
-## 3) Build / Lint / Test Commands
+These commands are defined by current config/docs, not a claim that they passed:
 
-Because the code scaffold is not yet created, there are no verified build/lint/test commands today.
+```powershell
+uv sync --extra dev
+uv run pytest
+uv run pytest tests/unit/test_infra_sqlite_repository.py -q
+uv run ruff check .
+uv run mypy apps packages workers
+npm --prefix apps/web ci
+npm --prefix apps/web run dev
+npm --prefix apps/web run build
+npm --prefix apps/web test -- --runInBand
+```
 
-Use this status legend:
-- VERIFIED: works in current repo
-- PLANNED: expected command once scaffold exists
+The frontend lint script exists, but dependency compatibility needs verification.
+FunASR/PyTorch are currently main dependencies; `asr_local` is an empty extra.
+See `how_to_run.md` for current startup and configuration. A standalone queue
+worker command does not exist yet. Do not prescribe Redis/Celery startup.
 
-### 3.1 Currently Verified Commands
+## Implementation conventions
 
-- `git status` (repo hygiene)
-- `git diff` (review changes)
+- Confirm cwd, branch and Git status before edits; preserve unrelated changes.
+- `apps/` owns entrypoints, `packages/` reusable logic, `workers/` execution setup.
+  Keep routes and worker entrypoints thin; avoid hidden cross-module coupling.
+- Use typed contracts, public Python type hints and `pathlib.Path`. Prefer focused
+  modules and explicit provider interfaces; no generic workflow framework is needed.
+- Python: snake_case functions/modules, PascalCase classes, UPPER_SNAKE_CASE constants;
+  imports ordered stdlib, third-party, local. TypeScript: strict types, PascalCase
+  components, `useXxx` hooks, protocol values centralized in the client layer.
+- Distinguish long-lived `project` from one execution `job`. Control/events are
+  job-scoped. Keep schema versions and canonical workspace paths consistent.
+- Errors retain actionable context (`project_id`, `job_id`, `stage`) and use the
+  `code/message/hint/retryable` envelope where applicable. Preserve exception causes.
+- New or changed production paths must not turn missing configuration, provider
+  failures or malformed responses into successful mock content. Test doubles belong
+  in tests. Existing fallback paths are tracked as rebuild defects.
+- Preserve raw transcripts and evidence separately from model-written outputs.
+- Interruption is cooperative: check before/after expensive operations and within
+  long loops. Requested pause/cancel and confirmed stopped states are distinct.
+- HTTP snapshots are authoritative; live events incrementally refresh the UI.
+- Keep secrets out of Git, logs, snapshots and generated deliverables.
 
-### 3.2 Planned Python Backend Commands (FastAPI/Celery)
+## Verification and completion
 
-Run from repo root unless noted.
-
-- Environment activation (REQUIRED before running Python code/commands):
-  - `conda activate VideoSieve`
-
-- Setup env (PLANNED):
-  - `python -m venv .venv`
-  - `.venv\\Scripts\\activate` (Windows)
-  - `pip install -e .[dev]`
-
-- Lint (PLANNED):
-  - `ruff check .`
-
-- Format (PLANNED):
-  - `ruff format .`
-
-- Type check (PLANNED):
-  - `mypy apps packages workers`
-
-- Test all (PLANNED):
-  - `pytest`
-
-- Test single file (PLANNED):
-  - `pytest tests/unit/test_xxx.py`
-
-- Test single test case (PLANNED, preferred):
-  - `pytest tests/unit/test_xxx.py::test_case_name -q`
-
-- Test by keyword (PLANNED):
-  - `pytest -k "keyword" -q`
-
-### 3.3 Planned Web Commands (Next.js)
-
-- Install deps (PLANNED): `npm install` (or `pnpm install` if lockfile indicates pnpm)
-- Dev server (PLANNED): `npm run dev`
-- Build (PLANNED): `npm run build`
-- Lint (PLANNED): `npm run lint`
-- Test all (PLANNED): `npm test`
-- Single test (PLANNED): `npm test -- path/to/test.spec.ts`
-
-### 3.4 Planned Worker/Compose Commands
-
-- Start local services (PLANNED): `docker compose up -d redis`
-- Start API (PLANNED): command to be defined in scaffold
-- Start worker (PLANNED): command to be defined in scaffold
-
-When scaffold is added, replace PLANNED commands with exact verified commands.
-
-## 4) Coding Style Guidelines
-
-Apply these conventions unless a future local config overrides them.
-
-### 4.1 General
-
-- Prefer small, composable modules with explicit boundaries.
-- Keep cross-module contracts in `docs/10_system/*` and code contracts in shared schema modules.
-- Do not introduce hidden coupling between apps and providers.
-- Avoid premature abstraction; optimize for clarity and testability.
-
-### 4.2 Python Style (backend/workers/packages)
-
-- Target Python 3.11+ semantics.
-- Use type hints on all public functions/methods.
-- Prefer `pydantic` models or typed dataclasses for structured payloads.
-- Use `pathlib.Path` over raw string paths.
-- Keep functions focused; extract helpers when >40-60 lines.
-- Imports order: stdlib -> third-party -> local; keep grouped and sorted.
-- Avoid `from module import *`.
-- Naming:
-  - modules/files: `snake_case.py`
-  - functions/vars: `snake_case`
-  - classes: `PascalCase`
-  - constants: `UPPER_SNAKE_CASE`
-- Error handling:
-  - Do not swallow exceptions silently.
-  - Raise domain-specific errors with actionable context.
-  - Preserve original exception via `raise ... from e` when wrapping.
-  - Include `project_id`, `job_id`, and `stage` in logs/errors where relevant.
-
-### 4.3 FastAPI / API Layer
-
-- Keep route handlers thin; delegate business logic to service/modules.
-- Validate all request/response payloads with typed models.
-- Return consistent error envelopes (`code`, `message`, optional `hint`, `retryable`).
-- Keep API side effects explicit and traceable.
-
-### 4.4 Worker / Pipeline Layer
-
-- Implement cooperative interruption at documented safety points.
-- Check control flags before/after expensive calls and inside long loops.
-- Prefer soft-cancel first; hard terminate only with cleanup logging.
-- Emit structured progress/events consistently with contract docs.
-
-### 4.5 Frontend Style (Next.js)
-
-- Use TypeScript strict mode style.
-- Component names in `PascalCase`; hooks as `useXxx`.
-- Keep side effects isolated in hooks/services.
-- Treat HTTP snapshot as source of truth; WS is incremental refresh.
-- Avoid embedding protocol literals in UI components; centralize in client layer.
-
-## 5) Naming and Contract Rules
-
-- Distinguish `project` (long-lived container) vs `job` (single run).
-- Control commands and event streams are job-scoped by default.
-- Persisted artifact paths must follow workspace canonical layout.
-- Schema changes require versioning and docs updates.
-
-## 6) Change Management Expectations
-
-When you change behavior:
-- Update relevant docs in `docs/10_system/` first (or in same PR).
-- Update ADR if architectural decision changes (`docs/adr/`).
-- Keep `docs/ARCHITECTURE.md` as high-level overview, not implementation dump.
-
-## 7) Agent Workflow Checklist
-
-Before coding:
-- Read `docs/README.md`, `docs/ARCHITECTURE.md`, and relevant `docs/10_system/*`.
-
-While coding:
-- Keep diffs focused.
-- Add/adjust tests with behavior changes.
-- Follow style rules above.
-
-Before finishing:
-- Run available lint/tests (or state clearly if not yet scaffolded).
-- Summarize assumptions and any PLANNED commands not yet verifiable.
-
-## 8) Temporary Limitation Notice
-
-If a requested command fails because scaffold is missing, do not invent success.
-Report clearly: command status = NOT YET AVAILABLE, and point to required scaffold file(s).
+- Run checks relevant to changed behavior; report failures and unverified steps.
+- For model integration, file existence and mock success are insufficient: verify
+  real input, provider output, failure reporting and saved artifacts.
+- For scheduling, verify restart recovery, task ownership and actual pause/cancel
+  behavior, not only state labels.
+- Documentation-only changes need consistency/link checks and `git diff --check`;
+  they do not establish that the application or model services work.

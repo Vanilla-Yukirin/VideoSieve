@@ -2,6 +2,7 @@
 
 ## Overview
 
+- `docs/00_vision/rebuild-plan.md` - 2026-09-20 单机重做建议、代码现状与验收顺序（未实施）
 - `docs/ARCHITECTURE.md` - 架构总览（目的、组件、数据流、目录结构、关键决策）
 
 ## Vision

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Current status and conventions: read `AGENTS.md`. The proposed single-host rebuild is
+in `docs/00_vision/rebuild-plan.md`; it is not implemented. Commands below are declared
+entrypoints, not evidence of passing checks. `.python-version` currently pins 3.12.
+
 ## Commands
 
 ### Python (via uv)
@@ -18,7 +22,7 @@ uv run mypy apps packages workers      # type check
 
 ```bash
 npm --prefix apps/web run dev          # dev server (http://localhost:3000)
-npm --prefix apps/web run lint         # ESLint
+npm --prefix apps/web run lint         # declared; dependency compatibility needs verification
 npx --prefix apps/web tsc --noEmit    # TypeScript check
 ```
 
@@ -34,7 +38,9 @@ npm --prefix apps/web run dev
 
 Copy `.env.example` → `.env.local`. Minimum required env vars: `APP_SECRET_KEY`, `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000`.
 
-For local ASR: `uv sync --extra dev --extra asr_local` and set `VIDEOSIEVE_ASR_PROVIDER=funasr_local`.
+For local ASR: `uv sync --extra dev` and set `VIDEOSIEVE_ASR_PROVIDER=funasr_local`.
+FunASR/PyTorch are currently main dependencies; `asr_local` is an empty extra.
+Models load on first transcription, not during API startup.
 
 For VLM (frame summaries): set `QWEN_API_KEY` in `.env.local`. Base URL / model / prompts / concurrency are stored in SQLite and editable via `/settings/system`.
 
@@ -43,22 +49,29 @@ For VLM (frame summaries): set `QWEN_API_KEY` in `.env.local`. Base URL / model 
 ### Layer boundaries
 
 ```
-apps/api      → FastAPI HTTP + WebSocket. Owns auth, SQLite R/W, job dispatch via Celery.
+apps/api      → FastAPI HTTP + WebSocket. Owns auth, SQLite R/W, job dispatch via daemon threads.
 apps/web      → Next.js. Communicates with api only via NEXT_PUBLIC_API_ORIGIN.
-packages/*    → Pure business logic modules. No direct DB or HTTP; consume interfaces only.
-workers/      → Thin Celery adapter. Delegates entirely to packages/pipeline/orchestrator.py.
+packages/*    → Reusable business logic and provider adapters; some adapters perform HTTP/DB access.
+workers/      → Plain Python adapter. Delegates to packages/pipeline/orchestrator.py.
 infra/        → Concrete adapters: SQLiteJobRepository, FileSystemWorkspaceStore, RedisEventBus.
 ```
 
-`apps/` can import from `packages/` and `infra/`. `packages/` cannot import from `apps/` or `workers/`. `infra/` cannot import from `packages/` business logic.
+`infra/` above means `packages/infra`. Keep dependencies directed from entrypoints to
+business modules and provider interfaces. Business modules must not depend on apps
+or workers; infrastructure adapters must not depend on business modules.
 
 ### Pipeline stages (fixed order)
 
 `ingest → hotwords → asr → keyframes → frame_summary → fusion → deliverables`
 
-Orchestrated by `packages/pipeline/orchestrator.py`. Each stage writes artifacts to the workspace, then publishes Redis events that flow: **worker → Redis → API → WebSocket → frontend**.
+Orchestrated by `packages/pipeline/orchestrator.py`. Each stage writes artifacts to the workspace,
+then publishes in-memory events: **API task thread → event bus → WebSocket → frontend**.
+`RedisEventBus` has no live Redis implementation.
 
-Control commands (pause/resume/cancel) travel in reverse: **frontend → POST /jobs/{id}/control/{cmd} → API → Redis flag → worker polls at stage boundaries**.
+Control commands enter through **frontend → POST /jobs/{id}/control/{cmd} → API**.
+The API changes SQLite state; the orchestrator also has instance-local control sets.
+Pause/resume execution semantics need repair and real integration checks; no Redis flags exist.
+See the rebuild plan for durable control and recovery requirements.
 
 ### Workspace layout (per job)
 

@@ -1,8 +1,12 @@
 # 如何运行（统一环境变量方案）
 
+> 本文说明当前原型的启动方式。2026-09-20 仅核对了代码与配置，未重新执行安装、
+> 启动或模型验收。SQLite 独立 worker 的重做方案见 `docs/00_vision/rebuild-plan.md`，
+> 该 worker 尚未实现；当前不需要启动 Celery 或 Redis。
+
 当前项目建议使用一份根目录 `.env.local` 来管理本地运行配置：
 
-- 前端（Next.js）会自动读取 `.env.local`
+- 前端通过 `apps/web/next.config.js` 的加载逻辑读取根目录 `.env.local`
 - 后端（Uvicorn）通过 `--env-file .env.local` 读取同一份配置
 
 ## 1. 准备环境变量文件
@@ -43,18 +47,14 @@ VLM（画面描述 + 文字提取）建议至少配置：
 ## 2. 初始化 Python 环境（UV）
 
 ```powershell
-uv python install 3.11
-uv venv --python 3.11
+uv python install 3.12
+uv venv --python 3.12
 uv sync --extra dev
 ```
 
-如果要启用本地 FunASR（自动下载模型），请改为：
-
-```powershell
-uv sync --extra dev --extra asr_local
-```
-
-并在启动后端前设置（可写入 `.env.local`）：
+版本与当前 `.python-version` 对齐。已有环境应先检查，不要直接重建。
+FunASR / PyTorch 目前属于主依赖；`asr_local` extra 为空。
+启用真实本地 ASR 时，在启动后端前设置（可写入 `.env.local`）：
 
 ```env
 VIDEOSIEVE_ASR_PROVIDER=funasr_local
@@ -63,6 +63,11 @@ VIDEOSIEVE_ASR_HUB=ms
 VIDEOSIEVE_ASR_DEVICE=auto
 ```
 
+模型在首次转写时加载，可能下载文件。真实媒体处理还需核对 FFmpeg/ffprobe 等
+外部工具的可用性，具体由下载格式、合并和音频解码路径决定。
+未设置 provider 时当前代码返回模拟转写。VLM 缺密钥或调用失败时当前代码可能生成
+占位描述，最终摘要目前只拼接文本；启动成功不能视为模型链路验收通过。
+
 ## 3. 启动后端（终端 1）
 
 ```powershell
@@ -70,6 +75,12 @@ uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.
 ```
 
 ## 4. 启动前端（终端 2）
+
+首次安装按已有 npm 锁文件执行：
+
+```powershell
+npm --prefix apps/web ci
+```
 
 ```powershell
 npm --prefix apps/web run dev

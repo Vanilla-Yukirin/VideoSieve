@@ -322,7 +322,7 @@ export function IngestProbe({ onParamsReady, onLocalUpload, disabled = false, co
             <Button
               onClick={onProbe}
               disabled={loading || disabled || !url.trim()}
-              variant="secondary"
+              variant="primary"
             >
               {loading ? t("ingest.probing") : t("ingest.probe")}
             </Button>

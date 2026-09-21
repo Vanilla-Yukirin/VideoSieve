@@ -1,8 +1,8 @@
 # Configuration
 
-状态：在线 Provider 的加密 credential vault、job credential reference、worker 解析路径和
-首次 Provider 引导已实现。独立连接测试尚未实现，真实 provider 端到端验收
-仍未执行。
+状态：在线 Provider 的加密 credential vault、多 Profile、job credential reference、
+worker 解析路径、首次 Provider 引导和真实最小测试已实现。真实视频经过完整 provider
+链路的端到端验收仍未执行。
 
 ## 1. 配置分层
 
@@ -21,7 +21,8 @@
 ### System settings
 
 保存在 SQLite，表示操作者可调整的默认值和产品开关。在线 ASR、frame-summary VLM 和
-overall-summary LLM 的 endpoint、model、参数与 credential 均从 Web 管理。credential
+overall-summary LLM 使用多个 capability-scoped Provider Profile；endpoint、protocol、
+model、参数与 credential 均从 Web 管理。credential
 使用由 `APP_SECRET_KEY` 派生的密钥加密，读取 API 只返回是否已配置，不返回明文。
 
 首次启动流程为：Provider 引导 -> 配置所需能力 -> 创建任务。产品内没有账号、登录、
@@ -33,8 +34,8 @@ overall-summary LLM 的 endpoint、model、参数与 credential 均从 Web 管�
 `jobs/{job_id}/meta/config.snapshot.json` 并记录内容哈希。worker 整个 attempt 只读取
 该快照和受保护的 secret reference，不读取当前 UI 状态或可变 system settings。
 
-优先级为：系统默认值 -> 创建 job 的合法覆盖 -> 不可变 job snapshot。执行开始后，
-操作者修改设置只影响以后创建的 job。
+优先级为：能力默认 Profile -> 创建 job 的 Profile 选择 -> 不可变 job snapshot。执行开始
+后，操作者修改 Profile 只影响以后创建的 job。
 
 ## 2. Snapshot 必须覆盖的内容
 
@@ -58,9 +59,12 @@ worker 解析 secret 后不得把值写回快照、事件或错误。
 | Overall summary | 独立 LLM、提示词版本和上下文预算 | 必须实际总结完整材料，不允许截取／拼接片段冒充摘要 |
 
 测试中的 fake/mock 由依赖注入提供，不能成为生产配置默认值或未知 provider 的兜底。
-设置页选择 provider，transport 由 adapter 决定。当前 `CapsWriter（WS）` 固定使用
-官方 WebSocket；未来的 HTTP ASR API 作为新的 provider adapter 接入，不增加全局
-HTTP／WS 切换项。
+设置页选择 provider 和协议，transport 由 adapter 决定。当前 `CapsWriter（WS）` 固定使用
+官方 WebSocket；阿里云百炼 HTTP ASR 仅显示为禁用的计划项，在 adapter 和真实样本验收
+完成前不增加伪可用选项。
+
+模型 Profile 显式选择 OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages。
+表单保存 API 根地址，通常以 `/v1` 结尾，不填写具体请求路由；adapter 按协议补全路径。
 
 ## 4. 创建和执行时校验
 
@@ -107,8 +111,9 @@ worker 开始 attempt 时：
 - `verified`：使用当前 credential 和 model 完成最小真实调用并解析合法响应；
 - real E2E：真实视频经过 ASR/VLM/LLM，产物与内容经人工复核。
 
-当前尚未实现独立 Provider 连接测试 API，因此产品只能陈述 `configured`，不能显示
-`reachable` 或 `verified`。`GET /healthz` 也只证明 API 进程存活。
+Profile 测试 API 使用保存的 credential 发起真实最小请求。CapsWriter 测试 WebSocket
+握手，VLM 测试图片输入，LLM 测试文本输入；一次成功可陈述该配置在测试时 `verified`，
+但不持久承诺可用性，也不替代真实视频 E2E。`GET /healthz` 仍只证明 API 进程存活。
 
 ## 7. Cookie 约束
 

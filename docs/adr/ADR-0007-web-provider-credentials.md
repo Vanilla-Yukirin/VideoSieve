@@ -28,9 +28,9 @@ Provider credential 不能进入浏览器读响应、普通 SQLite settings、jo
 
 ## Verification Boundary
 
-当前没有独立 Provider 连接测试。保存设置最多证明 `configured`，不能声称 endpoint
-可达、鉴权有效、模型支持所需模态，或真实视频链路已通过。真实 E2E 仍需使用真实视频、
-真实 ASR/VLM/LLM，并检查产物与内容。
+ADR-0009 已增加独立 Provider 最小请求测试。保存设置仍只证明 `configured`；测试成功只
+证明测试当时的 endpoint、鉴权、模型和所需模态可用。真实 E2E 仍需使用真实视频、真实
+ASR/VLM/LLM，并检查产物与内容。
 
 ## Consequences
 

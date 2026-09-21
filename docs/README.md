@@ -72,8 +72,9 @@
 - [ADR-0004: Redis event bus](adr/ADR-0004-redis-event-bus.md)（Superseded，未实施）
 - [ADR-0005: single-host SQLite queue and worker](adr/ADR-0005-single-host-sqlite-worker.md)（Accepted，已实现；真实模型验收待执行）
 - [ADR-0006: external ASR through CapsWriter WebSocket](adr/ADR-0006-external-asr-capswriter-websocket.md)（Accepted，已实现；真实服务验收待执行）
-- [ADR-0007: Web-managed provider credentials](adr/ADR-0007-web-provider-credentials.md)（Accepted；连接测试待实现）
+- [ADR-0007: Web-managed provider credentials](adr/ADR-0007-web-provider-credentials.md)（Accepted；凭据边界由 ADR-0009 扩展）
 - [ADR-0008: single-host trusted mode](adr/ADR-0008-single-host-trusted-mode.md)（Accepted；产品内无登录，远程访问由外层控制）
+- [ADR-0009: Provider Profiles and model protocols](adr/ADR-0009-provider-profiles-and-model-protocols.md)（Accepted；多配置、三种模型协议与真实最小测试）
 
 ## Archive
 

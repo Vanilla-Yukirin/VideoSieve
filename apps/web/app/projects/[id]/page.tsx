@@ -11,18 +11,8 @@ import { Badge } from "@/components/Badge";
 import { ArrowLeft, PlayCircle, Clock, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
-import { CookieListItem, DualAssetIngestParams, GuestCooldownResponse } from "@/lib/api/types";
+import { CookieListItem, DualAssetIngestParams } from "@/lib/api/types";
 import { resolveDefaultCookieId } from "@/lib/cookies/helpers";
-import {
-  isGuestCookieInputDisabled,
-  isGuestCooldownBlocking,
-  sanitizeIngestForSubmit,
-} from "@/lib/auth/helpers";
-import {
-  getGuestAllowCookieInputCached,
-  setGuestAllowCookieInputCached,
-} from "@/lib/auth/session";
-import { useSessionToken } from "@/lib/hooks/useSessionToken";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
@@ -45,13 +35,6 @@ export default function ProjectDetail() {
     forceCancelActive: boolean;
     description: string;
   } | null>(null);
-  const [guestCooldown, setGuestCooldown] = useState<GuestCooldownResponse | null>(null);
-  const [guestAllowCookieInput, setGuestAllowCookieInput] = useState(false);
-
-  const sessionToken = useSessionToken();
-  const isGuest = !sessionToken;
-  const guestCookieDisabled = isGuestCookieInputDisabled(isGuest, guestAllowCookieInput);
-
   const { data: project, error: projectError } = useSWR(
     projectId ? `/projects/${projectId}` : null,
     () => api.getProject(projectId)
@@ -63,78 +46,13 @@ export default function ProjectDetail() {
   );
 
   const { data: cookies, error: cookiesError } = useSWR<CookieListItem[]>(
-    guestCookieDisabled ? null : "/me/cookies",
-    () => api.listMeCookies()
+    "/cookies",
+    () => api.listCookies()
   );
 
-  const resolvedCookieId = guestCookieDisabled
-    ? ""
-    : selectedCookieId && (cookies ?? []).some((cookie) => cookie.id === selectedCookieId)
+  const resolvedCookieId = selectedCookieId && (cookies ?? []).some((cookie) => cookie.id === selectedCookieId)
       ? selectedCookieId
       : resolveDefaultCookieId(cookies ?? []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadPolicy = async () => {
-      if (!sessionToken) {
-        setGuestAllowCookieInput(getGuestAllowCookieInputCached());
-        return;
-      }
-      try {
-        const settings = await api.getSystemSettings(sessionToken);
-        if (!cancelled) {
-          setGuestAllowCookieInput(settings.guest_allow_cookie_input);
-          setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
-        }
-      } catch (unknownError) {
-        if (
-          unknownError instanceof ApiClientError &&
-          unknownError.code === "auth_required"
-        ) {
-          router.replace("/login");
-          return;
-        }
-        if (!cancelled) {
-          setGuestAllowCookieInput(getGuestAllowCookieInputCached());
-        }
-      }
-    };
-
-    void loadPolicy();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionToken, router]);
-
-  useEffect(() => {
-    if (!isGuest) {
-      return;
-    }
-
-    let cancelled = false;
-    const refreshCooldown = async () => {
-      try {
-        const result = await api.getGuestCooldown();
-        if (!cancelled) {
-          setGuestCooldown(result);
-        }
-      } catch {
-        if (!cancelled) {
-          setGuestCooldown(null);
-        }
-      }
-    };
-
-    void refreshCooldown();
-    const intervalId = setInterval(() => {
-      void refreshCooldown();
-    }, 1000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [isGuest]);
 
   // Auto-add to index on visit if valid
   useEffect(() => {
@@ -172,7 +90,7 @@ export default function ProjectDetail() {
         }
         formData.append("summary_enabled", summaryEnabled.toString());
 
-        const { job_id } = await api.uploadLocalVideo(projectId, formData, sessionToken);
+        const { job_id } = await api.uploadLocalVideo(projectId, formData);
         await refreshJobs();
         router.push(`/jobs/${job_id}`);
         return;
@@ -185,34 +103,15 @@ export default function ProjectDetail() {
             ...(resolvedCookieId.trim() ? { cookie_id: resolvedCookieId.trim() } : {}),
           }
         : undefined;
-      const ingestWithCookie = sanitizeIngestForSubmit(candidateIngest, {
-        isGuest,
-        guestAllowCookieInput,
-      });
-
       const { job_id } = await api.createJob({
         project_id: projectId,
         summary_enabled: summaryEnabled,
-        ingest: ingestWithCookie,
-      }, sessionToken);
+        ingest: candidateIngest,
+      });
       await refreshJobs();
       router.push(`/jobs/${job_id}`);
     } catch (unknownError) {
-      if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
-        setCreateError(t("project.authRequired"));
-        router.replace("/login");
-      } else if (
-        unknownError instanceof ApiClientError &&
-        unknownError.code === "guest_cooldown_active"
-      ) {
-        const remaining = unknownError.details?.remaining_seconds ?? guestCooldown?.remaining_seconds ?? 0;
-        setCreateError(t("project.cooldownActive", { seconds: remaining }));
-        setGuestCooldown({
-          active: true,
-          remaining_seconds: remaining,
-          cooldown_seconds: guestCooldown?.cooldown_seconds ?? remaining,
-        });
-      } else if (unknownError instanceof Error) {
+      if (unknownError instanceof Error) {
         setCreateError(unknownError.message);
       } else {
         setCreateError(t("control.fail"));
@@ -286,9 +185,6 @@ export default function ProjectDetail() {
     });
   };
 
-  const effectiveGuestCooldown = isGuest ? guestCooldown : null;
-  const isGuestCooldownActive = isGuestCooldownBlocking(isGuest, effectiveGuestCooldown);
-
   if (projectError) {
     return (
       <div className="container mx-auto p-8 text-center">
@@ -348,7 +244,7 @@ export default function ProjectDetail() {
                   onParamsReady={setIngestParams}
                   onLocalUpload={handleLocalUpload}
                   disabled={isCreatingJob}
-                  cookieId={guestCookieDisabled ? undefined : resolvedCookieId}
+                  cookieId={resolvedCookieId}
                 />
 
                 <div className="space-y-2">
@@ -360,7 +256,7 @@ export default function ProjectDetail() {
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={resolvedCookieId}
                     onChange={(e) => setSelectedCookieId(e.target.value)}
-                    disabled={isCreatingJob || Boolean(cookiesError) || guestCookieDisabled}
+                    disabled={isCreatingJob || Boolean(cookiesError)}
                   >
                     <option value="">{t("project.cookieNone")}</option>
                     {(cookies ?? []).map((cookie) => (
@@ -370,13 +266,8 @@ export default function ProjectDetail() {
                     ))}
                   </select>
                   <p className="text-xs text-muted-foreground">
-                    {t("project.cookieNeedLogin")}
+                    {t("project.cookieHint")}
                   </p>
-                  {guestCookieDisabled ? (
-                    <p className="text-xs text-amber-300">
-                      {t("project.cookieDisabled")}
-                    </p>
-                  ) : null}
                   {cookiesError ? (
                     <p className="text-xs text-amber-300">
                       {t("project.cookieUnavailable")}
@@ -400,11 +291,9 @@ export default function ProjectDetail() {
                     <Button
                         onClick={handleCreateJob}
                         isLoading={isCreatingJob}
-                        disabled={(!ingestParams?.source_url && !uploadFile) || isGuestCooldownActive || isDeletingProject}
+                        disabled={(!ingestParams?.source_url && !uploadFile) || isDeletingProject}
                     >
-                        {isGuestCooldownActive
-                          ? t("project.cooldown", { seconds: effectiveGuestCooldown?.remaining_seconds ?? 0 })
-                          : t("project.start")}
+                        {t("project.start")}
                     </Button>
                 </div>
                 {createError ? <p className="text-sm text-destructive">{createError}</p> : null}

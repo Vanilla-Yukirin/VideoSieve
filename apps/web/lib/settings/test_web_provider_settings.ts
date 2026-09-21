@@ -5,7 +5,6 @@ import {
   validateProviderSetup,
 } from "./providerSetup";
 import { api } from "../api/client";
-import { resolveLandingRoute } from "../auth/helpers";
 
 const validValues: ProviderSetupValues = {
   asrEndpoint: " ws://127.0.0.1:6016 ",
@@ -41,27 +40,6 @@ describe("provider setup helpers", () => {
     expect(isProviderSetupComplete({ ...completeSettings, vlm_api_key_configured: false })).toBe(
       false,
     );
-  });
-
-  it("routes incomplete admins to setup while leaving guest routing unchanged", () => {
-    expect(
-      resolveLandingRoute({
-        bootstrapRequired: false,
-        hasToken: true,
-        tokenValid: true,
-        guestSessionActive: false,
-        providerSetupComplete: false,
-      }),
-    ).toBe("/setup");
-    expect(
-      resolveLandingRoute({
-        bootstrapRequired: false,
-        hasToken: false,
-        tokenValid: false,
-        guestSessionActive: true,
-        providerSetupComplete: false,
-      }),
-    ).toBe("/");
   });
 
   it("requires the mandatory ASR and VLM fields", () => {
@@ -114,7 +92,7 @@ describe("system settings credential client", () => {
       text: async () => "{}",
     });
 
-    await api.patchSystemSettings("session-token", {
+    await api.patchSystemSettings({
       vlm_api_key: "replacement-key",
       clear_summary_api_key: true,
     });
@@ -123,6 +101,7 @@ describe("system settings credential client", () => {
       "/api/settings/system",
       expect.objectContaining({
         method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vlm_api_key: "replacement-key",
           clear_summary_api_key: true,

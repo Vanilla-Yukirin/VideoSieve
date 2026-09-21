@@ -5,15 +5,8 @@ import {
   CreateProjectRequest,
   DeleteProjectResponse,
   ApiErrorResponse,
-  AuthBootstrapStatusResponse,
-  AuthBootstrapRequest,
-  AuthLoginRequest,
-  AuthTokenResponse,
-  AuthMeResponse,
-  PublicAccessFlagsResponse,
   SystemSettingsResponse,
   SystemSettingsPatchRequest,
-  GuestCooldownResponse,
   CreateJobRequest,
   ArtifactItem,
   IngestProbeRequest,
@@ -24,7 +17,6 @@ import {
   CookieValidateRequest,
   CookieValidateResponse,
 } from "./types";
-import { withAuthHeaders } from "../auth/session";
 
 const API_BASE = "/api"; // Rewrites will handle the proxy
 
@@ -61,49 +53,14 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Auth
-  getAuthBootstrapStatus: () => fetchJson<AuthBootstrapStatusResponse>("/auth/bootstrap-status"),
+  getSystemSettings: () => fetchJson<SystemSettingsResponse>("/settings/system"),
 
-  bootstrapAuth: (payload: AuthBootstrapRequest) =>
-    fetchJson<AuthTokenResponse>("/auth/bootstrap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
-
-  loginAuth: (payload: AuthLoginRequest) =>
-    fetchJson<AuthTokenResponse>("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
-
-  logoutAuth: (token: string | null) =>
-    fetchJson<{ ok: boolean }>("/auth/logout", {
-      method: "POST",
-      headers: withAuthHeaders(token),
-    }),
-
-  getAuthMe: (token: string | null) =>
-    fetchJson<AuthMeResponse>("/auth/me", {
-      headers: withAuthHeaders(token),
-    }),
-
-  getPublicAccessFlags: () => fetchJson<PublicAccessFlagsResponse>("/public/access-flags"),
-
-  getSystemSettings: (token: string | null) =>
-    fetchJson<SystemSettingsResponse>("/settings/system", {
-      headers: withAuthHeaders(token),
-    }),
-
-  patchSystemSettings: (token: string | null, payload: SystemSettingsPatchRequest) =>
+  patchSystemSettings: (payload: SystemSettingsPatchRequest) =>
     fetchJson<SystemSettingsResponse>("/settings/system", {
       method: "PATCH",
-      headers: withAuthHeaders(token, { "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
-
-  getGuestCooldown: () => fetchJson<GuestCooldownResponse>("/guest/cooldown"),
 
   // Projects
   createProject: (payload: CreateProjectRequest) =>
@@ -128,17 +85,16 @@ export const api = {
   getProjectJobs: (projectId: string) => fetchJson<Job[]>(`/projects/${projectId}/jobs`),
 
   // Jobs
-  createJob: (payload: CreateJobRequest, token: string | null = null) =>
+  createJob: (payload: CreateJobRequest) =>
     fetchJson<{ job_id: string }>("/jobs", {
       method: "POST",
-      headers: withAuthHeaders(token, { "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
 
-  uploadLocalVideo: (projectId: string, formData: FormData, token: string | null = null) =>
+  uploadLocalVideo: (projectId: string, formData: FormData) =>
     fetchJson<{ job_id: string }>(`/projects/${projectId}/jobs/upload`, {
       method: "POST",
-      headers: withAuthHeaders(token),
       body: formData,
     }),
 
@@ -163,29 +119,29 @@ export const api = {
   },
 
   // Cookie Vault
-  listMeCookies: () => fetchJson<CookieListItem[]>("/me/cookies"),
+  listCookies: () => fetchJson<CookieListItem[]>("/cookies"),
 
-  createMeCookie: (payload: CookieCreateRequest) =>
-    fetchJson<CookieListItem>("/me/cookies", {
+  createCookie: (payload: CookieCreateRequest) =>
+    fetchJson<CookieListItem>("/cookies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
 
-  patchMeCookie: (cookieId: string, payload: CookiePatchRequest) =>
-    fetchJson<CookieListItem>(`/me/cookies/${cookieId}`, {
+  patchCookie: (cookieId: string, payload: CookiePatchRequest) =>
+    fetchJson<CookieListItem>(`/cookies/${cookieId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }),
 
-  deleteMeCookie: (cookieId: string) =>
-    fetchJson<{ deleted: boolean }>(`/me/cookies/${cookieId}`, {
+  deleteCookie: (cookieId: string) =>
+    fetchJson<{ deleted: boolean }>(`/cookies/${cookieId}`, {
       method: "DELETE",
     }),
 
-  validateMeCookie: (cookieId: string, payload: CookieValidateRequest) =>
-    fetchJson<CookieValidateResponse>(`/me/cookies/${cookieId}/validate`, {
+  validateCookie: (cookieId: string, payload: CookieValidateRequest) =>
+    fetchJson<CookieValidateResponse>(`/cookies/${cookieId}/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

@@ -3,28 +3,30 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, KeyRound, Settings } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { ToastProvider } from "@/lib/toast/ToastProvider";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { useSessionToken } from "@/lib/hooks/useSessionToken";
+import { clearLegacyAuthStorage } from "@/lib/storage/legacyAuth";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { t } = useI18n();
-  const hasToken = Boolean(useSessionToken());
+  const isCompactPage = pathname.startsWith("/setup");
 
-  const isCompactPage = pathname.startsWith("/login") || pathname.startsWith("/setup");
+  useEffect(() => {
+    clearLegacyAuthStorage(window.localStorage);
+  }, []);
 
   const navItems = useMemo(
     () => [
-      { href: "/", label: t("home.title"), icon: Home, show: true },
-      { href: "/settings/cookies", label: t("home.cookieVault"), icon: KeyRound, show: hasToken },
-      { href: "/settings/system", label: t("home.systemSettings"), icon: Settings, show: hasToken },
+      { href: "/", label: t("home.title"), icon: Home },
+      { href: "/settings/cookies", label: t("home.cookieVault"), icon: KeyRound },
+      { href: "/settings/system", label: t("home.systemSettings"), icon: Settings },
     ],
-    [hasToken, t],
+    [t],
   );
 
   const isNavItemActive = (href: string): boolean => {
@@ -55,9 +57,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <nav className="hidden items-center gap-1 md:flex">
-            {navItems
-              .filter((item) => item.show)
-              .map((item) => {
+            {navItems.map((item) => {
                 const active = isNavItemActive(item.href);
                 const Icon = item.icon;
                 return (
@@ -80,9 +80,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
           <LanguageSwitcher className="shrink-0" />
         </div>
         <div className="mx-auto flex max-w-7xl items-center gap-1 px-4 pb-3 md:hidden">
-          {navItems
-            .filter((item) => item.show)
-            .map((item) => {
+          {navItems.map((item) => {
               const active = isNavItemActive(item.href);
               const Icon = item.icon;
               return (

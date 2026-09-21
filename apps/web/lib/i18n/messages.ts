@@ -5,32 +5,20 @@ export type MessageKey =
   | "lang.en"
   | "home.title"
   | "shell.controlPlane"
-  | "home.subtitle.user"
-  | "home.subtitle.guest"
+  | "home.subtitle"
   | "home.newProject"
   | "home.systemSettings"
   | "home.cookieVault"
-  | "home.logout"
-  | "home.leaveGuest"
   | "home.cookieHint"
   | "home.empty"
   | "home.projectListLoadFailed"
   | "home.createFirst"
   | "home.newProjectTitlePrefix"
   | "setup.title"
-  | "setup.desc"
-  | "setup.username"
-  | "setup.password"
-  | "setup.passwordHint"
-  | "setup.submit"
   | "setup.checking"
-  | "setup.required"
-  | "setup.already"
-  | "setup.stepAccount"
   | "setup.stepProviders"
   | "setup.providerTitle"
   | "setup.providerDesc"
-  | "setup.continue"
   | "setup.finish"
   | "setup.apiUnavailable"
   | "setup.retry"
@@ -44,27 +32,12 @@ export type MessageKey =
   | "setup.summaryBaseUrlRequired"
   | "setup.summaryModelRequired"
   | "setup.summaryApiKeyRequired"
-  | "login.title"
-  | "login.desc"
-  | "login.username"
-  | "login.password"
-  | "login.submit"
-  | "login.guest"
-  | "login.invalid"
-  | "login.setupFirst"
-  | "login.required"
-  | "login.guestDisabled"
-  | "login.guestEnterFail"
   | "settings.title"
   | "settings.desc"
   | "settings.back"
-  | "settings.access"
-  | "settings.guestMode"
-  | "settings.guestCookie"
   | "settings.save"
   | "settings.saved"
   | "settings.load"
-  | "settings.guestCookieKeyRequired"
   | "settings.asrSection"
   | "settings.asrDescription"
   | "settings.asrProvider"
@@ -109,15 +82,11 @@ export type MessageKey =
   | "project.newJob"
   | "project.cookie"
   | "project.cookieNone"
-  | "project.cookieNeedLogin"
+  | "project.cookieHint"
   | "project.cookieUnavailable"
-  | "project.cookieDisabled"
   | "project.cookieDefaultSuffix"
   | "project.summary"
   | "project.start"
-  | "project.cooldown"
-  | "project.authRequired"
-  | "project.cooldownActive"
   | "project.history"
   | "project.noJobs"
   | "project.notFound"
@@ -228,8 +197,6 @@ export type MessageKey =
   | "common.cancel"
   | "common.dismiss"
   | "error.createProject"
-  | "error.loginFailed"
-  | "error.setupFailed"
   | "error.probeFailed"
   | "cookie.required"
   | "cookie.nameRequired"
@@ -272,32 +239,20 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.en": "English",
     "home.title": "项目",
     "shell.controlPlane": "控制台",
-    "home.subtitle.user": "SQLite 中保存的 VideoSieve 项目。",
-    "home.subtitle.guest": "游客会话（全服共享冷却生效）。",
+    "home.subtitle": "SQLite 中保存的 VideoSieve 项目。",
     "home.newProject": "新建项目",
     "home.systemSettings": "系统设置",
     "home.cookieVault": "Cookie Vault",
-    "home.logout": "退出登录",
-    "home.leaveGuest": "退出游客",
-    "home.cookieHint": "私有视频需要登录 Cookie。登录后可在 Cookie Vault 管理。",
+    "home.cookieHint": "私有视频可能需要站点 Cookie，可在 Cookie Vault 管理。",
     "home.empty": "还没有项目。",
     "home.projectListLoadFailed": "无法从服务端加载项目；当前显示浏览器中的旧缓存。",
     "home.createFirst": "创建第一个项目",
     "home.newProjectTitlePrefix": "新项目",
     "setup.title": "首次初始化",
-    "setup.desc": "为当前部署创建唯一管理员账号。",
-    "setup.username": "用户名",
-    "setup.password": "密码",
-    "setup.passwordHint": "密码至少 8 位。",
-    "setup.submit": "完成初始化",
     "setup.checking": "正在检查初始化状态...",
-    "setup.required": "用户名和密码不能为空。",
-    "setup.already": "系统已初始化，请直接登录。",
-    "setup.stepAccount": "第 1 步，共 2 步 · 管理员账号",
-    "setup.stepProviders": "第 2 步，共 2 步 · 处理服务",
+    "setup.stepProviders": "处理服务配置",
     "setup.providerTitle": "配置处理服务",
     "setup.providerDesc": "填写 CapsWriter 和视觉模型配置。整体摘要服务可稍后配置。",
-    "setup.continue": "创建账号并继续",
     "setup.finish": "保存配置并开始使用",
     "setup.apiUnavailable": "无法连接 VideoSieve API。请确认 API 已启动后重试。",
     "setup.retry": "重新检查",
@@ -311,27 +266,12 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.summaryBaseUrlRequired": "请填写摘要模型 API 端点。",
     "setup.summaryModelRequired": "请填写摘要模型名称。",
     "setup.summaryApiKeyRequired": "请填写摘要模型 API Key，或保留已有密钥。",
-    "login.title": "登录",
-    "login.desc": "登录后可管理设置并提交不受游客限制的任务。",
-    "login.username": "用户名",
-    "login.password": "密码",
-    "login.submit": "登录",
-    "login.guest": "游客进入",
-    "login.invalid": "用户名或密码错误。",
-    "login.setupFirst": "系统尚未初始化，请先完成初始化。",
-    "login.required": "用户名和密码不能为空。",
-    "login.guestDisabled": "游客模式已关闭。",
-    "login.guestEnterFail": "无法进入游客模式。",
     "settings.title": "系统设置",
-    "settings.desc": "配置当前部署的访问策略与外部处理服务。",
+    "settings.desc": "配置当前部署的外部处理服务。",
     "settings.back": "返回",
-    "settings.access": "访问控制",
-    "settings.guestMode": "启用游客模式",
-    "settings.guestCookie": "允许游客提交 cookie_id",
     "settings.save": "保存设置",
     "settings.saved": "设置已保存。",
     "settings.load": "正在加载设置...",
-    "settings.guestCookieKeyRequired": "无法开启游客 Cookie 输入：服务端必须配置 GUEST_COOKIE_KEY。",
     "settings.asrSection": "语音识别（ASR）",
     "settings.asrDescription": "VideoSieve 只负责适配外部 ASR 服务，不下载或运行语音模型。",
     "settings.asrProvider": "服务提供方",
@@ -376,15 +316,11 @@ export const messages: Record<Locale, MessageMap> = {
     "project.newJob": "新任务",
     "project.cookie": "Cookie",
     "project.cookieNone": "不使用 Cookie",
-    "project.cookieNeedLogin": "部分视频可能需要登录，请按需选择 Cookie。",
+    "project.cookieHint": "部分视频可能需要站点 Cookie，请按需选择。",
     "project.cookieUnavailable": "Cookie 列表不可用，已降级为无 Cookie 模式。",
-    "project.cookieDisabled": "系统策略已禁用游客 Cookie 输入。",
     "project.cookieDefaultSuffix": " [默认]",
     "project.summary": "启用摘要生成",
     "project.start": "开始下载与处理",
-    "project.cooldown": "游客冷却：{seconds}s",
-    "project.authRequired": "该操作需要登录。",
-    "project.cooldownActive": "游客冷却中，请 {seconds}s 后重试。",
     "project.history": "任务历史",
     "project.noJobs": "还没有任务，先在上方启动一个。",
     "project.notFound": "项目不存在",
@@ -399,7 +335,7 @@ export const messages: Record<Locale, MessageMap> = {
     "project.deleteInProgress": "项目删除进行中，请稍候。",
     "cookie.title": "Cookie Vault",
     "cookie.back": "返回项目",
-    "cookie.desc": "按 ID 管理登录 Cookie。提交后不回显明文。",
+    "cookie.desc": "按 ID 管理站点 Cookie。提交后不回显明文。",
     "cookie.add": "添加 Cookie",
     "cookie.saved": "已保存 Cookie",
     "cookie.loading": "正在加载 Cookie...",
@@ -495,8 +431,6 @@ export const messages: Record<Locale, MessageMap> = {
     "common.cancel": "取消",
     "common.dismiss": "关闭通知",
     "error.createProject": "创建项目失败",
-    "error.loginFailed": "登录失败。",
-    "error.setupFailed": "初始化失败。",
     "error.probeFailed": "探测失败",
     "cookie.required": "名称与 Netscape Cookie 文本不能为空。",
     "cookie.nameRequired": "Cookie 名称不能为空。",
@@ -536,32 +470,20 @@ export const messages: Record<Locale, MessageMap> = {
     "lang.en": "English",
     "home.title": "Projects",
     "shell.controlPlane": "Control Plane",
-    "home.subtitle.user": "VideoSieve projects saved in SQLite.",
-    "home.subtitle.guest": "Guest session (shared global cooldown applies).",
+    "home.subtitle": "VideoSieve projects saved in SQLite.",
     "home.newProject": "New Project",
     "home.systemSettings": "System Settings",
     "home.cookieVault": "Cookie Vault",
-    "home.logout": "Logout",
-    "home.leaveGuest": "Leave Guest",
-    "home.cookieHint": "Private videos may require login cookies. Manage them in Cookie Vault when signed in.",
+    "home.cookieHint": "Private videos may require site cookies. Manage them in Cookie Vault.",
     "home.empty": "No projects yet.",
     "home.projectListLoadFailed": "Could not load projects from the server; showing the old browser cache.",
     "home.createFirst": "Create your first project",
     "home.newProjectTitlePrefix": "New Project",
     "setup.title": "Initial Setup",
-    "setup.desc": "Create the single admin account for this deployment.",
-    "setup.username": "Username",
-    "setup.password": "Password",
-    "setup.passwordHint": "Password must be at least 8 characters.",
-    "setup.submit": "Complete Setup",
     "setup.checking": "Checking setup status...",
-    "setup.required": "Username and password are required.",
-    "setup.already": "System is already initialized. Please login.",
-    "setup.stepAccount": "Step 1 of 2 · Admin account",
-    "setup.stepProviders": "Step 2 of 2 · Processing services",
+    "setup.stepProviders": "Processing services",
     "setup.providerTitle": "Configure processing services",
     "setup.providerDesc": "Configure CapsWriter and the vision model. Overall summary can be added later.",
-    "setup.continue": "Create account and continue",
     "setup.finish": "Save configuration and continue",
     "setup.apiUnavailable": "Cannot reach the VideoSieve API. Start the API and try again.",
     "setup.retry": "Check again",
@@ -575,27 +497,12 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.summaryBaseUrlRequired": "Enter the summary model API endpoint.",
     "setup.summaryModelRequired": "Enter the summary model name.",
     "setup.summaryApiKeyRequired": "Enter the summary model API key or keep the existing key.",
-    "login.title": "Login",
-    "login.desc": "Sign in to manage settings and submit unrestricted jobs.",
-    "login.username": "Username",
-    "login.password": "Password",
-    "login.submit": "Login",
-    "login.guest": "Enter as Guest",
-    "login.invalid": "Invalid username or password.",
-    "login.setupFirst": "System is not initialized yet. Please complete setup first.",
-    "login.required": "Username and password are required.",
-    "login.guestDisabled": "Guest mode is disabled.",
-    "login.guestEnterFail": "Unable to enter as guest.",
     "settings.title": "System Settings",
-    "settings.desc": "Configure access policies and external processing services.",
+    "settings.desc": "Configure external processing services for this deployment.",
     "settings.back": "Back",
-    "settings.access": "Access Controls",
-    "settings.guestMode": "Enable guest mode",
-    "settings.guestCookie": "Allow guests to submit cookie_id",
     "settings.save": "Save Settings",
     "settings.saved": "Settings saved.",
     "settings.load": "Loading settings...",
-    "settings.guestCookieKeyRequired": "Cannot enable guest cookie input: GUEST_COOKIE_KEY is required on the server.",
     "settings.asrSection": "Speech Recognition (ASR)",
     "settings.asrDescription": "VideoSieve adapts external ASR services and does not download or run speech models.",
     "settings.asrProvider": "Provider",
@@ -640,15 +547,11 @@ export const messages: Record<Locale, MessageMap> = {
     "project.newJob": "New Job",
     "project.cookie": "Cookie",
     "project.cookieNone": "Do not use cookie",
-    "project.cookieNeedLogin": "Some videos may require login. Choose a cookie when needed.",
+    "project.cookieHint": "Some videos may require a site cookie. Choose one when needed.",
     "project.cookieUnavailable": "Cookie list unavailable. Continuing in no-cookie mode.",
-    "project.cookieDisabled": "Guest cookie input is disabled by system policy.",
     "project.cookieDefaultSuffix": " [default]",
     "project.summary": "Enable summary generation",
     "project.start": "Start Download & Process",
-    "project.cooldown": "Guest cooldown: {seconds}s",
-    "project.authRequired": "Authentication is required for this action.",
-    "project.cooldownActive": "Guest cooldown active. Try again in {seconds}s.",
     "project.history": "Job History",
     "project.noJobs": "No jobs run yet. Start one above!",
     "project.notFound": "Project Not Found",
@@ -663,7 +566,7 @@ export const messages: Record<Locale, MessageMap> = {
     "project.deleteInProgress": "Project deletion is in progress. Please wait.",
     "cookie.title": "Cookie Vault",
     "cookie.back": "Back to Projects",
-    "cookie.desc": "Manage login cookies by id. Cookie plaintext is never shown after submit.",
+    "cookie.desc": "Manage site cookies by id. Cookie plaintext is never shown after submit.",
     "cookie.add": "Add Cookie",
     "cookie.saved": "Saved Cookies",
     "cookie.loading": "Loading cookies...",
@@ -759,8 +662,6 @@ export const messages: Record<Locale, MessageMap> = {
     "common.cancel": "Cancel",
     "common.dismiss": "Dismiss notification",
     "error.createProject": "Failed to create project",
-    "error.loginFailed": "Login failed.",
-    "error.setupFailed": "Bootstrap failed.",
     "error.probeFailed": "Probe failed",
     "cookie.required": "Name and Netscape cookie text are required.",
     "cookie.nameRequired": "Cookie name cannot be empty.",

@@ -5,31 +5,21 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
-import { ApiClientError, api } from "@/lib/api/client";
+import { api } from "@/lib/api/client";
 import type { SystemSettingsResponse } from "@/lib/api/types";
-import {
-  clearSessionToken,
-  getSessionToken,
-  setGuestSessionActive,
-  setSessionToken,
-} from "@/lib/auth/session";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import {
   buildProviderSetupPatch,
+  isProviderSetupComplete,
   ProviderSetupValidationError,
   validateProviderSetup,
 } from "@/lib/settings/providerSetup";
 
-type SetupStep = "account" | "providers";
-
 export default function SetupPage() {
   const { t } = useI18n();
   const router = useRouter();
-  const [step, setStep] = useState<SetupStep>("account");
   const [checking, setChecking] = useState(true);
   const [apiUnavailable, setApiUnavailable] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,26 +50,13 @@ export default function SetupPage() {
 
   const checkSetup = async () => {
     try {
-      const status = await api.getAuthBootstrapStatus();
-      if (status.bootstrap_required) {
-        setStep("account");
+      const settings = await api.getSystemSettings();
+      if (isProviderSetupComplete(settings)) {
+        router.replace("/");
         return;
       }
-
-      const token = getSessionToken();
-      if (!token) {
-        router.replace("/login");
-        return;
-      }
-      await api.getAuthMe(token);
-      applySettings(await api.getSystemSettings(token));
-      setStep("providers");
-    } catch (unknownError) {
-      if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
-        clearSessionToken();
-        router.replace("/login");
-        return;
-      }
+      applySettings(settings);
+    } catch {
       setApiUnavailable(true);
       setError(t("setup.apiUnavailable"));
     } finally {
@@ -100,40 +77,6 @@ export default function SetupPage() {
     setApiUnavailable(false);
     setError(null);
     void checkSetup();
-  };
-
-  const onAccountSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!username.trim() || !password.trim()) {
-      setError(t("setup.required"));
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.bootstrapAuth({ username: username.trim(), password });
-      clearSessionToken();
-      setGuestSessionActive(false);
-      setSessionToken(result.token);
-      try {
-        applySettings(await api.getSystemSettings(result.token));
-        setStep("providers");
-      } catch {
-        setApiUnavailable(true);
-        setError(t("setup.apiUnavailable"));
-      }
-    } catch (unknownError) {
-      if (unknownError instanceof ApiClientError && unknownError.code === "bootstrap_required") {
-        setError(t("setup.already"));
-        router.replace("/login");
-      } else if (unknownError instanceof Error) {
-        setError(unknownError.message);
-      } else {
-        setError(t("error.setupFailed"));
-      }
-    } finally {
-      setLoading(false);
-    }
   };
 
   const providerValidationMessage = (code: ProviderSetupValidationError): string => {
@@ -175,24 +118,13 @@ export default function SetupPage() {
       setError(providerValidationMessage(validationError));
       return;
     }
-    const token = getSessionToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
-      await api.patchSystemSettings(token, buildProviderSetupPatch(values));
+      await api.patchSystemSettings(buildProviderSetupPatch(values));
       router.replace("/");
     } catch (unknownError) {
-      if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
-        clearSessionToken();
-        router.replace("/login");
-      } else {
-        setError(unknownError instanceof Error ? unknownError.message : t("settings.save"));
-      }
+      setError(unknownError instanceof Error ? unknownError.message : t("settings.save"));
     } finally {
       setLoading(false);
     }
@@ -210,57 +142,6 @@ export default function SetupPage() {
         <Button type="button" onClick={retrySetup}>
           {t("setup.retry")}
         </Button>
-      </main>
-    );
-  }
-
-  if (step === "account") {
-    return (
-      <main className="container mx-auto max-w-lg space-y-6 p-6 md:p-10">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t("setup.stepAccount")}
-          </p>
-          <h1 className="text-2xl font-bold">{t("setup.title")}</h1>
-          <p className="text-sm text-muted-foreground">{t("setup.desc")}</p>
-        </div>
-
-        <form className="space-y-4" onSubmit={onAccountSubmit}>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="setup-username">
-              {t("setup.username")}
-            </label>
-            <input
-              id="setup-username"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              disabled={loading}
-              autoComplete="username"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="setup-password">
-              {t("setup.password")}
-            </label>
-            <input
-              id="setup-password"
-              type="password"
-              minLength={8}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              disabled={loading}
-              autoComplete="new-password"
-            />
-            <p className="text-xs text-muted-foreground">{t("setup.passwordHint")}</p>
-          </div>
-
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" isLoading={loading}>
-            {t("setup.continue")}
-          </Button>
-        </form>
       </main>
     );
   }

@@ -31,7 +31,7 @@ function statusClass(status: CookieListItem["status"]): string {
 
 export default function CookieVaultSettingsPage() {
   const { t } = useI18n();
-  const { data: cookies, error, mutate, isLoading } = useSWR("/me/cookies", api.listMeCookies);
+  const { data: cookies, error, mutate, isLoading } = useSWR("/cookies", api.listCookies);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [createName, setCreateName] = useState("");
@@ -58,7 +58,7 @@ export default function CookieVaultSettingsPage() {
     setBusyId("create");
     setMessage("");
     try {
-      await api.createMeCookie({
+      await api.createCookie({
         name: createName.trim(),
         cookie_netscape_text: createCookieText,
         is_default: createDefault,
@@ -80,7 +80,7 @@ export default function CookieVaultSettingsPage() {
     setBusyId(cookieId);
     setMessage("");
     try {
-      await api.deleteMeCookie(cookieId);
+      await api.deleteCookie(cookieId);
       await mutate();
       if (edit?.id === cookieId) {
         setEdit(null);
@@ -98,7 +98,7 @@ export default function CookieVaultSettingsPage() {
     setBusyId(cookieId);
     setMessage("");
     try {
-      await api.patchMeCookie(cookieId, { is_default: true });
+      await api.patchCookie(cookieId, { is_default: true });
       await mutate();
       setMessage(t("cookie.defaultUpdated"));
     } catch (unknownError) {
@@ -120,7 +120,7 @@ export default function CookieVaultSettingsPage() {
     setMessage("");
     try {
       window.localStorage.setItem(VALIDATE_SOURCE_URL_STORAGE_KEY, checked.source_url);
-      const result = await api.validateMeCookie(cookieId, { source_url: checked.source_url });
+      const result = await api.validateCookie(cookieId, { source_url: checked.source_url });
       await mutate((current) => {
         if (!current) return current;
         return current.map((cookie) =>
@@ -153,7 +153,7 @@ export default function CookieVaultSettingsPage() {
     setBusyId(edit.id);
     setMessage("");
     try {
-      await api.patchMeCookie(edit.id, {
+      await api.patchCookie(edit.id, {
         name: edit.name.trim(),
         cookie_netscape_text: edit.cookieText.trim() ? edit.cookieText : undefined,
       });

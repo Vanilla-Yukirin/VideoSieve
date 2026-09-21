@@ -2,15 +2,9 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { ApiClientError, api } from "@/lib/api/client";
 import type { SystemSettingsPatchRequest } from "@/lib/api/types";
-import {
-  clearSessionToken,
-  getSessionToken,
-  setGuestAllowCookieInputCached,
-} from "@/lib/auth/session";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -19,17 +13,12 @@ type AsrProvider = "unconfigured" | "capswriter";
 
 export default function SystemSettingsPage() {
   const { t } = useI18n();
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Access control
-  const [guestModeEnabled, setGuestModeEnabled] = useState(false);
-  const [guestAllowCookieInput, setGuestAllowCookieInput] = useState(false);
-
-  // External ASR routing. The optional token stays in the server environment.
+  // External ASR routing and write-only credentials.
   const [asrProvider, setAsrProvider] = useState<AsrProvider>("unconfigured");
   const [asrEndpoint, setAsrEndpoint] = useState("");
   const [asrLanguage, setAsrLanguage] = useState("auto");
@@ -69,18 +58,9 @@ export default function SystemSettingsPage() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const token = getSessionToken();
-      if (!token) {
-        router.replace("/login");
-        return;
-      }
-
       try {
-        const settings = await api.getSystemSettings(token);
+        const settings = await api.getSystemSettings();
         if (!cancelled) {
-          setGuestModeEnabled(settings.guest_mode_enabled);
-          setGuestAllowCookieInput(settings.guest_allow_cookie_input);
-          setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
           setAsrProvider(settings.asr_provider);
           setAsrEndpoint(settings.asr_endpoint);
           setAsrLanguage(settings.asr_language);
@@ -106,11 +86,6 @@ export default function SystemSettingsPage() {
           setSummaryPromptEnDefault(settings.summary_prompt_en_default);
         }
       } catch (unknownError) {
-        if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
-          clearSessionToken();
-          router.replace("/login");
-          return;
-        }
         if (!cancelled) {
           setError(unknownError instanceof Error ? unknownError.message : t("settings.load"));
         }
@@ -122,23 +97,15 @@ export default function SystemSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [router, t]);
+  }, [t]);
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
-    const token = getSessionToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-
     setSaving(true);
     setError(null);
     setMessage(null);
     try {
       const patch: SystemSettingsPatchRequest = {
-        guest_mode_enabled: guestModeEnabled,
-        guest_allow_cookie_input: guestAllowCookieInput,
         asr_provider: asrProvider,
         asr_endpoint: asrEndpoint,
         asr_language: asrLanguage,
@@ -162,10 +129,7 @@ export default function SystemSettingsPage() {
         ...(clearVlmApiKey ? { clear_vlm_api_key: true } : {}),
         ...(clearSummaryApiKey ? { clear_summary_api_key: true } : {}),
       };
-      const settings = await api.patchSystemSettings(token, patch);
-      setGuestModeEnabled(settings.guest_mode_enabled);
-      setGuestAllowCookieInput(settings.guest_allow_cookie_input);
-      setGuestAllowCookieInputCached(settings.guest_allow_cookie_input);
+      const settings = await api.patchSystemSettings(patch);
       setAsrProvider(settings.asr_provider);
       setAsrEndpoint(settings.asr_endpoint);
       setAsrLanguage(settings.asr_language);
@@ -197,14 +161,7 @@ export default function SystemSettingsPage() {
       setSummaryPromptEnDefault(settings.summary_prompt_en_default);
       setMessage(t("settings.saved"));
     } catch (unknownError) {
-      if (unknownError instanceof ApiClientError && unknownError.code === "auth_required") {
-        clearSessionToken();
-        router.replace("/login");
-        return;
-      }
-      if (unknownError instanceof ApiClientError && unknownError.code === "guest_cookie_key_required") {
-        setError(t("settings.guestCookieKeyRequired"));
-      } else if (
+      if (
         unknownError instanceof ApiClientError &&
         unknownError.code === "asr_endpoint_required"
       ) {
@@ -234,36 +191,6 @@ export default function SystemSettingsPage() {
       </div>
 
       <form className="space-y-6" onSubmit={onSave}>
-        {/* Access Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("settings.access")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={guestModeEnabled}
-                onChange={(e) => setGuestModeEnabled(e.target.checked)}
-                disabled={saving}
-              />
-              {t("settings.guestMode")}
-            </label>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={guestAllowCookieInput}
-                onChange={(e) => setGuestAllowCookieInput(e.target.checked)}
-                disabled={saving}
-              />
-              {t("settings.guestCookie")}
-            </label>
-          </CardContent>
-        </Card>
-
         {/* External ASR */}
         <Card>
           <CardHeader>

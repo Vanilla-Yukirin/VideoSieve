@@ -61,8 +61,6 @@ export interface ApiErrorResponse {
   code: string;
   message: string;
   retryable?: boolean;
-  remaining_seconds?: number;
-  retry_after_seconds?: number;
   active_job_ids?: string[];
   pending_job_ids?: string[];
 }
@@ -72,36 +70,7 @@ export interface DeleteProjectResponse {
   cancelled_job_ids?: string[];
 }
 
-export interface AuthBootstrapStatusResponse {
-  bootstrap_required: boolean;
-}
-
-export interface AuthBootstrapRequest {
-  username: string;
-  password: string;
-}
-
-export interface AuthLoginRequest {
-  username: string;
-  password: string;
-}
-
-export interface AuthTokenResponse {
-  token: string;
-  username: string;
-}
-
-export interface AuthMeResponse {
-  username: string;
-}
-
-export interface PublicAccessFlagsResponse {
-  guest_mode_enabled: boolean;
-}
-
 export interface SystemSettingsResponse {
-  guest_mode_enabled: boolean;
-  guest_allow_cookie_input: boolean;
   asr_provider: "unconfigured" | "capswriter";
   asr_endpoint: string;
   asr_language: string;
@@ -128,8 +97,6 @@ export interface SystemSettingsResponse {
 }
 
 export interface SystemSettingsPatchRequest {
-  guest_mode_enabled?: boolean;
-  guest_allow_cookie_input?: boolean;
   asr_provider?: "unconfigured" | "capswriter";
   asr_endpoint?: string;
   asr_language?: string;
@@ -152,12 +119,6 @@ export interface SystemSettingsPatchRequest {
   summary_prompt_zh?: string;
   summary_prompt_en?: string;
   summary_max_input_chars?: number;
-}
-
-export interface GuestCooldownResponse {
-  active: boolean;
-  remaining_seconds: number;
-  cooldown_seconds: number;
 }
 
 export interface IngestFormatItem {
@@ -210,7 +171,6 @@ export interface CreateJobRequest {
 
 export interface CookieListItem {
   id: string;
-  user_id: string;
   name: string;
   is_default: boolean;
   status: "unknown" | "valid" | "expired" | "invalid";

@@ -53,6 +53,17 @@ def map_download_error(
             retryable=False,
             context=context,
         )
+    if "http error 412" in lowered or "precondition failed" in lowered:
+        return IngestError(
+            code=INGEST_DOWNLOAD_FAILED,
+            message=message,
+            hint=(
+                "The source site rejected the metadata request. For Bilibili, retry with a "
+                "valid Cookie Vault entry or from a network that the site permits."
+            ),
+            retryable=False,
+            context=context,
+        )
     if "403" in lowered or "forbidden" in lowered:
         return IngestError(
             code=INGEST_DOWNLOAD_FAILED,

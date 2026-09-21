@@ -455,6 +455,43 @@ def test_runtime_probe_returns_not_found_for_unknown_cookie_id(tmp_path: Path) -
         assert response.json()["code"] == "not_found"
 
 
+def test_runtime_probe_maps_ingest_download_failure_to_structured_gateway_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api import service as api_service
+
+    from ingest import INGEST_DOWNLOAD_FAILED, IngestError
+
+    def _fail_probe(_request: object) -> None:
+        raise IngestError(
+            code=INGEST_DOWNLOAD_FAILED,
+            message="HTTP Error 412: Precondition Failed",
+            hint="Select a valid Bilibili Cookie Vault entry and retry.",
+            retryable=False,
+            context={"project_id": "p_probe", "job_id": "j_probe", "stage": "ingest"},
+        )
+
+    monkeypatch.setattr(api_service, "probe_url_formats", _fail_probe)
+
+    with _make_client(tmp_path) as client:
+        response = client.post(
+            "/ingest/probe",
+            json={"source_url": "https://www.bilibili.com/video/BV1probe412"},
+        )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "code": INGEST_DOWNLOAD_FAILED,
+        "message": "HTTP Error 412: Precondition Failed",
+        "hint": "Select a valid Bilibili Cookie Vault entry and retry.",
+        "retryable": False,
+        "project_id": "p_probe",
+        "job_id": "j_probe",
+        "stage": "ingest",
+    }
+
+
 def test_runtime_cookie_validate_requires_source_url(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         created = client.post(

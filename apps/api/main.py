@@ -23,6 +23,15 @@ from infra import (
     SQLiteEventBus,
     SQLiteJobRepository,
 )
+from ingest import (
+    INGEST_AUTH_REQUIRED,
+    INGEST_CANCELLED,
+    INGEST_DEPENDENCY_MISSING,
+    INGEST_DOWNLOAD_FAILED,
+    INGEST_INVALID_SOURCE,
+    INGEST_SOURCE_NOT_FOUND,
+    IngestError,
+)
 
 from .rest import (
     control_job,
@@ -109,6 +118,17 @@ def _validation_details(exc: ValidationError | RequestValidationError) -> list[d
             }
         details.append(cleaned)
     return details
+
+
+def _ingest_error_status(code: str) -> int:
+    return {
+        INGEST_SOURCE_NOT_FOUND: 404,
+        INGEST_INVALID_SOURCE: 422,
+        INGEST_AUTH_REQUIRED: 403,
+        INGEST_CANCELLED: 409,
+        INGEST_DOWNLOAD_FAILED: 502,
+        INGEST_DEPENDENCY_MISSING: 503,
+    }.get(code, 502)
 
 
 def _build_runtime(
@@ -219,6 +239,18 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
         }
         content.update(exc.details)
         return JSONResponse(status_code=exc.status_code, content=content)
+
+    @app.exception_handler(IngestError)
+    async def _handle_ingest_error(_request: Request, exc: IngestError) -> JSONResponse:
+        content: dict[str, object] = {
+            "code": exc.code,
+            "message": exc.message,
+            "retryable": exc.retryable,
+        }
+        if exc.hint is not None:
+            content["hint"] = exc.hint
+        content.update(exc.context)
+        return JSONResponse(status_code=_ingest_error_status(exc.code), content=content)
 
     @app.exception_handler(RequestValidationError)
     async def _handle_fastapi_validation_error(

@@ -11,6 +11,7 @@ from infra import FileSystemWorkspaceStore
 from ingest import (
     INGEST_AUTH_REQUIRED,
     INGEST_CANCELLED,
+    INGEST_DOWNLOAD_FAILED,
     IngestAssetSelection,
     IngestError,
     IngestRequest,
@@ -440,6 +441,48 @@ def test_probe_url_formats_returns_candidates(
     assert len(probe.formats) == 2
     assert probe.formats[0].format_id == "30116"
     assert probe.formats[1].is_audio_only is True
+
+
+def test_probe_url_formats_maps_bilibili_412_with_actionable_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeYoutubeDL:
+        def __init__(self, _opts: dict[str, object]) -> None:
+            pass
+
+        def __enter__(self) -> _FakeYoutubeDL:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            return None
+
+        def extract_info(self, source_url: str, *, download: bool) -> dict[str, object]:
+            assert download is False
+            raise _FakeDownloadError(
+                "Unable to download JSON metadata: HTTP Error 412: Precondition Failed"
+            )
+
+    fake_module = SimpleNamespace(YoutubeDL=_FakeYoutubeDL)
+    monkeypatch.setattr(ingest_providers, "_load_yt_dlp", lambda: (fake_module, _FakeDownloadError))
+
+    request = IngestRequest(
+        project_id="p_probe_412",
+        job_id="j_probe_412",
+        source_url="https://www.bilibili.com/video/BV1probe412",
+    )
+    with pytest.raises(IngestError) as error_info:
+        probe_url_formats(request)
+
+    error = error_info.value
+    assert error.code == INGEST_DOWNLOAD_FAILED
+    assert error.retryable is False
+    assert error.context == {
+        "project_id": "p_probe_412",
+        "job_id": "j_probe_412",
+        "stage": "ingest",
+    }
+    assert error.hint is not None
+    assert "Cookie Vault" in error.hint
 
 
 def test_run_url_ingest_cookie_content_uses_temp_cookie_file(

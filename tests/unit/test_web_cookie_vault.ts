@@ -16,18 +16,17 @@ function mockFetchOk(payload: unknown) {
 }
 
 describe("cookie vault client CRUD interactions", () => {
-  it("lists cookies via GET /me/cookies", async () => {
+  it("lists cookies via GET /cookies", async () => {
     mockFetchOk([]);
 
-    await api.listMeCookies();
+    await api.listCookies();
 
-    expect(global.fetch).toHaveBeenCalledWith("/api/me/cookies", undefined);
+    expect(global.fetch).toHaveBeenCalledWith("/api/cookies", undefined);
   });
 
-  it("creates a cookie via POST /me/cookies", async () => {
+  it("creates a cookie via POST /cookies", async () => {
     const created = {
       id: "c_1",
-      user_id: "default",
       name: "bili-main",
       is_default: true,
       status: "unknown",
@@ -36,7 +35,7 @@ describe("cookie vault client CRUD interactions", () => {
     };
     mockFetchOk(created);
 
-    await api.createMeCookie({
+    await api.createCookie({
       name: "bili-main",
       cookie_netscape_text: ".bilibili.com\tTRUE\t/\tTRUE\t4102444800\tSESSDATA\tabc",
       is_default: true,
@@ -44,17 +43,16 @@ describe("cookie vault client CRUD interactions", () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/me/cookies",
+      "/api/cookies",
       expect.objectContaining({ method: "POST" }),
     );
     const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
     expect(options.body).toContain("cookie_netscape_text");
   });
 
-  it("updates default cookie via PATCH /me/cookies/{id}", async () => {
+  it("updates default cookie via PATCH /cookies/{id}", async () => {
     mockFetchOk({
       id: "c_2",
-      user_id: "default",
       name: "bili-alt",
       is_default: true,
       status: "unknown",
@@ -62,28 +60,28 @@ describe("cookie vault client CRUD interactions", () => {
       updated_at: "2026-02-09T00:00:00Z",
     });
 
-    await api.patchMeCookie("c_2", { is_default: true });
+    await api.patchCookie("c_2", { is_default: true });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/me/cookies/c_2",
+      "/api/cookies/c_2",
       expect.objectContaining({ method: "PATCH" }),
     );
     const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
     expect(options.body).toContain("is_default");
   });
 
-  it("deletes cookie via DELETE /me/cookies/{id}", async () => {
+  it("deletes cookie via DELETE /cookies/{id}", async () => {
     mockFetchOk({ deleted: true });
 
-    await api.deleteMeCookie("c_3");
+    await api.deleteCookie("c_3");
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/me/cookies/c_3",
+      "/api/cookies/c_3",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
 
-  it("validates cookie via POST /me/cookies/{id}/validate", async () => {
+  it("validates cookie via POST /cookies/{id}/validate", async () => {
     mockFetchOk({
       id: "c_3",
       status: "valid",
@@ -91,10 +89,10 @@ describe("cookie vault client CRUD interactions", () => {
       last_error_code: null,
     });
 
-    await api.validateMeCookie("c_3", { source_url: "https://www.bilibili.com/video/BV1demo" });
+    await api.validateCookie("c_3", { source_url: "https://www.bilibili.com/video/BV1demo" });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/me/cookies/c_3/validate",
+      "/api/cookies/c_3/validate",
       expect.objectContaining({ method: "POST" }),
     );
     const options = (global.fetch as jest.Mock).mock.calls[0][1] as { body: string };
@@ -125,7 +123,7 @@ describe("cookie validate source URL helpers", () => {
 
     (global as unknown as { fetch: jest.Mock }).fetch = jest.fn();
     if (checked.ok) {
-      await api.validateMeCookie("should_not_call", { source_url: checked.source_url });
+      await api.validateCookie("should_not_call", { source_url: checked.source_url });
     }
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -136,7 +134,6 @@ describe("cookie defaults and create-job payload", () => {
     const cookies: CookieListItem[] = [
       {
         id: "c_a",
-        user_id: "default",
         name: "A",
         is_default: false,
         status: "unknown",
@@ -145,7 +142,6 @@ describe("cookie defaults and create-job payload", () => {
       },
       {
         id: "c_b",
-        user_id: "default",
         name: "B",
         is_default: true,
         status: "valid",
@@ -161,7 +157,6 @@ describe("cookie defaults and create-job payload", () => {
     const cookies: CookieListItem[] = [
       {
         id: "c_first",
-        user_id: "default",
         name: "first",
         is_default: false,
         status: "unknown",

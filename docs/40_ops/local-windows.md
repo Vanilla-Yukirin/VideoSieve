@@ -47,24 +47,28 @@ credential 通过 Web 录入后以密文存入 SQLite。不要把任何密钥写
 
 ## 3. 启动
 
-打开三个 PowerShell 终端，都停在仓库根目录。
-
-终端 1：
+在仓库根目录打开一个 PowerShell：
 
 ```powershell
-uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+uv run python scripts/run_local.py
 ```
 
-终端 2：
+启动器会检查 `.env.local` 和 `APP_SECRET_KEY`、Python/Node/npm、FFmpeg/ffprobe、
+`3000`/`8000` 端口及前端依赖。需要时会依据锁文件运行 `npm ci`，并在首次启动或前端
+源码、配置、`.env.local` 变化后执行生产构建。随后它在后台分别运行 API、独立 worker
+和生产 Next.js Web，在当前终端以来源前缀汇总三者日志。任一进程启动失败或运行中退出，
+启动器都会报告错误并停止其余进程；按一次 `Ctrl+C` 会停止整组进程。
+
+只做预检：
 
 ```powershell
-uv run python -m workers.single_host --env-file .env.local
+uv run python scripts/run_local.py --check-only
 ```
 
-终端 3：
+Web 构建必须强制刷新时：
 
 ```powershell
-npm.cmd --prefix apps/web run dev
+uv run python scripts/run_local.py --force-build
 ```
 
 访问 `http://localhost:3000`。首次进入流程是：
@@ -75,9 +79,16 @@ npm.cmd --prefix apps/web run dev
 4. 按需配置全文摘要 LLM；
 5. 保存后使用一段短视频完成真实验收。
 
-要用生产模式运行前端：
+这仍然是三个隔离的进程，但只需要一个终端。网络上只有两个回环监听端口：Web 使用
+`3000`，FastAPI 与任务 WebSocket 共用 `8000`；worker 通过 SQLite 领取任务，不监听端口。
+日常只访问 Web 地址。FastAPI 没有 `/` 页面，直接打开 `http://127.0.0.1:8000/` 返回
+404 是正常行为；其健康检查地址是 `http://127.0.0.1:8000/healthz`。
+
+如需单独诊断，可以继续分别运行原始入口：
 
 ```powershell
+uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+uv run python -m workers.single_host --env-file .env.local
 npm.cmd --prefix apps/web run build
 npm.cmd --prefix apps/web run start
 ```

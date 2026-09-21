@@ -61,40 +61,52 @@ WebSocket 适配器使用 FFmpeg 把输入转为 16 kHz、单声道、float32 �
 失败。VLM／摘要缺密钥、调用失败或返回空内容时同样失败，不生成占位结果。启动成功
 仍不能视为模型内容验收通过。
 
-## 3. 启动后端（终端 1）
+## 3. 一条命令启动完整本地服务
+
+```powershell
+uv run python scripts/run_local.py
+```
+
+启动器会在同一个终端内：
+
+- 检查 `.env.local`、`APP_SECRET_KEY`、Python/Node/npm、FFmpeg/ffprobe 和端口占用；
+- `node_modules` 缺失或锁文件更新时自动执行 `npm ci`；
+- 首次运行或 Web 源码、配置、`.env.local` 更新后自动执行生产构建；
+- 分别启动 API、独立 worker 和生产 Next.js Web，并用 `[api]`、`[worker]`、`[web]`
+  前缀汇总日志；
+- 等待 API 与 Web 就绪，任何子进程意外退出时停止整组进程；
+- 收到一次 `Ctrl+C` 后停止全部子进程及其进程树。
+
+只检查环境、不启动或构建：
+
+```powershell
+uv run python scripts/run_local.py --check-only
+```
+
+需要无条件重新构建 Web 时使用 `--force-build`。启动入口仍持有
+`runtime/api/worker.lock`，因此已有手动 worker 未关闭时，统一启动器会明确失败并停止整组
+进程。worker 崩溃或心跳过期会把任务标为 `interrupted`，必须显式恢复，不会自动重复执行。
+
+三个组件仍是相互隔离的进程，但不再要求打开三个终端。实际只有两个本机监听端口：
+Web 使用 `3000`，API 与任务 WebSocket 共用 `8000`；worker 不监听任何网络端口。Next.js
+负责服务页面和把 `/api/*` 代理给 FastAPI，所以不能在不增加额外反向代理层的情况下把两个
+监听端口直接合并。
+
+如需单独诊断，原始入口仍可直接运行：
 
 ```powershell
 uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
-```
-
-## 4. 启动独立 worker（终端 2）
-
-worker 和 API 必须使用相同的 `VIDEOSIEVE_API_DATA_DIR`：
-
-```powershell
 uv run python -m workers.single_host --env-file .env.local
+npm.cmd --prefix apps/web run start
 ```
 
-启动入口持有 `runtime/api/worker.lock`，第二个实例会拒绝启动。`--once` 可用于只领取
-一个任务的诊断运行。worker 崩溃或心跳过期会把任务标为 `interrupted`，必须显式恢复，
-不会自动重复执行。
-
-## 5. 启动前端（终端 3）
-
-首次安装按已有 npm 锁文件执行：
-
-```powershell
-npm.cmd --prefix apps/web ci
-```
-
-```powershell
-npm.cmd --prefix apps/web run dev
-```
-
-## 6. 浏览器访问
+## 4. 浏览器访问
 
 - Web：`http://localhost:3000`
-- API：`http://127.0.0.1:8000`
+- API 健康检查：`http://127.0.0.1:8000/healthz`
+
+日常只打开 Web 地址。FastAPI 没有首页，因此浏览器直接访问
+`http://127.0.0.1:8000/` 返回 `404 Not Found` 是正常行为。
 
 首次进入的推荐流程：
 
@@ -139,7 +151,7 @@ Yukirin Gateway 或带认证的反向代理建立外层访问控制；不要把 
 
 如果出现类似错误：
 
-`[Errno 13] ... bind on address ('127.0.0.1', 8000)`
+`[Errno 13] ... bind on address ('127.0.0.1', 8000)`，或启动器报告端口已占用。
 
 执行检查：
 

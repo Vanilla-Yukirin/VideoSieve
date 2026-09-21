@@ -834,6 +834,33 @@ def test_settings_are_available_without_authentication(tmp_path: Path) -> None:
     assert logs[0].actor_id == "local"
 
 
+def test_fresh_provider_settings_ignore_legacy_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VIDEOSIEVE_ASR_PROVIDER", "capswriter")
+    monkeypatch.setenv("VIDEOSIEVE_ASR_ENDPOINT", "ws://legacy.example.invalid:6018")
+    monkeypatch.setenv("VIDEOSIEVE_ASR_LANGUAGE", "en")
+    monkeypatch.setenv("VIDEOSIEVE_ASR_CONTEXT", "legacy context")
+    monkeypatch.setenv("VIDEOSIEVE_ASR_TIMEOUT_SECONDS", "42")
+    monkeypatch.setenv("QWEN_BASE_URL", "https://legacy-vlm.example.invalid/v1")
+    monkeypatch.setenv("VLM_MODEL", "legacy-vlm")
+    monkeypatch.setenv("SUMMARY_BASE_URL", "https://legacy-summary.example.invalid/v1")
+    monkeypatch.setenv("SUMMARY_MODEL", "legacy-summary")
+
+    control_plane, _, _ = _make_control_plane(tmp_path)
+    settings = get_system_settings(control_plane)
+
+    assert settings["asr_provider"] == "unconfigured"
+    assert settings["asr_endpoint"] == ""
+    assert settings["asr_language"] == "auto"
+    assert settings["asr_context"] == ""
+    assert settings["asr_timeout_seconds"] == 900
+    assert settings["vlm_base_url"] != "https://legacy-vlm.example.invalid/v1"
+    assert settings["vlm_model"] != "legacy-vlm"
+    assert settings["summary_base_url"] != "https://legacy-summary.example.invalid/v1"
+    assert settings["summary_model"] != "legacy-summary"
+
+
 def test_settings_persists_capswriter_without_requiring_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

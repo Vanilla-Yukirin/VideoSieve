@@ -158,7 +158,7 @@ class ApiControlPlane:
         self._pending_job_deletes_cache: set[str] = set()
         self._hydrate_pending_job_delete_cache()
         self._validate_app_secret_or_raise()
-        self._initialize_settings_from_env_once()
+        self._initialize_settings_once()
         self._reconcile_pending_job_deletes()
 
     def create_project(self, payload: ProjectCreateRequest) -> str:
@@ -785,39 +785,34 @@ class ApiControlPlane:
             return parsed
         return default
 
-    def _initialize_settings_from_env_once(self) -> None:
+    def _initialize_settings_once(self) -> None:
         _ = self._read_setting_str(
             SETTING_ASR_PROVIDER,
-            default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
+            default=_DEFAULT_ASR_PROVIDER,
         )
         _ = self._read_setting_str(
             SETTING_ASR_ENDPOINT,
-            default=os.getenv("VIDEOSIEVE_ASR_ENDPOINT") or _DEFAULT_ASR_ENDPOINT,
+            default=_DEFAULT_ASR_ENDPOINT,
         )
         _ = self._read_setting_str(
             SETTING_ASR_LANGUAGE,
-            default=os.getenv("VIDEOSIEVE_ASR_LANGUAGE") or _DEFAULT_ASR_LANGUAGE,
+            default=_DEFAULT_ASR_LANGUAGE,
         )
         _ = self._read_setting_str(
             SETTING_ASR_CONTEXT,
-            default=os.getenv("VIDEOSIEVE_ASR_CONTEXT") or _DEFAULT_ASR_CONTEXT,
+            default=_DEFAULT_ASR_CONTEXT,
         )
-        asr_timeout_raw = os.getenv("VIDEOSIEVE_ASR_TIMEOUT_SECONDS", "")
-        try:
-            asr_timeout_default = max(1, int(asr_timeout_raw))
-        except ValueError:
-            asr_timeout_default = _DEFAULT_ASR_TIMEOUT_SECONDS
         _ = self._read_setting_int(
             SETTING_ASR_TIMEOUT_SECONDS,
-            default=asr_timeout_default,
+            default=_DEFAULT_ASR_TIMEOUT_SECONDS,
         )
         _ = self._read_setting_str(
             SETTING_VLM_BASE_URL,
-            default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
+            default=_DEFAULT_VLM_BASE_URL,
         )
         _ = self._read_setting_str(
             SETTING_VLM_MODEL,
-            default=os.getenv("VLM_MODEL") or _DEFAULT_VLM_MODEL,
+            default=_DEFAULT_VLM_MODEL,
         )
         _ = self._read_setting_str(SETTING_VLM_FRAME_PROMPT_ZH, default=_DEFAULT_VLM_PROMPT_ZH)
         _ = self._read_setting_str(SETTING_VLM_FRAME_PROMPT_EN, default=_DEFAULT_VLM_PROMPT_EN)
@@ -825,11 +820,11 @@ class ApiControlPlane:
         _ = self._read_setting_int(SETTING_VLM_RPM, default=_DEFAULT_VLM_RPM)
         _ = self._read_setting_str(
             SETTING_SUMMARY_BASE_URL,
-            default=os.getenv("SUMMARY_BASE_URL") or _DEFAULT_SUMMARY_BASE_URL,
+            default=_DEFAULT_SUMMARY_BASE_URL,
         )
         _ = self._read_setting_str(
             SETTING_SUMMARY_MODEL,
-            default=os.getenv("SUMMARY_MODEL") or _DEFAULT_SUMMARY_MODEL,
+            default=_DEFAULT_SUMMARY_MODEL,
         )
         _ = self._read_setting_str(
             SETTING_SUMMARY_PROMPT_ZH, default=_DEFAULT_SUMMARY_PROMPT_ZH
@@ -846,11 +841,11 @@ class ApiControlPlane:
         return {
             SETTING_VLM_BASE_URL: self._read_setting_str(
                 SETTING_VLM_BASE_URL,
-                default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
+                default=_DEFAULT_VLM_BASE_URL,
             ),
             SETTING_VLM_MODEL: self._read_setting_str(
                 SETTING_VLM_MODEL,
-                default=os.getenv("VLM_MODEL") or _DEFAULT_VLM_MODEL,
+                default=_DEFAULT_VLM_MODEL,
             ),
             SETTING_VLM_FRAME_PROMPT_ZH: self._read_setting_str(
                 SETTING_VLM_FRAME_PROMPT_ZH, default=_DEFAULT_VLM_PROMPT_ZH
@@ -866,19 +861,19 @@ class ApiControlPlane:
             ),
             SETTING_ASR_PROVIDER: self._read_setting_str(
                 SETTING_ASR_PROVIDER,
-                default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
+                default=_DEFAULT_ASR_PROVIDER,
             ),
             SETTING_ASR_ENDPOINT: self._read_setting_str(
                 SETTING_ASR_ENDPOINT,
-                default=os.getenv("VIDEOSIEVE_ASR_ENDPOINT") or _DEFAULT_ASR_ENDPOINT,
+                default=_DEFAULT_ASR_ENDPOINT,
             ),
             SETTING_ASR_LANGUAGE: self._read_setting_str(
                 SETTING_ASR_LANGUAGE,
-                default=os.getenv("VIDEOSIEVE_ASR_LANGUAGE") or _DEFAULT_ASR_LANGUAGE,
+                default=_DEFAULT_ASR_LANGUAGE,
             ),
             SETTING_ASR_CONTEXT: self._read_setting_str(
                 SETTING_ASR_CONTEXT,
-                default=os.getenv("VIDEOSIEVE_ASR_CONTEXT") or _DEFAULT_ASR_CONTEXT,
+                default=_DEFAULT_ASR_CONTEXT,
             ),
             SETTING_ASR_TIMEOUT_SECONDS: self._read_setting_int(
                 SETTING_ASR_TIMEOUT_SECONDS,
@@ -886,11 +881,11 @@ class ApiControlPlane:
             ),
             SETTING_SUMMARY_BASE_URL: self._read_setting_str(
                 SETTING_SUMMARY_BASE_URL,
-                default=os.getenv("SUMMARY_BASE_URL") or _DEFAULT_SUMMARY_BASE_URL,
+                default=_DEFAULT_SUMMARY_BASE_URL,
             ),
             SETTING_SUMMARY_MODEL: self._read_setting_str(
                 SETTING_SUMMARY_MODEL,
-                default=os.getenv("SUMMARY_MODEL") or _DEFAULT_SUMMARY_MODEL,
+                default=_DEFAULT_SUMMARY_MODEL,
             ),
             SETTING_SUMMARY_PROMPT_ZH: self._read_setting_str(
                 SETTING_SUMMARY_PROMPT_ZH, default=_DEFAULT_SUMMARY_PROMPT_ZH

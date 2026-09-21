@@ -52,6 +52,7 @@ export default function Home() {
         title: `${t("home.newProjectTitlePrefix")} ${new Date().toISOString()}`,
       });
       addProject(project_id);
+      router.push(`/projects/${project_id}`);
     } catch (error) {
       pushToast({ level: "error", message: t("error.createProject") });
       console.error(error);

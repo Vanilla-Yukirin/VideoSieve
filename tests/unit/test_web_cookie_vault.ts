@@ -6,6 +6,10 @@ import {
   validateSourceUrlInput,
 } from "../../apps/web/lib/cookies/validateSource";
 import { CookieListItem, CreateJobRequest } from "../../apps/web/lib/api/types";
+import {
+  cookieStatusMessageKey,
+  formatCookieValidationTime,
+} from "../../apps/web/lib/cookies/presentation";
 
 function mockFetchOk(payload: unknown) {
   (global as unknown as { fetch: jest.Mock }).fetch = jest.fn().mockResolvedValue({
@@ -126,6 +130,23 @@ describe("cookie validate source URL helpers", () => {
       await api.validateCookie("should_not_call", { source_url: checked.source_url });
     }
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("cookie vault presentation", () => {
+  it("maps every persisted status to an i18n key", () => {
+    expect(cookieStatusMessageKey("unknown")).toBe("cookie.statusUnknown");
+    expect(cookieStatusMessageKey("valid")).toBe("cookie.statusValid");
+    expect(cookieStatusMessageKey("expired")).toBe("cookie.statusExpired");
+    expect(cookieStatusMessageKey("invalid")).toBe("cookie.statusInvalid");
+  });
+
+  it("formats validation timestamps for the selected locale", () => {
+    const raw = "2026-09-21T09:35:23.118004+00:00";
+    expect(formatCookieValidationTime(raw, "zh")).not.toBe(raw);
+    expect(formatCookieValidationTime(raw, "en")).not.toBe(raw);
+    expect(formatCookieValidationTime(null, "zh")).toBe("-");
+    expect(formatCookieValidationTime("invalid", "zh")).toBe("invalid");
   });
 });
 

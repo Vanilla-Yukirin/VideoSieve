@@ -180,6 +180,10 @@ export type MessageKey =
   | "cookie.updated"
   | "cookie.deleted"
   | "cookie.validationDone"
+  | "cookie.statusUnknown"
+  | "cookie.statusValid"
+  | "cookie.statusExpired"
+  | "cookie.statusInvalid"
   | "cookie.defaultUpdated"
   | "cookie.setAsDefault"
   | "cookie.lastValidated"
@@ -478,6 +482,10 @@ export const messages: Record<Locale, MessageMap> = {
     "cookie.updated": "Cookie 已更新。",
     "cookie.deleted": "Cookie 已删除。",
     "cookie.validationDone": "校验完成：{status}",
+    "cookie.statusUnknown": "未校验",
+    "cookie.statusValid": "有效",
+    "cookie.statusExpired": "已过期",
+    "cookie.statusInvalid": "无效",
     "cookie.defaultUpdated": "默认 Cookie 已更新。",
     "cookie.setAsDefault": "设为默认 Cookie",
     "cookie.lastValidated": "最近校验时间",
@@ -773,6 +781,10 @@ export const messages: Record<Locale, MessageMap> = {
     "cookie.updated": "Cookie updated.",
     "cookie.deleted": "Cookie deleted.",
     "cookie.validationDone": "Validation completed: {status}",
+    "cookie.statusUnknown": "Not validated",
+    "cookie.statusValid": "Valid",
+    "cookie.statusExpired": "Expired",
+    "cookie.statusInvalid": "Invalid",
     "cookie.defaultUpdated": "Default cookie updated.",
     "cookie.setAsDefault": "Set as default cookie",
     "cookie.lastValidated": "last_validated_at",

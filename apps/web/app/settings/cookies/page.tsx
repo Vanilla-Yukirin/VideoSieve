@@ -15,6 +15,10 @@ import {
   DEFAULT_VALIDATE_SOURCE_URL,
   VALIDATE_SOURCE_URL_STORAGE_KEY,
 } from "@/lib/cookies/validateSource";
+import {
+  cookieStatusMessageKey,
+  formatCookieValidationTime,
+} from "@/lib/cookies/presentation";
 
 type EditState = {
   id: string;
@@ -30,7 +34,7 @@ function statusClass(status: CookieListItem["status"]): string {
 }
 
 export default function CookieVaultSettingsPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const { data: cookies, error, mutate, isLoading } = useSWR("/cookies", api.listCookies);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
@@ -134,7 +138,11 @@ export default function CookieVaultSettingsPage() {
             : cookie,
         );
       }, false);
-      setMessage(t("cookie.validationDone", { status: result.status }));
+      setMessage(
+        t("cookie.validationDone", {
+          status: t(cookieStatusMessageKey(result.status)),
+        }),
+      );
     } catch (unknownError) {
       const msg = unknownError instanceof Error ? unknownError.message : t("cookie.validateFailed");
       setMessage(msg);
@@ -277,12 +285,14 @@ export default function CookieVaultSettingsPage() {
                         <div className="text-xs text-muted-foreground">{t("project.idLabel")}: {cookie.id}</div>
                       </div>
                       <div className="text-ui-sm font-medium">
-                        <span className={statusClass(cookie.status)}>{cookie.status}</span>
+                        <span className={statusClass(cookie.status)}>
+                          {t(cookieStatusMessageKey(cookie.status))}
+                        </span>
                         {cookie.is_default ? <span className="ml-2 rounded bg-muted px-2 py-0.5 text-ui-xs">{t("cookie.default")}</span> : null}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {t("cookie.lastValidated")}: {cookie.last_validated_at ?? "-"}
+                      {t("cookie.lastValidated")}: {formatCookieValidationTime(cookie.last_validated_at, locale)}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button

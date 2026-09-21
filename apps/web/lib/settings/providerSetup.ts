@@ -1,81 +1,100 @@
-import type { SystemSettingsPatchRequest, SystemSettingsResponse } from "../api/types";
+import type {
+  ProviderAuthMode,
+  ProviderCapability,
+  ProviderProfile,
+  ProviderProtocol,
+} from "../api/types";
 
-type ProviderSetupStatus = Pick<
-  SystemSettingsResponse,
-  "asr_provider" | "asr_endpoint" | "vlm_base_url" | "vlm_model" | "vlm_api_key_configured"
->;
+export type ProviderTemplateId =
+  | "capswriter"
+  | "openai_chat"
+  | "openai_responses"
+  | "anthropic"
+  | "custom";
 
-export function isProviderSetupComplete(settings: ProviderSetupStatus): boolean {
+export interface ProviderTemplate {
+  id: ProviderTemplateId;
+  protocol: ProviderProtocol;
+  apiRoot: string;
+  authMode: ProviderAuthMode;
+}
+
+export const PROVIDER_TEMPLATES: Record<ProviderTemplateId, ProviderTemplate> = {
+  capswriter: {
+    id: "capswriter",
+    protocol: "capswriter_ws",
+    apiRoot: "ws://127.0.0.1:6016",
+    authMode: "optional_bearer",
+  },
+  openai_chat: {
+    id: "openai_chat",
+    protocol: "openai_chat_completions",
+    apiRoot: "https://api.openai.com/v1",
+    authMode: "bearer",
+  },
+  openai_responses: {
+    id: "openai_responses",
+    protocol: "openai_responses",
+    apiRoot: "https://api.openai.com/v1",
+    authMode: "bearer",
+  },
+  anthropic: {
+    id: "anthropic",
+    protocol: "anthropic_messages",
+    apiRoot: "https://api.anthropic.com/v1",
+    authMode: "x_api_key",
+  },
+  custom: {
+    id: "custom",
+    protocol: "openai_chat_completions",
+    apiRoot: "",
+    authMode: "bearer",
+  },
+};
+
+export function isProviderSetupComplete(profiles: ProviderProfile[]): boolean {
   return (
-    settings.asr_provider === "capswriter" &&
-    Boolean(settings.asr_endpoint.trim()) &&
-    Boolean(settings.vlm_base_url.trim()) &&
-    Boolean(settings.vlm_model.trim()) &&
-    settings.vlm_api_key_configured
+    profiles.some((profile) => profile.capability === "asr") &&
+    profiles.some(
+      (profile) => profile.capability === "frame_summary" && profile.credential_configured,
+    )
   );
 }
 
-export interface ProviderSetupValues {
-  asrEndpoint: string;
-  asrToken: string;
-  vlmBaseUrl: string;
-  vlmModel: string;
-  vlmApiKey: string;
-  vlmApiKeyConfigured: boolean;
-  summaryEnabled: boolean;
-  summaryBaseUrl: string;
-  summaryModel: string;
-  summaryApiKey: string;
-  summaryApiKeyConfigured: boolean;
+export function profilesForCapability(
+  profiles: ProviderProfile[],
+  capability: ProviderCapability,
+): ProviderProfile[] {
+  return profiles.filter((profile) => profile.capability === capability);
 }
 
-export type ProviderSetupValidationError =
-  | "asr_endpoint_required"
-  | "vlm_base_url_required"
-  | "vlm_model_required"
-  | "vlm_api_key_required"
-  | "summary_base_url_required"
-  | "summary_model_required"
-  | "summary_api_key_required";
-
-export function validateProviderSetup(
-  values: ProviderSetupValues,
-): ProviderSetupValidationError | null {
-  if (!values.asrEndpoint.trim()) return "asr_endpoint_required";
-  if (!values.vlmBaseUrl.trim()) return "vlm_base_url_required";
-  if (!values.vlmModel.trim()) return "vlm_model_required";
-  if (!values.vlmApiKey.trim() && !values.vlmApiKeyConfigured) {
-    return "vlm_api_key_required";
-  }
-  if (!values.summaryEnabled) return null;
-  if (!values.summaryBaseUrl.trim()) return "summary_base_url_required";
-  if (!values.summaryModel.trim()) return "summary_model_required";
-  if (!values.summaryApiKey.trim() && !values.summaryApiKeyConfigured) {
-    return "summary_api_key_required";
-  }
-  return null;
+export function defaultProfileId(
+  profiles: ProviderProfile[],
+  capability: ProviderCapability,
+): string {
+  const candidates = profilesForCapability(profiles, capability);
+  return candidates.find((profile) => profile.is_default)?.id ?? candidates[0]?.id ?? "";
 }
 
-export function buildProviderSetupPatch(values: ProviderSetupValues): SystemSettingsPatchRequest {
-  const patch: SystemSettingsPatchRequest = {
-    asr_provider: "capswriter",
-    asr_endpoint: values.asrEndpoint.trim(),
-    vlm_base_url: values.vlmBaseUrl.trim(),
-    vlm_model: values.vlmModel.trim(),
-  };
-
-  const asrToken = values.asrToken.trim();
-  if (asrToken) patch.asr_token = asrToken;
-
-  const vlmApiKey = values.vlmApiKey.trim();
-  if (vlmApiKey) patch.vlm_api_key = vlmApiKey;
-
-  if (values.summaryEnabled) {
-    patch.summary_base_url = values.summaryBaseUrl.trim();
-    patch.summary_model = values.summaryModel.trim();
-    const summaryApiKey = values.summaryApiKey.trim();
-    if (summaryApiKey) patch.summary_api_key = summaryApiKey;
+export function templateForProfile(profile: ProviderProfile): ProviderTemplateId {
+  if (profile.protocol === "capswriter_ws") return "capswriter";
+  if (
+    profile.protocol === "openai_chat_completions" &&
+    profile.api_root === PROVIDER_TEMPLATES.openai_chat.apiRoot
+  ) {
+    return "openai_chat";
   }
-
-  return patch;
+  if (
+    profile.protocol === "openai_responses" &&
+    profile.api_root === PROVIDER_TEMPLATES.openai_responses.apiRoot
+  ) {
+    return "openai_responses";
+  }
+  if (
+    profile.protocol === "anthropic_messages" &&
+    profile.api_root === PROVIDER_TEMPLATES.anthropic.apiRoot
+  ) {
+    return "anthropic";
+  }
+  return "custom";
 }

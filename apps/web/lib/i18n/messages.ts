@@ -22,6 +22,9 @@ export type MessageKey =
   | "setup.finish"
   | "setup.apiUnavailable"
   | "setup.retry"
+  | "setup.profileRequirement"
+  | "setup.ready"
+  | "setup.missingProfiles"
   | "setup.savedNotVerified"
   | "setup.summaryOptional"
   | "setup.summaryEnable"
@@ -79,6 +82,55 @@ export type MessageKey =
   | "settings.summaryPromptZh"
   | "settings.summaryPromptEn"
   | "settings.summaryMaxInputChars"
+  | "settings.processingTitle"
+  | "settings.processingDescription"
+  | "providers.sectionTitle"
+  | "providers.sectionDescription"
+  | "providers.capabilityAsr"
+  | "providers.capabilityFrame"
+  | "providers.capabilityOverall"
+  | "providers.asrDescription"
+  | "providers.frameDescription"
+  | "providers.overallDescription"
+  | "providers.capswriterAvailable"
+  | "providers.aliyunPlanned"
+  | "providers.aliyunOption"
+  | "providers.add"
+  | "providers.empty"
+  | "providers.default"
+  | "providers.credentialConfigured"
+  | "providers.credentialOptional"
+  | "providers.credentialMissing"
+  | "providers.setDefault"
+  | "providers.test"
+  | "providers.saveAndTest"
+  | "providers.testing"
+  | "providers.testSucceeded"
+  | "providers.testFailed"
+  | "providers.edit"
+  | "providers.delete"
+  | "providers.addTitle"
+  | "providers.editTitle"
+  | "providers.displayName"
+  | "providers.template"
+  | "providers.custom"
+  | "providers.protocol"
+  | "providers.serviceUrl"
+  | "providers.apiRoot"
+  | "providers.apiRootHint"
+  | "providers.capswriterUrlHint"
+  | "providers.model"
+  | "providers.credential"
+  | "providers.credentialNotSaved"
+  | "providers.keepCredential"
+  | "providers.optionalCredential"
+  | "providers.credentialHint"
+  | "providers.useDefault"
+  | "providers.required"
+  | "providers.modelRequired"
+  | "providers.saveFailed"
+  | "providers.deleteFailed"
+  | "providers.confirmDelete"
   | "project.newJob"
   | "project.cookie"
   | "project.cookieNone"
@@ -86,6 +138,14 @@ export type MessageKey =
   | "project.cookieUnavailable"
   | "project.cookieDefaultSuffix"
   | "project.summary"
+  | "project.asrProfile"
+  | "project.frameProfile"
+  | "project.overallProfile"
+  | "project.profileMissing"
+  | "project.profileOptional"
+  | "project.profileDefaultSuffix"
+  | "project.profileLoadFailed"
+  | "project.profileRequiredHint"
   | "project.start"
   | "project.history"
   | "project.noJobs"
@@ -252,12 +312,15 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.checking": "正在检查初始化状态...",
     "setup.stepProviders": "处理服务配置",
     "setup.providerTitle": "配置处理服务",
-    "setup.providerDesc": "填写 CapsWriter 和视觉模型配置。整体摘要服务可稍后配置。",
-    "setup.finish": "保存配置并开始使用",
+    "setup.providerDesc": "先添加语音识别和画面摘要配置。密钥只写入加密存储，不会回显。",
+    "setup.finish": "开始使用",
     "setup.apiUnavailable": "无法连接 VideoSieve API。请确认 API 已启动后重试。",
     "setup.retry": "重新检查",
-    "setup.savedNotVerified": "这里只保存配置，当前版本尚未提供连接测试。首次任务仍是实际服务验收。",
-    "setup.summaryOptional": "整体摘要（选填）",
+    "setup.profileRequirement": "必须至少添加一个 ASR 配置，以及一个已保存密钥的画面摘要配置；每类的默认配置会用于新任务。CapsWriter Token 可留空。",
+    "setup.ready": "基础配置已齐全。你仍可先点击“测试连接”做一次真实请求。",
+    "setup.missingProfiles": "请先补齐 ASR 配置，并为至少一个画面摘要配置保存 API Key。",
+    "setup.savedNotVerified": "保存与验证是两个状态；请使用“测试连接”发起真实的最小请求。",
+    "setup.summaryOptional": "整体摘要配置是选填项，可以稍后在系统设置中添加。",
     "setup.summaryEnable": "现在配置整体摘要服务",
     "setup.asrEndpointRequired": "请填写 CapsWriter WebSocket 地址。",
     "setup.vlmBaseUrlRequired": "请填写视觉模型 API 端点。",
@@ -313,6 +376,55 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.summaryPromptZh": "整体摘要提示词（中文）",
     "settings.summaryPromptEn": "整体摘要提示词（英文）",
     "settings.summaryMaxInputChars": "单轮最大输入字符数",
+    "settings.processingTitle": "处理参数",
+    "settings.processingDescription": "调整并发、限速和提示词；服务地址、协议、模型与密钥在上方配置档案中管理。",
+    "providers.sectionTitle": "Provider 配置",
+    "providers.sectionDescription": "可保存多套服务配置、指定每类默认项，并用真实最小请求验证连接。",
+    "providers.capabilityAsr": "语音识别（ASR）",
+    "providers.capabilityFrame": "画面摘要（VLM）",
+    "providers.capabilityOverall": "整体摘要（LLM，可选）",
+    "providers.asrDescription": "音频转写服务。VideoSieve 不内置或下载 ASR 模型。",
+    "providers.frameDescription": "逐帧理解需要支持图像输入的模型。",
+    "providers.overallDescription": "根据转录与画面描述生成完整摘要。",
+    "providers.capswriterAvailable": "可用：CapsWriter（WebSocket），兼容原版无鉴权服务和可选 Bearer Token。",
+    "providers.aliyunPlanned": "预留：阿里云百炼（HTTP，计划中），当前版本不会创建不可用配置。",
+    "providers.aliyunOption": "阿里云百炼（HTTP，计划中）",
+    "providers.add": "添加配置",
+    "providers.empty": "尚未添加配置。",
+    "providers.default": "默认",
+    "providers.credentialConfigured": "密钥已保存",
+    "providers.credentialOptional": "Token 选填",
+    "providers.credentialMissing": "未保存密钥",
+    "providers.setDefault": "设为默认",
+    "providers.test": "测试连接",
+    "providers.saveAndTest": "保存并测试",
+    "providers.testing": "正在发起真实测试请求...",
+    "providers.testSucceeded": "测试成功，耗时 {latency} ms。",
+    "providers.testFailed": "测试失败。",
+    "providers.edit": "编辑",
+    "providers.delete": "删除",
+    "providers.addTitle": "添加 Provider 配置",
+    "providers.editTitle": "编辑 Provider 配置",
+    "providers.displayName": "配置名称",
+    "providers.template": "接口模板",
+    "providers.custom": "自定义兼容接口",
+    "providers.protocol": "接口协议",
+    "providers.serviceUrl": "WebSocket 服务地址",
+    "providers.apiRoot": "API 根地址",
+    "providers.apiRootHint": "填写 API 根地址，通常以 /v1 结尾；不要填写 /chat/completions、/responses 或 /messages。",
+    "providers.capswriterUrlHint": "填写 ws:// 或 wss:// 地址。原版 CapsWriter 默认无需 Token。",
+    "providers.model": "模型 ID",
+    "providers.credential": "API Key / Token",
+    "providers.credentialNotSaved": "未保存",
+    "providers.keepCredential": "留空保留当前密钥",
+    "providers.optionalCredential": "选填；原版 CapsWriter 无需填写",
+    "providers.credentialHint": "密钥加密保存且不会回显；保存配置本身不代表连接已验证。",
+    "providers.useDefault": "设为此能力的默认配置",
+    "providers.required": "请填写配置名称和服务地址。",
+    "providers.modelRequired": "请填写模型 ID。",
+    "providers.saveFailed": "保存 Provider 配置失败。",
+    "providers.deleteFailed": "删除 Provider 配置失败。",
+    "providers.confirmDelete": "确认删除配置“{name}”吗？历史任务的快照不会被修改。",
     "project.newJob": "新任务",
     "project.cookie": "Cookie",
     "project.cookieNone": "不使用 Cookie",
@@ -320,6 +432,14 @@ export const messages: Record<Locale, MessageMap> = {
     "project.cookieUnavailable": "Cookie 列表不可用，已降级为无 Cookie 模式。",
     "project.cookieDefaultSuffix": " [默认]",
     "project.summary": "启用摘要生成",
+    "project.asrProfile": "ASR 配置",
+    "project.frameProfile": "画面摘要配置",
+    "project.overallProfile": "整体摘要配置",
+    "project.profileMissing": "没有可用配置",
+    "project.profileOptional": "未配置（选填）",
+    "project.profileDefaultSuffix": " [默认]",
+    "project.profileLoadFailed": "Provider 配置加载失败，请刷新或前往系统设置检查。",
+    "project.profileRequiredHint": "开始任务前必须先在系统设置中添加 ASR 与画面摘要配置。",
     "project.start": "开始下载与处理",
     "project.history": "任务历史",
     "project.noJobs": "还没有任务，先在上方启动一个。",
@@ -483,12 +603,15 @@ export const messages: Record<Locale, MessageMap> = {
     "setup.checking": "Checking setup status...",
     "setup.stepProviders": "Processing services",
     "setup.providerTitle": "Configure processing services",
-    "setup.providerDesc": "Configure CapsWriter and the vision model. Overall summary can be added later.",
-    "setup.finish": "Save configuration and continue",
+    "setup.providerDesc": "Add speech recognition and frame-summary profiles first. Credentials are write-only and stored encrypted.",
+    "setup.finish": "Start using VideoSieve",
     "setup.apiUnavailable": "Cannot reach the VideoSieve API. Start the API and try again.",
     "setup.retry": "Check again",
-    "setup.savedNotVerified": "This saves configuration only. Connection tests are not available yet; the first job remains the real service check.",
-    "setup.summaryOptional": "Overall summary (optional)",
+    "setup.profileRequirement": "Add at least one ASR profile and one frame-summary profile with a saved API key. Defaults are used for new jobs; the CapsWriter token is optional.",
+    "setup.ready": "The required profiles are ready. You can run a real connection test before continuing.",
+    "setup.missingProfiles": "Add an ASR profile and save an API key for at least one frame-summary profile.",
+    "setup.savedNotVerified": "Saved and verified are separate states. Use Test connection for a real minimal request.",
+    "setup.summaryOptional": "The overall-summary profile is optional and can be added later in System Settings.",
     "setup.summaryEnable": "Configure the overall summary service now",
     "setup.asrEndpointRequired": "Enter the CapsWriter WebSocket endpoint.",
     "setup.vlmBaseUrlRequired": "Enter the vision model API endpoint.",
@@ -544,6 +667,55 @@ export const messages: Record<Locale, MessageMap> = {
     "settings.summaryPromptZh": "Overall Summary Prompt (Chinese)",
     "settings.summaryPromptEn": "Overall Summary Prompt (English)",
     "settings.summaryMaxInputChars": "Maximum input characters per request",
+    "settings.processingTitle": "Processing parameters",
+    "settings.processingDescription": "Tune concurrency, rate limits, and prompts. Manage endpoints, protocols, models, and credentials in the profiles above.",
+    "providers.sectionTitle": "Provider profiles",
+    "providers.sectionDescription": "Save multiple service profiles, choose a default for each capability, and verify them with real minimal requests.",
+    "providers.capabilityAsr": "Speech Recognition (ASR)",
+    "providers.capabilityFrame": "Frame Summary (VLM)",
+    "providers.capabilityOverall": "Overall Summary (LLM, optional)",
+    "providers.asrDescription": "Audio transcription service. VideoSieve does not bundle or download an ASR model.",
+    "providers.frameDescription": "Per-frame understanding requires a model with image input.",
+    "providers.overallDescription": "Produces a complete summary from the transcript and frame descriptions.",
+    "providers.capswriterAvailable": "Available: CapsWriter (WebSocket), compatible with upstream no-auth servers and optional Bearer tokens.",
+    "providers.aliyunPlanned": "Reserved: Alibaba Cloud Model Studio (HTTP, planned). This version will not create an unusable profile.",
+    "providers.aliyunOption": "Alibaba Cloud Model Studio (HTTP, planned)",
+    "providers.add": "Add profile",
+    "providers.empty": "No profiles yet.",
+    "providers.default": "default",
+    "providers.credentialConfigured": "credential saved",
+    "providers.credentialOptional": "token optional",
+    "providers.credentialMissing": "credential missing",
+    "providers.setDefault": "Set default",
+    "providers.test": "Test connection",
+    "providers.saveAndTest": "Save and test",
+    "providers.testing": "Sending a real test request...",
+    "providers.testSucceeded": "Test succeeded in {latency} ms.",
+    "providers.testFailed": "Test failed.",
+    "providers.edit": "Edit",
+    "providers.delete": "Delete",
+    "providers.addTitle": "Add provider profile",
+    "providers.editTitle": "Edit provider profile",
+    "providers.displayName": "Profile name",
+    "providers.template": "API template",
+    "providers.custom": "Custom compatible endpoint",
+    "providers.protocol": "API protocol",
+    "providers.serviceUrl": "WebSocket service URL",
+    "providers.apiRoot": "API root",
+    "providers.apiRootHint": "Enter the API root, usually ending in /v1. Do not include /chat/completions, /responses, or /messages.",
+    "providers.capswriterUrlHint": "Enter a ws:// or wss:// URL. Upstream CapsWriter does not require a token by default.",
+    "providers.model": "Model ID",
+    "providers.credential": "API key / token",
+    "providers.credentialNotSaved": "not saved",
+    "providers.keepCredential": "Leave blank to keep the current credential",
+    "providers.optionalCredential": "Optional; upstream CapsWriter works without it",
+    "providers.credentialHint": "Credentials are encrypted and never displayed again. Saving does not mean the connection was verified.",
+    "providers.useDefault": "Use as the default for this capability",
+    "providers.required": "Enter a profile name and service URL.",
+    "providers.modelRequired": "Enter a model ID.",
+    "providers.saveFailed": "Failed to save provider profile.",
+    "providers.deleteFailed": "Failed to delete provider profile.",
+    "providers.confirmDelete": "Delete profile “{name}”? Existing job snapshots are not changed.",
     "project.newJob": "New Job",
     "project.cookie": "Cookie",
     "project.cookieNone": "Do not use cookie",
@@ -551,6 +723,14 @@ export const messages: Record<Locale, MessageMap> = {
     "project.cookieUnavailable": "Cookie list unavailable. Continuing in no-cookie mode.",
     "project.cookieDefaultSuffix": " [default]",
     "project.summary": "Enable summary generation",
+    "project.asrProfile": "ASR profile",
+    "project.frameProfile": "Frame-summary profile",
+    "project.overallProfile": "Overall-summary profile",
+    "project.profileMissing": "No available profile",
+    "project.profileOptional": "Not configured (optional)",
+    "project.profileDefaultSuffix": " [default]",
+    "project.profileLoadFailed": "Could not load provider profiles. Refresh or check System Settings.",
+    "project.profileRequiredHint": "Add ASR and frame-summary profiles in System Settings before starting a job.",
     "project.start": "Start Download & Process",
     "project.history": "Job History",
     "project.noJobs": "No jobs run yet. Start one above!",

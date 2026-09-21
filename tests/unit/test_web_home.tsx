@@ -9,7 +9,7 @@ const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockAddProject = jest.fn();
 const mockCreateProject = jest.fn();
-const mockGetSystemSettings = jest.fn();
+const mockListProviderProfiles = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace }),
@@ -18,7 +18,7 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/lib/api/client", () => ({
   api: {
     createProject: (...args: unknown[]) => mockCreateProject(...args),
-    getSystemSettings: (...args: unknown[]) => mockGetSystemSettings(...args),
+    listProviderProfiles: (...args: unknown[]) => mockListProviderProfiles(...args),
   },
 }));
 
@@ -49,7 +49,7 @@ jest.mock("@/components/ProjectCard", () => ({ ProjectCard: () => null }));
 describe("Home project creation", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetSystemSettings.mockResolvedValue({});
+    mockListProviderProfiles.mockResolvedValue([]);
     mockCreateProject.mockResolvedValue({ project_id: "p-created" });
   });
 

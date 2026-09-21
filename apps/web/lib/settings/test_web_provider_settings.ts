@@ -1,111 +1,123 @@
-import {
-  buildProviderSetupPatch,
-  isProviderSetupComplete,
-  ProviderSetupValues,
-  validateProviderSetup,
-} from "./providerSetup";
 import { api } from "../api/client";
+import type { ProviderProfile } from "../api/types";
+import {
+  defaultProfileId,
+  isProviderSetupComplete,
+  profilesForCapability,
+  PROVIDER_TEMPLATES,
+  templateForProfile,
+} from "./providerSetup";
 
-const validValues: ProviderSetupValues = {
-  asrEndpoint: " ws://127.0.0.1:6016 ",
-  asrToken: "",
-  vlmBaseUrl: " https://example.test/v1/chat/completions ",
-  vlmModel: " vision-model ",
-  vlmApiKey: "new-vlm-key",
-  vlmApiKeyConfigured: false,
-  summaryEnabled: false,
-  summaryBaseUrl: "",
-  summaryModel: "",
-  summaryApiKey: "",
-  summaryApiKeyConfigured: false,
-};
+function profile(overrides: Partial<ProviderProfile>): ProviderProfile {
+  return {
+    id: "pp_test",
+    display_name: "Test",
+    capability: "frame_summary",
+    protocol: "openai_chat_completions",
+    api_root: "https://api.openai.com/v1",
+    model: "vision-model",
+    auth_mode: "bearer",
+    options: {},
+    revision: 1,
+    is_default: true,
+    credential_configured: true,
+    ...overrides,
+  };
+}
 
 describe("provider setup helpers", () => {
-  const completeSettings = {
-    asr_provider: "capswriter" as const,
-    asr_endpoint: "ws://127.0.0.1:6016",
-    vlm_base_url: "https://example.test/v1/chat/completions",
-    vlm_model: "vision-model",
-    vlm_api_key_configured: true,
-  };
+  const asr = profile({
+    id: "pp_asr",
+    capability: "asr",
+    protocol: "capswriter_ws",
+    api_root: "ws://127.0.0.1:6016",
+    model: "",
+    auth_mode: "optional_bearer",
+    credential_configured: false,
+  });
+  const frame = profile({ id: "pp_frame" });
 
-  it("requires CapsWriter and a configured VLM credential before setup is complete", () => {
-    expect(isProviderSetupComplete(completeSettings)).toBe(true);
-    expect(isProviderSetupComplete({ ...completeSettings, asr_provider: "unconfigured" })).toBe(
-      false,
-    );
-    expect(isProviderSetupComplete({ ...completeSettings, asr_endpoint: "  " })).toBe(false);
-    expect(isProviderSetupComplete({ ...completeSettings, vlm_base_url: "" })).toBe(false);
-    expect(isProviderSetupComplete({ ...completeSettings, vlm_model: "" })).toBe(false);
-    expect(isProviderSetupComplete({ ...completeSettings, vlm_api_key_configured: false })).toBe(
-      false,
-    );
+  it("requires ASR and a credential-backed frame-summary profile", () => {
+    expect(isProviderSetupComplete([asr, frame])).toBe(true);
+    expect(isProviderSetupComplete([frame])).toBe(false);
+    expect(isProviderSetupComplete([asr])).toBe(false);
+    expect(isProviderSetupComplete([asr, { ...frame, credential_configured: false }])).toBe(false);
   });
 
-  it("requires the mandatory ASR and VLM fields", () => {
-    expect(validateProviderSetup({ ...validValues, asrEndpoint: "" })).toBe(
-      "asr_endpoint_required",
-    );
-    expect(validateProviderSetup({ ...validValues, vlmApiKey: "" })).toBe(
-      "vlm_api_key_required",
-    );
+  it("resolves profiles and defaults per capability", () => {
+    const alternate = profile({ id: "pp_frame_2", is_default: false });
+    expect(profilesForCapability([asr, alternate, frame], "frame_summary")).toEqual([
+      alternate,
+      frame,
+    ]);
+    expect(defaultProfileId([asr, alternate, frame], "frame_summary")).toBe("pp_frame");
   });
 
-  it("allows keeping an existing write-only VLM key", () => {
-    expect(
-      validateProviderSetup({
-        ...validValues,
-        vlmApiKey: "",
-        vlmApiKeyConfigured: true,
-      }),
-    ).toBeNull();
-  });
-
-  it("requires summary configuration only when summary is enabled", () => {
-    expect(validateProviderSetup(validValues)).toBeNull();
-    expect(validateProviderSetup({ ...validValues, summaryEnabled: true })).toBe(
-      "summary_base_url_required",
-    );
-  });
-
-  it("omits blank write-only credentials so existing secrets are retained", () => {
-    expect(
-      buildProviderSetupPatch({
-        ...validValues,
-        vlmApiKey: "",
-        vlmApiKeyConfigured: true,
-      }),
-    ).toEqual({
-      asr_provider: "capswriter",
-      asr_endpoint: "ws://127.0.0.1:6016",
-      vlm_base_url: "https://example.test/v1/chat/completions",
-      vlm_model: "vision-model",
+  it("provides official protocol templates without a model vendor preset", () => {
+    expect(PROVIDER_TEMPLATES.openai_responses).toMatchObject({
+      protocol: "openai_responses",
+      apiRoot: "https://api.openai.com/v1",
+      authMode: "bearer",
     });
+    expect(PROVIDER_TEMPLATES.anthropic).toMatchObject({
+      protocol: "anthropic_messages",
+      apiRoot: "https://api.anthropic.com/v1",
+      authMode: "x_api_key",
+    });
+    expect(PROVIDER_TEMPLATES.openai_chat).not.toHaveProperty("model");
+    expect(templateForProfile(frame)).toBe("openai_chat");
   });
 });
 
-describe("system settings credential client", () => {
-  it("sends write-only credentials and explicit clear flags in the PATCH body", async () => {
-    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn().mockResolvedValue({
+describe("provider profile client", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("sends write-only credentials when creating a reusable profile", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({}),
+      json: async () => profile({}),
       text: async () => "{}",
     });
+    (global as unknown as { fetch: jest.Mock }).fetch = fetchMock;
 
-    await api.patchSystemSettings({
-      vlm_api_key: "replacement-key",
-      clear_summary_api_key: true,
+    await api.createProviderProfile({
+      display_name: "OpenAI vision",
+      capability: "frame_summary",
+      protocol: "openai_responses",
+      api_root: "https://api.openai.com/v1",
+      model: "vision-model",
+      credential: "write-only-key",
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      "/api/settings/system",
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/provider-profiles",
       expect.objectContaining({
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "POST",
         body: JSON.stringify({
-          vlm_api_key: "replacement-key",
-          clear_summary_api_key: true,
+          display_name: "OpenAI vision",
+          capability: "frame_summary",
+          protocol: "openai_responses",
+          api_root: "https://api.openai.com/v1",
+          model: "vision-model",
+          credential: "write-only-key",
         }),
+      }),
+    );
+  });
+
+  it("preserves the backend hint in a failed request", async () => {
+    (global as unknown as { fetch: jest.Mock }).fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      text: async () =>
+        JSON.stringify({ code: "ingest_failed", message: "request blocked", hint: "use a site cookie" }),
+    });
+
+    await expect(api.listProviderProfiles()).rejects.toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("建议：use a site cookie"),
       }),
     );
   });

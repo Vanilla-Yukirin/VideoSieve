@@ -16,6 +16,11 @@ import {
   CookiePatchRequest,
   CookieValidateRequest,
   CookieValidateResponse,
+  ProviderCapability,
+  ProviderProfile,
+  ProviderProfileCreateRequest,
+  ProviderProfilePatchRequest,
+  ProviderProfileTestResponse,
 } from "./types";
 
 const API_BASE = "/api"; // Rewrites will handle the proxy
@@ -45,7 +50,13 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       parsed = undefined;
     }
     if (parsed?.code && parsed?.message) {
-      throw new ApiClientError(`API Error ${res.status}: ${parsed.message}`, res.status, parsed.code, parsed);
+      const hint = parsed.hint ? `\n建议：${parsed.hint}` : "";
+      throw new ApiClientError(
+        `API Error ${res.status}: ${parsed.message}${hint}`,
+        res.status,
+        parsed.code,
+        parsed,
+      );
     }
     throw new ApiClientError(`API Error ${res.status}: ${bodyText}`, res.status);
   }
@@ -60,6 +71,35 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }),
+
+  listProviderProfiles: (capability?: ProviderCapability) => {
+    const query = capability ? `?capability=${encodeURIComponent(capability)}` : "";
+    return fetchJson<ProviderProfile[]>(`/provider-profiles${query}`);
+  },
+
+  createProviderProfile: (payload: ProviderProfileCreateRequest) =>
+    fetchJson<ProviderProfile>("/provider-profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  patchProviderProfile: (profileId: string, payload: ProviderProfilePatchRequest) =>
+    fetchJson<ProviderProfile>(`/provider-profiles/${profileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  deleteProviderProfile: (profileId: string) =>
+    fetchJson<{ deleted: boolean }>(`/provider-profiles/${profileId}`, {
+      method: "DELETE",
+    }),
+
+  testProviderProfile: (profileId: string) =>
+    fetchJson<ProviderProfileTestResponse>(`/provider-profiles/${profileId}/test`, {
+      method: "POST",
     }),
 
   // Projects

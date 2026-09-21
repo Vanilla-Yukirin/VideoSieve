@@ -11,10 +11,11 @@ import { Badge } from "@/components/Badge";
 import { ArrowLeft, PlayCircle, Clock, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { IngestProbe } from "@/components/IngestProbe";
-import { CookieListItem, DualAssetIngestParams } from "@/lib/api/types";
+import { CookieListItem, DualAssetIngestParams, ProviderProfile } from "@/lib/api/types";
 import { resolveDefaultCookieId } from "@/lib/cookies/helpers";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { defaultProfileId, profilesForCapability } from "@/lib/settings/providerSetup";
 
 export default function ProjectDetail() {
   const { t } = useI18n();
@@ -25,6 +26,9 @@ export default function ProjectDetail() {
   const [isCreatingJob, setIsCreatingJob] = useState(false);
   const [ingestParams, setIngestParams] = useState<DualAssetIngestParams | undefined>(undefined);
   const [summaryEnabled, setSummaryEnabled] = useState(false);
+  const [selectedAsrProfileId, setSelectedAsrProfileId] = useState("");
+  const [selectedFrameProfileId, setSelectedFrameProfileId] = useState("");
+  const [selectedSummaryProfileId, setSelectedSummaryProfileId] = useState("");
   const [selectedCookieId, setSelectedCookieId] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -48,6 +52,35 @@ export default function ProjectDetail() {
   const { data: cookies, error: cookiesError } = useSWR<CookieListItem[]>(
     "/cookies",
     () => api.listCookies()
+  );
+
+  const { data: providerProfiles, error: providerProfilesError } = useSWR<ProviderProfile[]>(
+    "/provider-profiles",
+    () => api.listProviderProfiles(),
+  );
+
+  const profiles = providerProfiles ?? [];
+  const asrProfiles = profilesForCapability(profiles, "asr");
+  const frameProfiles = profilesForCapability(profiles, "frame_summary").filter(
+    (profile) => profile.credential_configured,
+  );
+  const summaryProfiles = profilesForCapability(profiles, "overall_summary").filter(
+    (profile) => profile.credential_configured,
+  );
+  const resolvedAsrProfileId = resolveSelectedProfileId(
+    asrProfiles,
+    selectedAsrProfileId,
+    "asr",
+  );
+  const resolvedFrameProfileId = resolveSelectedProfileId(
+    frameProfiles,
+    selectedFrameProfileId,
+    "frame_summary",
+  );
+  const resolvedSummaryProfileId = resolveSelectedProfileId(
+    summaryProfiles,
+    selectedSummaryProfileId,
+    "overall_summary",
   );
 
   const resolvedCookieId = selectedCookieId && (cookies ?? []).some((cookie) => cookie.id === selectedCookieId)
@@ -89,6 +122,11 @@ export default function ProjectDetail() {
           formData.append("context", uploadContext.trim());
         }
         formData.append("summary_enabled", summaryEnabled.toString());
+        formData.append("asr_profile_id", resolvedAsrProfileId);
+        formData.append("frame_summary_profile_id", resolvedFrameProfileId);
+        if (summaryEnabled && resolvedSummaryProfileId) {
+          formData.append("overall_summary_profile_id", resolvedSummaryProfileId);
+        }
 
         const { job_id } = await api.uploadLocalVideo(projectId, formData);
         await refreshJobs();
@@ -106,6 +144,11 @@ export default function ProjectDetail() {
       const { job_id } = await api.createJob({
         project_id: projectId,
         summary_enabled: summaryEnabled,
+        asr_profile_id: resolvedAsrProfileId,
+        frame_summary_profile_id: resolvedFrameProfileId,
+        ...(summaryEnabled && resolvedSummaryProfileId
+          ? { overall_summary_profile_id: resolvedSummaryProfileId }
+          : {}),
         ingest: candidateIngest,
       });
       await refreshJobs();
@@ -275,13 +318,51 @@ export default function ProjectDetail() {
                   ) : null}
                 </div>
 
+                <div className="grid gap-4 md:grid-cols-3">
+                  <ProfileSelect
+                    id="asr-profile-select"
+                    label={t("project.asrProfile")}
+                    profiles={asrProfiles}
+                    value={resolvedAsrProfileId}
+                    onChange={setSelectedAsrProfileId}
+                    disabled={isCreatingJob || Boolean(providerProfilesError)}
+                    emptyLabel={t("project.profileMissing")}
+                    defaultSuffix={t("project.profileDefaultSuffix")}
+                  />
+                  <ProfileSelect
+                    id="frame-profile-select"
+                    label={t("project.frameProfile")}
+                    profiles={frameProfiles}
+                    value={resolvedFrameProfileId}
+                    onChange={setSelectedFrameProfileId}
+                    disabled={isCreatingJob || Boolean(providerProfilesError)}
+                    emptyLabel={t("project.profileMissing")}
+                    defaultSuffix={t("project.profileDefaultSuffix")}
+                  />
+                  <ProfileSelect
+                    id="summary-profile-select"
+                    label={t("project.overallProfile")}
+                    profiles={summaryProfiles}
+                    value={resolvedSummaryProfileId}
+                    onChange={setSelectedSummaryProfileId}
+                    disabled={isCreatingJob || !summaryEnabled || Boolean(providerProfilesError)}
+                    emptyLabel={t("project.profileOptional")}
+                    defaultSuffix={t("project.profileDefaultSuffix")}
+                  />
+                </div>
+                {providerProfilesError ? (
+                  <p className="text-xs text-destructive">{t("project.profileLoadFailed")}</p>
+                ) : !resolvedAsrProfileId || !resolvedFrameProfileId ? (
+                  <p className="text-xs text-amber-300">{t("project.profileRequiredHint")}</p>
+                ) : null}
+
                 {/* Summary toggle */}
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={summaryEnabled}
                     onChange={(e) => setSummaryEnabled(e.target.checked)}
-                    disabled={isCreatingJob}
+                    disabled={isCreatingJob || summaryProfiles.length === 0}
                     className="h-4 w-4 rounded border-input"
                   />
                   {t("project.summary")}
@@ -291,7 +372,13 @@ export default function ProjectDetail() {
                     <Button
                         onClick={handleCreateJob}
                         isLoading={isCreatingJob}
-                        disabled={(!ingestParams?.source_url && !uploadFile) || isDeletingProject}
+                        disabled={
+                          (!ingestParams?.source_url && !uploadFile) ||
+                          isDeletingProject ||
+                          !resolvedAsrProfileId ||
+                          !resolvedFrameProfileId ||
+                          (summaryEnabled && !resolvedSummaryProfileId)
+                        }
                     >
                         {t("project.start")}
                     </Button>
@@ -362,4 +449,53 @@ export default function ProjectDetail() {
       />
     </div>
   );
+}
+
+function ProfileSelect({
+  id,
+  label,
+  profiles,
+  value,
+  onChange,
+  disabled,
+  emptyLabel,
+  defaultSuffix,
+}: {
+  id: string;
+  label: string;
+  profiles: ProviderProfile[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+  emptyLabel: string;
+  defaultSuffix: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium" htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled || profiles.length === 0}
+      >
+        {profiles.length === 0 ? <option value="">{emptyLabel}</option> : null}
+        {profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.display_name}{profile.is_default ? defaultSuffix : ""}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function resolveSelectedProfileId(
+  profiles: ProviderProfile[],
+  selectedId: string,
+  capability: ProviderProfile["capability"],
+): string {
+  if (selectedId && profiles.some((profile) => profile.id === selectedId)) return selectedId;
+  return defaultProfileId(profiles, capability);
 }

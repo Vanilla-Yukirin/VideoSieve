@@ -60,6 +60,7 @@ export interface CreateProjectRequest {
 export interface ApiErrorResponse {
   code: string;
   message: string;
+  hint?: string;
   retryable?: boolean;
   active_job_ids?: string[];
   pending_job_ids?: string[];
@@ -121,6 +122,63 @@ export interface SystemSettingsPatchRequest {
   summary_max_input_chars?: number;
 }
 
+export type ProviderCapability = "asr" | "frame_summary" | "overall_summary";
+
+export type ProviderProtocol =
+  | "capswriter_ws"
+  | "openai_chat_completions"
+  | "openai_responses"
+  | "anthropic_messages";
+
+export type ProviderAuthMode = "bearer" | "x_api_key" | "optional_bearer";
+
+export interface ProviderProfile {
+  id: string;
+  display_name: string;
+  capability: ProviderCapability;
+  protocol: ProviderProtocol;
+  api_root: string;
+  model: string;
+  auth_mode: ProviderAuthMode;
+  options: Record<string, unknown>;
+  revision: number;
+  is_default: boolean;
+  credential_configured: boolean;
+}
+
+export interface ProviderProfileCreateRequest {
+  display_name: string;
+  capability: ProviderCapability;
+  protocol: ProviderProtocol;
+  api_root: string;
+  model?: string;
+  auth_mode?: ProviderAuthMode;
+  options?: Record<string, unknown>;
+  is_default?: boolean;
+  credential?: string;
+}
+
+export interface ProviderProfilePatchRequest {
+  display_name?: string;
+  protocol?: ProviderProtocol;
+  api_root?: string;
+  model?: string;
+  auth_mode?: ProviderAuthMode;
+  options?: Record<string, unknown>;
+  is_default?: boolean;
+  credential?: string;
+  clear_credential?: boolean;
+}
+
+export interface ProviderProfileTestResponse {
+  status: "succeeded";
+  capability: ProviderCapability;
+  protocol: ProviderProtocol;
+  model: string;
+  latency_ms: number;
+  message: string;
+}
+
 export interface IngestFormatItem {
   format_id: string;
   ext?: string;
@@ -166,6 +224,9 @@ export interface DualAssetIngestParams {
 export interface CreateJobRequest {
   project_id: string;
   summary_enabled?: boolean;
+  asr_profile_id?: string;
+  frame_summary_profile_id?: string;
+  overall_summary_profile_id?: string;
   ingest?: DualAssetIngestParams;
 }
 

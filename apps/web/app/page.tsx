@@ -24,8 +24,8 @@ export default function Home() {
     let cancelled = false;
     const run = async () => {
       try {
-        const settings = await api.getSystemSettings();
-        if (!isProviderSetupComplete(settings)) {
+        const profiles = await api.listProviderProfiles();
+        if (!isProviderSetupComplete(profiles)) {
           router.replace("/setup");
           return;
         }

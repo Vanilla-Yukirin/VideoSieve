@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 
@@ -96,17 +95,6 @@ class SystemSettingRecord:
 
 
 @dataclass(slots=True)
-class AuthUserRecord:
-    """Single-user auth identity row."""
-
-    id: str
-    username: str
-    password_hash: str
-    created_at: str
-    updated_at: str
-
-
-@dataclass(slots=True)
 class OperationLogRecord:
     """Operation audit/event log row."""
 
@@ -118,18 +106,3 @@ class OperationLogRecord:
     reason_code: str | None
     created_at: str
     meta_json: str
-
-
-@dataclass(slots=True)
-class GuestCooldownRecord:
-    """Server-wide cooldown state for guest submissions."""
-
-    key: str
-    next_allowed_at: str
-    updated_at: str
-
-
-def parse_iso8601(value: str) -> datetime:
-    """Parse ISO8601 timestamps supporting trailing Z."""
-
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))

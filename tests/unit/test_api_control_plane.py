@@ -12,20 +12,15 @@ import pytest
 from apps.api.rest import (
     REST_ROUTES,
     control_job,
+    create_cookie,
     create_job,
-    create_me_cookie,
     create_project,
     delete_project,
-    get_auth_bootstrap_status,
-    get_guest_cooldown,
     get_job_snapshot,
-    get_public_access_flags,
     get_system_settings,
     list_job_artifacts,
     list_project_jobs,
     patch_system_settings,
-    post_auth_bootstrap,
-    post_auth_login,
     probe_ingest_formats,
 )
 from apps.api.service import ApiControlPlane, ApiError
@@ -39,7 +34,6 @@ from ingest import IngestFormatOption, IngestFormatProbeResult
 @pytest.fixture(autouse=True)
 def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
 
 
 def _make_control_plane(
@@ -354,7 +348,7 @@ def test_create_job_blocks_on_project_lock_and_sees_delete_marker(tmp_path: Path
     def _runner() -> None:
         worker_started.set()
         try:
-            control_plane.create_job(JobCreateRequest(project_id=project_id), actor="user")
+            control_plane.create_job(JobCreateRequest(project_id=project_id))
             outcome["value"] = "created"
         except ApiError as exc:
             outcome["value"] = exc.code
@@ -622,7 +616,7 @@ def test_rest_ingest_probe_uses_cookie_id_when_present(
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "probe-secret")
     control_plane, _, _ = _make_control_plane(tmp_path)
-    cookie = create_me_cookie(
+    cookie = create_cookie(
         control_plane,
         {
             "name": "bili",
@@ -664,7 +658,7 @@ def test_rest_ingest_probe_prefers_cookie_id_over_cookie_file_path(
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "probe-secret")
     control_plane, _, _ = _make_control_plane(tmp_path)
-    cookie = create_me_cookie(
+    cookie = create_cookie(
         control_plane,
         {
             "name": "bili",
@@ -812,41 +806,32 @@ def test_create_job_stays_queued_until_independent_worker_claims(tmp_path: Path)
     assert snapshot["progress"] == 0.0
 
 
-def test_auth_bootstrap_login_and_settings_flow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GUEST_COOKIE_KEY", "guest-key")
+def test_settings_are_available_without_authentication(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(tmp_path)
 
-    status = get_auth_bootstrap_status(control_plane)
-    assert status["bootstrap_required"] is True
-    assert "GET /auth/bootstrap-status" in REST_ROUTES
+    assert "POST /projects/{project_id}/jobs/upload" in REST_ROUTES
+    assert "GET /cookies" in REST_ROUTES
+    assert "POST /cookies/{cookie_id}/validate" in REST_ROUTES
+    assert not any(
+        "/auth/" in route or "/guest/" in route or "/public/" in route
+        for route in REST_ROUTES
+    )
 
-    boot = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})
-    token = boot["token"]
-    assert boot["username"] == "admin"
-    auth_user = repository.get_auth_user()
-    assert auth_user is not None
-    assert auth_user.username == "admin"
-
-    me_settings = get_system_settings(control_plane, token)
-    assert "guest_mode_enabled" in me_settings
-    assert "guest_allow_cookie_input" in me_settings
-    assert me_settings["asr_provider"] == "unconfigured"
-    assert me_settings["asr_token_configured"] is False
+    settings = get_system_settings(control_plane)
+    assert settings["asr_provider"] == "unconfigured"
+    assert settings["asr_token_configured"] is False
+    assert "guest_mode_enabled" not in settings
+    assert "guest_allow_cookie_input" not in settings
 
     patched = patch_system_settings(
         control_plane,
-        token,
-        {"guest_mode_enabled": True, "guest_allow_cookie_input": True},
+        {"asr_language": "zh", "asr_context": "课程背景"},
     )
-    assert patched["guest_allow_cookie_input"] is True
-    assert repository.get_setting("guest_mode_enabled") == "true"
-    assert repository.get_setting("guest_allow_cookie_input") == "true"
-
-    login = post_auth_login(control_plane, {"username": "admin", "password": "password123"})
-    assert login["username"] == "admin"
-    assert repository.list_recent_operation_logs(limit=5)
+    assert patched["asr_language"] == "zh"
+    assert repository.get_setting("asr_language") == '"zh"'
+    logs = repository.list_recent_operation_logs(limit=5)
+    assert logs[0].actor_type == "local"
+    assert logs[0].actor_id == "local"
 
 
 def test_settings_persists_capswriter_without_requiring_token(
@@ -854,13 +839,9 @@ def test_settings_persists_capswriter_without_requiring_token(
 ) -> None:
     monkeypatch.delenv("CAPSWRITER_TOKEN", raising=False)
     control_plane, repository, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
-        "token"
-    ]
 
     patched = patch_system_settings(
         control_plane,
-        token,
         {
             "asr_provider": "capswriter",
             "asr_endpoint": "ws://capswriter.local:6016",
@@ -882,11 +863,8 @@ def test_settings_configured_flags_do_not_treat_legacy_env_as_new_credentials(
     monkeypatch.setenv("QWEN_API_KEY", "legacy-vlm")
     monkeypatch.setenv("SUMMARY_API_KEY", "legacy-summary")
     control_plane, _, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(
-        control_plane, {"username": "admin", "password": "password123"}
-    )["token"]
 
-    settings = get_system_settings(control_plane, token)
+    settings = get_system_settings(control_plane)
 
     assert settings["asr_token_configured"] is False
     assert settings["vlm_api_key_configured"] is False
@@ -899,13 +877,9 @@ def test_settings_persists_encrypted_provider_secrets_and_snapshots_refs(
     for env_name in ("CAPSWRITER_TOKEN", "QWEN_API_KEY", "SUMMARY_API_KEY"):
         monkeypatch.delenv(env_name, raising=False)
     control_plane, repository, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(
-        control_plane, {"username": "admin", "password": "password123"}
-    )["token"]
 
     patched = patch_system_settings(
         control_plane,
-        token,
         {
             "asr_token": "asr-secret",
             "vlm_api_key": "vlm-secret",
@@ -944,7 +918,6 @@ def test_settings_persists_encrypted_provider_secrets_and_snapshots_refs(
 
     _ = patch_system_settings(
         control_plane,
-        token,
         {"vlm_api_key": "replacement-vlm-secret"},
     )
     replacement = repository.get_active_provider_secret("vlm_api_key")
@@ -952,20 +925,16 @@ def test_settings_persists_encrypted_provider_secrets_and_snapshots_refs(
     assert replacement.id != vlm_secret.id
     assert repository.get_provider_secret(vlm_secret.id, expected_kind="vlm_api_key") is not None
 
-    cleared = patch_system_settings(control_plane, token, {"clear_vlm_api_key": True})
+    cleared = patch_system_settings(control_plane, {"clear_vlm_api_key": True})
     assert cleared["vlm_api_key_configured"] is False
 
 
 def test_settings_rejects_replacing_and_clearing_same_secret(tmp_path: Path) -> None:
     control_plane, _, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(
-        control_plane, {"username": "admin", "password": "password123"}
-    )["token"]
 
     with pytest.raises(ApiError) as exc_info:
         patch_system_settings(
             control_plane,
-            token,
             {"vlm_api_key": "new-secret", "clear_vlm_api_key": True},
         )
 
@@ -974,81 +943,24 @@ def test_settings_rejects_replacing_and_clearing_same_secret(tmp_path: Path) -> 
 
 def test_settings_rejects_capswriter_without_endpoint(tmp_path: Path) -> None:
     control_plane, _, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
-        "token"
-    ]
 
     with pytest.raises(Exception) as exc_info:
         patch_system_settings(
             control_plane,
-            token,
             {"asr_provider": "capswriter", "asr_endpoint": ""},
         )
 
     assert getattr(exc_info.value, "code", None) == "asr_endpoint_required"
 
 
-def test_guest_cooldown_rejects_second_submit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GUEST_JOB_COOLDOWN_SECONDS", "360")
+def test_local_jobs_have_no_guest_cooldown(tmp_path: Path) -> None:
     control_plane, repository, _ = _make_control_plane(tmp_path)
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
 
-    _ = create_job(control_plane, {"project_id": project_id}, actor="guest")
-    cooldown = get_guest_cooldown(control_plane)
-    assert cooldown["active"] is True
-    assert int(str(cooldown["remaining_seconds"])) >= 1
-    assert repository.get_next_allowed_at() is not None
-
-    with pytest.raises(Exception) as exc_info:
-        create_job(control_plane, {"project_id": project_id}, actor="guest")
-    assert getattr(exc_info.value, "code", None) == "guest_cooldown_active"
+    first = create_job(control_plane, {"project_id": project_id})
+    second = create_job(control_plane, {"project_id": project_id})
+    assert first["job_id"] != second["job_id"]
     logs = repository.list_recent_operation_logs(limit=10)
-    assert any(log.action == "guest.job_submit" for log in logs)
-
-
-def test_settings_rejects_guest_cookie_input_without_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("GUEST_COOKIE_KEY", raising=False)
-    control_plane, repository, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
-        "token"
-    ]
-
-    with pytest.raises(Exception) as exc_info:
-        patch_system_settings(control_plane, token, {"guest_allow_cookie_input": True})
-    assert getattr(exc_info.value, "code", None) == "guest_cookie_key_required"
-    logs = repository.list_recent_operation_logs(limit=5)
-    assert any(log.reason_code == "guest_cookie_key_required" for log in logs)
-
-
-def test_public_access_flags_is_unauthenticated_and_minimal(tmp_path: Path) -> None:
-    control_plane, _, _ = _make_control_plane(tmp_path)
-
-    flags = get_public_access_flags(control_plane)
-    assert "GET /public/access-flags" in REST_ROUTES
-    assert set(flags.keys()) == {"guest_mode_enabled"}
-    assert isinstance(flags["guest_mode_enabled"], bool)
-
-
-def test_public_access_flags_matches_settings_value(tmp_path: Path) -> None:
-    control_plane, _, _ = _make_control_plane(tmp_path)
-    token = post_auth_bootstrap(control_plane, {"username": "admin", "password": "password123"})[
-        "token"
-    ]
-    _ = patch_system_settings(control_plane, token, {"guest_mode_enabled": False})
-
-    flags = get_public_access_flags(control_plane)
-    settings = get_system_settings(control_plane, token)
-    assert flags["guest_mode_enabled"] is False
-    assert flags["guest_mode_enabled"] == settings["guest_mode_enabled"]
-
-
-def test_public_access_flags_handles_invalid_db_setting_value(tmp_path: Path) -> None:
-    control_plane, repository, _ = _make_control_plane(tmp_path)
-    repository.set_setting("guest_mode_enabled", '"not-a-bool"')
-
-    flags = get_public_access_flags(control_plane)
-    assert isinstance(flags["guest_mode_enabled"], bool)
+    assert all(log.actor_type == "local" for log in logs)
+    assert all(log.actor_id == "local" for log in logs)
+    assert sum(log.action == "job.submit" for log in logs) == 2

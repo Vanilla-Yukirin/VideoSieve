@@ -7,8 +7,6 @@ from typing import Any
 from contracts import ControlCommandType
 
 from .models import (
-    AuthBootstrapRequest,
-    AuthLoginRequest,
     CookieCreateRequest,
     CookiePatchRequest,
     CookieValidateRequest,
@@ -20,20 +18,14 @@ from .models import (
 from .service import ApiControlPlane
 
 REST_ROUTES: tuple[str, ...] = (
-    "GET /public/access-flags",
-    "GET /auth/bootstrap-status",
-    "POST /auth/bootstrap",
-    "POST /auth/login",
-    "POST /auth/logout",
-    "GET /auth/me",
     "GET /settings/system",
     "PATCH /settings/system",
-    "GET /guest/cooldown",
     "POST /projects",
     "GET /projects",
     "GET /projects/{project_id}",
     "DELETE /projects/{project_id}",
     "POST /jobs",
+    "POST /projects/{project_id}/jobs/upload",
     "GET /jobs/{job_id}",
     "GET /projects/{project_id}/jobs",
     "GET /jobs/{job_id}/snapshot",
@@ -43,11 +35,11 @@ REST_ROUTES: tuple[str, ...] = (
     "GET /jobs/{job_id}/source-video",
     "POST /jobs/{job_id}/control/{command}",
     "POST /ingest/probe",
-    "POST /me/cookies",
-    "GET /me/cookies",
-    "PATCH /me/cookies/{cookie_id}",
-    "DELETE /me/cookies/{cookie_id}",
-    "POST /me/cookies/{cookie_id}/validate",
+    "POST /cookies",
+    "GET /cookies",
+    "PATCH /cookies/{cookie_id}",
+    "DELETE /cookies/{cookie_id}",
+    "POST /cookies/{cookie_id}/validate",
 )
 
 
@@ -90,75 +82,27 @@ def delete_project(
 def create_job(
     control_plane: ApiControlPlane,
     payload: dict[str, Any],
-    *,
-    actor: str = "guest",
 ) -> dict[str, str]:
     """POST /jobs"""
 
-    job_id = control_plane.create_job(JobCreateRequest.model_validate(payload), actor=actor)
+    job_id = control_plane.create_job(JobCreateRequest.model_validate(payload))
     return {"job_id": job_id}
 
 
-def get_auth_bootstrap_status(control_plane: ApiControlPlane) -> dict[str, bool]:
-    """GET /auth/bootstrap-status"""
-
-    return control_plane.get_bootstrap_status().model_dump(mode="json")
-
-
-def get_public_access_flags(control_plane: ApiControlPlane) -> dict[str, bool]:
-    """GET /public/access-flags"""
-
-    return control_plane.get_public_access_flags().model_dump(mode="json")
-
-
-def post_auth_bootstrap(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:
-    """POST /auth/bootstrap"""
-
-    return control_plane.bootstrap_user(AuthBootstrapRequest.model_validate(payload)).model_dump(
-        mode="json"
-    )
-
-
-def post_auth_login(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, str]:
-    """POST /auth/login"""
-
-    return control_plane.login(AuthLoginRequest.model_validate(payload)).model_dump(mode="json")
-
-
-def post_auth_logout(control_plane: ApiControlPlane, token: str | None) -> dict[str, bool]:
-    """POST /auth/logout"""
-
-    control_plane.logout(token)
-    return {"ok": True}
-
-
-def get_auth_me(control_plane: ApiControlPlane, token: str | None) -> dict[str, str]:
-    """GET /auth/me"""
-
-    return control_plane.get_me(token).model_dump(mode="json")
-
-
-def get_system_settings(control_plane: ApiControlPlane, token: str | None) -> dict[str, Any]:
+def get_system_settings(control_plane: ApiControlPlane) -> dict[str, Any]:
     """GET /settings/system"""
 
-    return control_plane.get_system_settings(token).model_dump(mode="json")
+    return control_plane.get_system_settings().model_dump(mode="json")
 
 
 def patch_system_settings(
     control_plane: ApiControlPlane,
-    token: str | None,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """PATCH /settings/system"""
 
     request = SystemSettingsPatchRequest.model_validate(payload)
-    return control_plane.patch_system_settings(token, request).model_dump(mode="json")
-
-
-def get_guest_cooldown(control_plane: ApiControlPlane) -> dict[str, object]:
-    """GET /guest/cooldown"""
-
-    return control_plane.get_guest_cooldown().model_dump(mode="json")
+    return control_plane.patch_system_settings(request).model_dump(mode="json")
 
 
 def get_job(control_plane: ApiControlPlane, job_id: str) -> dict[str, str | None]:
@@ -222,39 +166,39 @@ def probe_ingest_formats(
     return result.model_dump(mode="json")
 
 
-def create_me_cookie(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, object]:
-    """POST /me/cookies"""
+def create_cookie(control_plane: ApiControlPlane, payload: dict[str, Any]) -> dict[str, object]:
+    """POST /cookies"""
 
     created = control_plane.create_cookie(CookieCreateRequest.model_validate(payload))
     return created.model_dump(mode="json")
 
 
-def list_me_cookies(control_plane: ApiControlPlane) -> list[dict[str, object]]:
-    """GET /me/cookies"""
+def list_cookies(control_plane: ApiControlPlane) -> list[dict[str, object]]:
+    """GET /cookies"""
 
     return [item.model_dump(mode="json") for item in control_plane.list_cookies()]
 
 
-def patch_me_cookie(
+def patch_cookie(
     control_plane: ApiControlPlane, cookie_id: str, payload: dict[str, Any]
 ) -> dict[str, object]:
-    """PATCH /me/cookies/{cookie_id}"""
+    """PATCH /cookies/{cookie_id}"""
 
     updated = control_plane.patch_cookie(cookie_id, CookiePatchRequest.model_validate(payload))
     return updated.model_dump(mode="json")
 
 
-def delete_me_cookie(control_plane: ApiControlPlane, cookie_id: str) -> dict[str, bool]:
-    """DELETE /me/cookies/{cookie_id}"""
+def delete_cookie(control_plane: ApiControlPlane, cookie_id: str) -> dict[str, bool]:
+    """DELETE /cookies/{cookie_id}"""
 
     control_plane.delete_cookie(cookie_id)
     return {"deleted": True}
 
 
-def validate_me_cookie(
+def validate_cookie(
     control_plane: ApiControlPlane, cookie_id: str, payload: dict[str, Any]
 ) -> dict[str, object]:
-    """POST /me/cookies/{cookie_id}/validate"""
+    """POST /cookies/{cookie_id}/validate"""
 
     result = control_plane.validate_cookie(cookie_id, CookieValidateRequest.model_validate(payload))
     return result.model_dump(mode="json")

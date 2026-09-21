@@ -26,30 +26,23 @@ from infra import (
 
 from .rest import (
     control_job,
+    create_cookie,
     create_job,
-    create_me_cookie,
     create_project,
-    delete_me_cookie,
+    delete_cookie,
     delete_project,
-    get_auth_bootstrap_status,
-    get_auth_me,
-    get_guest_cooldown,
     get_job,
     get_job_snapshot,
     get_project,
-    get_public_access_flags,
     get_system_settings,
+    list_cookies,
     list_job_artifacts,
-    list_me_cookies,
     list_project_jobs,
     list_projects,
-    patch_me_cookie,
+    patch_cookie,
     patch_system_settings,
-    post_auth_bootstrap,
-    post_auth_login,
-    post_auth_logout,
     probe_ingest_formats,
-    validate_me_cookie,
+    validate_cookie,
 )
 from .service import ApiConfigError, ApiControlPlane, ApiError
 from .ws_gateway import JobWebSocketGateway
@@ -260,48 +253,13 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
         runtime: _Runtime = request.app.state.runtime
         return runtime.control_plane
 
-    def _token(request: Request) -> str | None:
-        auth = request.headers.get("Authorization")
-        if isinstance(auth, str) and auth.startswith("Bearer "):
-            return auth[len("Bearer ") :].strip() or None
-        fallback = request.headers.get("X-Session-Token")
-        return fallback if isinstance(fallback, str) else None
-
-    @app.get("/public/access-flags")
-    async def get_public_flags(request: Request) -> dict[str, bool]:
-        return get_public_access_flags(_control_plane(request))
-
-    @app.get("/auth/bootstrap-status")
-    async def get_bootstrap_status(request: Request) -> dict[str, bool]:
-        return get_auth_bootstrap_status(_control_plane(request))
-
-    @app.post("/auth/bootstrap")
-    async def post_bootstrap(payload: dict[str, Any], request: Request) -> dict[str, str]:
-        return post_auth_bootstrap(_control_plane(request), payload)
-
-    @app.post("/auth/login")
-    async def post_login(payload: dict[str, Any], request: Request) -> dict[str, str]:
-        return post_auth_login(_control_plane(request), payload)
-
-    @app.post("/auth/logout")
-    async def post_logout(request: Request) -> dict[str, bool]:
-        return post_auth_logout(_control_plane(request), _token(request))
-
-    @app.get("/auth/me")
-    async def get_me(request: Request) -> dict[str, str]:
-        return get_auth_me(_control_plane(request), _token(request))
-
     @app.get("/settings/system")
     async def get_settings(request: Request) -> dict[str, object]:
-        return get_system_settings(_control_plane(request), _token(request))
+        return get_system_settings(_control_plane(request))
 
     @app.patch("/settings/system")
     async def patch_settings(request: Request, payload: dict[str, Any]) -> dict[str, object]:
-        return patch_system_settings(_control_plane(request), _token(request), payload)
-
-    @app.get("/guest/cooldown")
-    async def get_guest_cooldown_status(request: Request) -> dict[str, object]:
-        return get_guest_cooldown(_control_plane(request))
+        return patch_system_settings(_control_plane(request), payload)
 
     @app.post("/projects")
     async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
@@ -329,12 +287,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
 
     @app.post("/jobs")
     async def post_jobs(payload: dict[str, Any], request: Request) -> dict[str, str]:
-        token = _token(request)
-        actor = "guest"
-        if token is not None:
-            _ = _control_plane(request).get_me(token)
-            actor = "user"
-        return create_job(_control_plane(request), payload, actor=actor)
+        return create_job(_control_plane(request), payload)
 
     @app.post("/projects/{project_id}/jobs/upload")
     async def post_upload_local_video(
@@ -344,12 +297,6 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
         context: Annotated[str, Form()] = "",
         summary_enabled: Annotated[str, Form()] = "false",
     ) -> dict[str, str]:
-        token = _token(request)
-        actor = "guest"
-        if token is not None:
-            _ = _control_plane(request).get_me(token)
-            actor = "user"
-
         control_plane = _control_plane(request)
         video_path = control_plane.stage_local_upload(
             project_id,
@@ -363,7 +310,7 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
             "local_video_context": context.strip() if context.strip() else None,
         }
         try:
-            return create_job(control_plane, payload, actor=actor)
+            return create_job(control_plane, payload)
         except Exception:
             control_plane.discard_local_upload(project_id, video_path)
             raise
@@ -464,29 +411,29 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
     async def post_ingest_probe(payload: dict[str, Any], request: Request) -> dict[str, object]:
         return probe_ingest_formats(_control_plane(request), payload)
 
-    @app.post("/me/cookies")
-    async def post_me_cookies(payload: dict[str, Any], request: Request) -> dict[str, object]:
-        return create_me_cookie(_control_plane(request), payload)
+    @app.post("/cookies")
+    async def post_cookies(payload: dict[str, Any], request: Request) -> dict[str, object]:
+        return create_cookie(_control_plane(request), payload)
 
-    @app.get("/me/cookies")
-    async def get_me_cookies(request: Request) -> list[dict[str, object]]:
-        return list_me_cookies(_control_plane(request))
+    @app.get("/cookies")
+    async def get_cookies(request: Request) -> list[dict[str, object]]:
+        return list_cookies(_control_plane(request))
 
-    @app.patch("/me/cookies/{cookie_id}")
-    async def patch_me_cookies(
+    @app.patch("/cookies/{cookie_id}")
+    async def patch_cookies(
         cookie_id: str, payload: dict[str, Any], request: Request
     ) -> dict[str, object]:
-        return patch_me_cookie(_control_plane(request), cookie_id, payload)
+        return patch_cookie(_control_plane(request), cookie_id, payload)
 
-    @app.delete("/me/cookies/{cookie_id}")
-    async def delete_me_cookies(cookie_id: str, request: Request) -> dict[str, bool]:
-        return delete_me_cookie(_control_plane(request), cookie_id)
+    @app.delete("/cookies/{cookie_id}")
+    async def delete_cookies(cookie_id: str, request: Request) -> dict[str, bool]:
+        return delete_cookie(_control_plane(request), cookie_id)
 
-    @app.post("/me/cookies/{cookie_id}/validate")
-    async def post_me_cookie_validate(
+    @app.post("/cookies/{cookie_id}/validate")
+    async def post_cookie_validate(
         cookie_id: str, payload: dict[str, Any], request: Request
     ) -> dict[str, object]:
-        return validate_me_cookie(_control_plane(request), cookie_id, payload)
+        return validate_cookie(_control_plane(request), cookie_id, payload)
 
     @app.websocket("/ws/jobs/{job_id}")
     async def ws_jobs(websocket: WebSocket, job_id: str) -> None:

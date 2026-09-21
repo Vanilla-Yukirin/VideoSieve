@@ -14,7 +14,6 @@ from infra import InMemoryEventBus, SQLiteEventBus, SQLiteJobRepository
 @pytest.fixture(autouse=True)
 def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
 
 
 def _make_client(tmp_path: Path) -> Any:
@@ -57,10 +56,6 @@ def _publish_ready_artifact(
 
 def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
-        public_flags = client.get("/public/access-flags")
-        assert public_flags.status_code == 200
-        assert set(public_flags.json().keys()) == {"guest_mode_enabled"}
-
         health = client.get("/healthz")
         assert health.status_code == 200
         assert health.json() == {"status": "ok"}
@@ -463,7 +458,7 @@ def test_runtime_probe_returns_not_found_for_unknown_cookie_id(tmp_path: Path) -
 def test_runtime_cookie_validate_requires_source_url(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         created = client.post(
-            "/me/cookies",
+            "/cookies",
             json={
                 "name": "demo",
                 "cookie_netscape_text": (
@@ -473,7 +468,7 @@ def test_runtime_cookie_validate_requires_source_url(tmp_path: Path) -> None:
             },
         )
         cookie_id = created.json()["id"]
-        response = client.post(f"/me/cookies/{cookie_id}/validate", json={})
+        response = client.post(f"/cookies/{cookie_id}/validate", json={})
         assert response.status_code == 422
         assert response.json()["code"] == "validation_error"
 
@@ -481,7 +476,7 @@ def test_runtime_cookie_validate_requires_source_url(tmp_path: Path) -> None:
 def test_runtime_cookie_validate_rejects_homepage_url(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         created = client.post(
-            "/me/cookies",
+            "/cookies",
             json={
                 "name": "demo",
                 "cookie_netscape_text": (
@@ -492,7 +487,7 @@ def test_runtime_cookie_validate_rejects_homepage_url(tmp_path: Path) -> None:
         )
         cookie_id = created.json()["id"]
         response = client.post(
-            f"/me/cookies/{cookie_id}/validate",
+            f"/cookies/{cookie_id}/validate",
             json={"source_url": "https://www.bilibili.com"},
         )
         assert response.status_code == 422
@@ -505,7 +500,7 @@ def test_runtime_cookie_validate_marks_invalid_on_decrypt_failure(
 ) -> None:
     with _make_client(tmp_path) as client:
         created = client.post(
-            "/me/cookies",
+            "/cookies",
             json={
                 "name": "demo",
                 "cookie_netscape_text": (
@@ -518,7 +513,7 @@ def test_runtime_cookie_validate_marks_invalid_on_decrypt_failure(
 
         monkeypatch.setenv("APP_SECRET_KEY", "different-secret")
         response = client.post(
-            f"/me/cookies/{cookie_id}/validate",
+            f"/cookies/{cookie_id}/validate",
             json={"source_url": "https://www.bilibili.com/video/BV1demo"},
         )
         assert response.status_code == 200
@@ -526,100 +521,48 @@ def test_runtime_cookie_validate_marks_invalid_on_decrypt_failure(
         assert payload["status"] == "invalid"
         assert payload["last_error_code"] == "cookie_decrypt_failed"
 
-        listed = client.get("/me/cookies")
+        listed = client.get("/cookies")
         assert listed.status_code == 200
         rows = listed.json()
         assert any(row["id"] == cookie_id and row["status"] == "invalid" for row in rows)
 
 
-def test_runtime_auth_bootstrap_login_me_logout_flow(tmp_path: Path) -> None:
+def test_runtime_removed_auth_and_guest_routes_are_not_registered(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
-        status = client.get("/auth/bootstrap-status")
-        assert status.status_code == 200
-        assert status.json()["bootstrap_required"] is True
-
-        boot = client.post(
+        for route in (
+            "/auth/bootstrap-status",
             "/auth/bootstrap",
-            json={"username": "admin", "password": "password123"},
-        )
-        assert boot.status_code == 200
-        token = boot.json()["token"]
-
-        me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert me.status_code == 200
-        assert me.json()["username"] == "admin"
-
-        logout = client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
-        assert logout.status_code == 200
-
-        me_after = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-        assert me_after.status_code == 401
-        assert me_after.json()["code"] == "auth_required"
-    assert not (tmp_path / "runtime" / "api_state.json").exists()
+            "/auth/login",
+            "/auth/logout",
+            "/auth/me",
+            "/public/access-flags",
+            "/guest/cooldown",
+        ):
+            assert client.get(route).status_code in {404, 405}
 
 
-def test_runtime_settings_patch_requires_guest_cookie_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("GUEST_COOKIE_KEY", raising=False)
+def test_runtime_settings_get_and_patch_require_no_token(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
-        boot = client.post(
-            "/auth/bootstrap",
-            json={"username": "admin", "password": "password123"},
-        )
-        token = boot.json()["token"]
-
+        settings = client.get("/settings/system")
+        assert settings.status_code == 200
         patched = client.patch(
             "/settings/system",
-            json={"guest_allow_cookie_input": True},
-            headers={"Authorization": f"Bearer {token}"},
+            json={"asr_language": "zh"},
         )
-        assert patched.status_code == 422
-        assert patched.json()["code"] == "guest_cookie_key_required"
+        assert patched.status_code == 200
+        assert patched.json()["asr_language"] == "zh"
 
 
-def test_runtime_guest_cooldown_shared_for_guest_submissions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GUEST_JOB_COOLDOWN_SECONDS", "120")
+def test_runtime_allows_consecutive_local_job_submissions(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         project = client.post("/projects", json={"title": "demo"}).json()
         project_id = project["project_id"]
 
         first = client.post("/jobs", json={"project_id": project_id})
         assert first.status_code == 200
-
-        cooldown = client.get("/guest/cooldown")
-        assert cooldown.status_code == 200
-        assert cooldown.json()["active"] is True
-        assert cooldown.json()["cooldown_seconds"] == 120
-
         second = client.post("/jobs", json={"project_id": project_id})
-        assert second.status_code == 429
-        assert second.json()["code"] == "guest_cooldown_active"
-        assert int(second.json()["remaining_seconds"]) >= 1
-
-
-def test_runtime_public_access_flags_matches_private_settings(tmp_path: Path) -> None:
-    with _make_client(tmp_path) as client:
-        boot = client.post(
-            "/auth/bootstrap",
-            json={"username": "admin", "password": "password123"},
-        )
-        token = boot.json()["token"]
-
-        patched = client.patch(
-            "/settings/system",
-            json={"guest_mode_enabled": False},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert patched.status_code == 200
-
-        public_flags = client.get("/public/access-flags")
-        assert public_flags.status_code == 200
-        payload = public_flags.json()
-        assert payload == {"guest_mode_enabled": False}
-        assert "guest_allow_cookie_input" not in payload
+        assert second.status_code == 200
+        assert second.json()["job_id"] != first.json()["job_id"]
 
 
 @pytest.mark.parametrize("override", [None, False, True])

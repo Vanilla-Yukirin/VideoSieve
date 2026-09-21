@@ -3,8 +3,6 @@
 from .event_bus import InMemoryEventBus, SQLiteEventBus
 from .interfaces import EventBus, EventSubscription, JobRepository, WorkspaceStore
 from .models import (
-    AuthUserRecord,
-    GuestCooldownRecord,
     InfraEvent,
     JobRecord,
     OperationLogRecord,
@@ -21,9 +19,7 @@ __all__ = [
     "EventBus",
     "EventSubscription",
     "FileSystemWorkspaceStore",
-    "GuestCooldownRecord",
     "InfraEvent",
-    "AuthUserRecord",
     "JobRecord",
     "JobRepository",
     "OperationLogRecord",

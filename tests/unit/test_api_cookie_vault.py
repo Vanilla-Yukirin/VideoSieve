@@ -5,11 +5,11 @@ from pathlib import Path
 import apps.api.service as api_service
 import pytest
 from apps.api.rest import (
-    create_me_cookie,
-    delete_me_cookie,
-    list_me_cookies,
-    patch_me_cookie,
-    validate_me_cookie,
+    create_cookie,
+    delete_cookie,
+    list_cookies,
+    patch_cookie,
+    validate_cookie,
 )
 from apps.api.service import ApiConfigError, ApiControlPlane
 from pydantic import ValidationError
@@ -44,31 +44,32 @@ def test_cookie_vault_crud_and_default_switch(
     monkeypatch.setenv("APP_SECRET_KEY", "unit-secret")
     control_plane = _make_control_plane(tmp_path)
 
-    first = create_me_cookie(
+    first = create_cookie(
         control_plane,
         {"name": "primary", "cookie_netscape_text": COOKIE_TEXT, "is_default": True},
     )
-    second = create_me_cookie(
+    second = create_cookie(
         control_plane,
         {"name": "backup", "cookie_netscape_text": COOKIE_TEXT, "is_default": True},
     )
 
-    rows = list_me_cookies(control_plane)
+    rows = list_cookies(control_plane)
     assert len(rows) == 2
     assert rows[0]["is_default"] is False
     assert rows[1]["is_default"] is True
     assert "cookie_netscape_text" not in rows[0]
     assert "cookie_encrypted" not in rows[0]
+    assert "user_id" not in rows[0]
 
     first_id = str(first["id"])
     second_id = str(second["id"])
 
-    patched = patch_me_cookie(control_plane, first_id, {"name": "renamed"})
+    patched = patch_cookie(control_plane, first_id, {"name": "renamed"})
     assert patched["name"] == "renamed"
 
-    deleted = delete_me_cookie(control_plane, second_id)
+    deleted = delete_cookie(control_plane, second_id)
     assert deleted == {"deleted": True}
-    remaining = list_me_cookies(control_plane)
+    remaining = list_cookies(control_plane)
     assert [item["id"] for item in remaining] == [first_id]
 
 
@@ -77,7 +78,7 @@ def test_cookie_vault_validate_success_and_failure(
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "unit-secret")
     control_plane = _make_control_plane(tmp_path)
-    created = create_me_cookie(
+    created = create_cookie(
         control_plane,
         {"name": "probe", "cookie_netscape_text": COOKIE_TEXT},
     )
@@ -92,7 +93,7 @@ def test_cookie_vault_validate_success_and_failure(
     monkeypatch.setattr(api_service, "probe_url_formats", _ok_probe)
     cookie_id = str(created["id"])
 
-    ok = validate_me_cookie(
+    ok = validate_cookie(
         control_plane,
         cookie_id,
         {"source_url": "https://www.bilibili.com/video/BV1demo"},
@@ -109,7 +110,7 @@ def test_cookie_vault_validate_success_and_failure(
         )
 
     monkeypatch.setattr(api_service, "probe_url_formats", _bad_probe)
-    bad = validate_me_cookie(
+    bad = validate_cookie(
         control_plane,
         cookie_id,
         {"source_url": "https://www.bilibili.com/video/BV1demo"},
@@ -120,26 +121,26 @@ def test_cookie_vault_validate_success_and_failure(
 
 def test_cookie_vault_validate_requires_source_url(tmp_path: Path) -> None:
     control_plane = _make_control_plane(tmp_path)
-    created = create_me_cookie(
+    created = create_cookie(
         control_plane,
         {"name": "probe", "cookie_netscape_text": COOKIE_TEXT},
     )
     cookie_id = str(created["id"])
 
     with pytest.raises(ValidationError):
-        validate_me_cookie(control_plane, cookie_id, {})
+        validate_cookie(control_plane, cookie_id, {})
 
 
 def test_cookie_vault_validate_rejects_homepage_url(tmp_path: Path) -> None:
     control_plane = _make_control_plane(tmp_path)
-    created = create_me_cookie(
+    created = create_cookie(
         control_plane,
         {"name": "probe", "cookie_netscape_text": COOKIE_TEXT},
     )
     cookie_id = str(created["id"])
 
     with pytest.raises(ValidationError):
-        validate_me_cookie(
+        validate_cookie(
             control_plane,
             cookie_id,
             {"source_url": "https://www.bilibili.com"},
@@ -153,7 +154,7 @@ def test_cookie_vault_rejects_invalid_netscape_format(
     control_plane = _make_control_plane(tmp_path)
 
     with pytest.raises(ValueError):
-        create_me_cookie(
+        create_cookie(
             control_plane,
             {
                 "name": "broken",

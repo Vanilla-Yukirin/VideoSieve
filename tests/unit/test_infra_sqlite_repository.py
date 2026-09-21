@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -165,12 +166,12 @@ def test_sqlite_repository_settings_upsert_and_get(tmp_path: Path) -> None:
     repo = SQLiteJobRepository(tmp_path / "infra.db")
     repo.ensure_schema()
 
-    assert repo.get_setting("enable_guest_mode") is None
-    repo.set_setting("enable_guest_mode", "true")
-    assert repo.get_setting("enable_guest_mode") == "true"
+    assert repo.get_setting("asr_provider") is None
+    repo.set_setting("asr_provider", '"capswriter"')
+    assert repo.get_setting("asr_provider") == '"capswriter"'
 
-    repo.set_setting("enable_guest_mode", "false")
-    assert repo.get_setting("enable_guest_mode") == "false"
+    repo.set_setting("asr_provider", '"unconfigured"')
+    assert repo.get_setting("asr_provider") == '"unconfigured"'
     repo.close()
 
 
@@ -206,22 +207,88 @@ def test_sqlite_repository_versions_provider_secrets(tmp_path: Path) -> None:
     repo.close()
 
 
-def test_sqlite_repository_auth_user_create_and_password_update(tmp_path: Path) -> None:
-    repo = SQLiteJobRepository(tmp_path / "infra.db")
+def test_sqlite_repository_drops_legacy_auth_tables_without_losing_vault_data(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "infra.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE auth_user (
+          id TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          password_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO auth_user VALUES ('u-1', 'admin', 'hash', 'now', 'now');
+        CREATE TABLE guest_cooldown (
+          key TEXT PRIMARY KEY,
+          next_allowed_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO guest_cooldown VALUES ('global', 'later', 'now');
+        CREATE TABLE user_cookies (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          cookie_encrypted TEXT NOT NULL,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL,
+          last_validated_at TEXT,
+          last_error_code TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO user_cookies VALUES (
+          'c-legacy', 'default_user', 'legacy', 'encrypted-cookie', 1,
+          'unknown', NULL, NULL, 'now', 'now'
+        );
+        CREATE TABLE provider_secrets (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          secret_encrypted TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          superseded_at TEXT
+        );
+        INSERT INTO provider_secrets VALUES (
+          's-legacy', 'vlm_api_key', 'encrypted-secret', 'now', NULL
+        );
+        CREATE TABLE system_settings (
+          key TEXT PRIMARY KEY,
+          value_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO system_settings VALUES ('guest_mode_enabled', 'true', 'now');
+        INSERT INTO system_settings VALUES ('guest_allow_cookie_input', 'true', 'now');
+        INSERT INTO system_settings VALUES ('asr_provider', '"capswriter"', 'now');
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    repo = SQLiteJobRepository(db_path)
     repo.ensure_schema()
 
-    assert repo.get_auth_user() is None
-    repo.create_auth_user(user_id="u-1", username="admin", password_hash="hash-v1")
-    created = repo.get_auth_user()
-    assert created is not None
-    assert created.id == "u-1"
-    assert created.username == "admin"
-    assert created.password_hash == "hash-v1"
-
-    repo.update_auth_user_password_hash(user_id="u-1", password_hash="hash-v2")
-    updated = repo.get_auth_user()
-    assert updated is not None
-    assert updated.password_hash == "hash-v2"
+    inspection = sqlite3.connect(db_path)
+    table_names = {
+        str(row[0])
+        for row in inspection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    inspection.close()
+    assert "auth_user" not in table_names
+    assert "guest_cooldown" not in table_names
+    cookie = repo.get_user_cookie("c-legacy", "default_user")
+    secret = repo.get_provider_secret("s-legacy", expected_kind="vlm_api_key")
+    assert cookie is not None
+    assert cookie.cookie_encrypted == "encrypted-cookie"
+    assert secret is not None
+    assert secret.secret_encrypted == "encrypted-secret"
+    assert repo.get_setting("guest_mode_enabled") is None
+    assert repo.get_setting("guest_allow_cookie_input") is None
+    assert repo.get_setting("asr_provider") == '"capswriter"'
     repo.close()
 
 
@@ -231,19 +298,19 @@ def test_sqlite_repository_operation_logs_append_and_list_recent(tmp_path: Path)
 
     repo.append_operation_log(
         log_id="l-1",
-        actor_type="guest",
-        actor_id=None,
-        action="guest_submit",
-        status="rejected",
-        reason_code="guest_cooldown_active",
+        actor_type="local",
+        actor_id="local",
+        action="job.submit",
+        status="accepted",
+        reason_code=None,
         created_at="2026-01-01T00:00:00+00:00",
         meta_json='{"job_id":"j-1"}',
     )
     repo.append_operation_log(
         log_id="l-2",
-        actor_type="user",
-        actor_id="u-1",
-        action="login",
+        actor_type="local",
+        actor_id="local",
+        action="settings.patch",
         status="success",
         reason_code=None,
         created_at="2026-01-01T00:00:01+00:00",
@@ -253,30 +320,8 @@ def test_sqlite_repository_operation_logs_append_and_list_recent(tmp_path: Path)
     rows = repo.list_recent_operation_logs(limit=10)
     assert [row.id for row in rows] == ["l-2", "l-1"]
     assert rows[0].status == "success"
-    assert rows[1].reason_code == "guest_cooldown_active"
+    assert rows[1].action == "job.submit"
     repo.close()
-
-
-def test_sqlite_repository_guest_cooldown_try_acquire_atomic(tmp_path: Path) -> None:
-    db_path = tmp_path / "infra.db"
-    repo_a = SQLiteJobRepository(db_path)
-    repo_b = SQLiteJobRepository(db_path)
-    repo_a.ensure_schema()
-
-    now = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
-    assert repo_a.try_acquire(now, cooldown_seconds=60) is True
-    first_next_allowed = repo_a.get_next_allowed_at()
-    assert first_next_allowed == "2026-01-01T00:01:00+00:00"
-
-    assert repo_b.try_acquire(now, cooldown_seconds=60) is False
-    assert repo_b.get_next_allowed_at() == "2026-01-01T00:01:00+00:00"
-
-    later = datetime(2026, 1, 1, 0, 1, 1, tzinfo=UTC)
-    assert repo_b.try_acquire(later, cooldown_seconds=60) is True
-    assert repo_b.get_next_allowed_at() == "2026-01-01T00:02:01+00:00"
-
-    repo_a.close()
-    repo_b.close()
 
 
 def test_worker_attempt_fences_progress_and_terminal_state(tmp_path: Path) -> None:

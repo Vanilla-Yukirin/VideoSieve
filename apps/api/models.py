@@ -48,44 +48,9 @@ class ProjectCreateRequest(ApiModel):
     title: str | None = None
 
 
-class AuthBootstrapRequest(ApiModel):
-    """Initial single-user bootstrap payload."""
-
-    username: str
-    password: str = Field(min_length=8)
-
-
-class AuthLoginRequest(ApiModel):
-    """Login payload for single-user mode."""
-
-    username: str
-    password: str
-
-
-class AuthTokenResponse(ApiModel):
-    """Session token response."""
-
-    token: str
-    username: str
-
-
-class AuthBootstrapStatusResponse(ApiModel):
-    """Bootstrap status response."""
-
-    bootstrap_required: bool
-
-
-class AuthMeResponse(ApiModel):
-    """Current authenticated user."""
-
-    username: str
-
-
 class SystemSettingsResponse(ApiModel):
     """System settings consumed by settings page."""
 
-    guest_mode_enabled: bool
-    guest_allow_cookie_input: bool
     # ASR routing. Credentials are write-only and encrypted at rest.
     asr_provider: str
     asr_endpoint: str
@@ -115,17 +80,9 @@ class SystemSettingsResponse(ApiModel):
     summary_prompt_en_default: str
 
 
-class PublicAccessFlagsResponse(ApiModel):
-    """Public, unauthenticated access flags for entry routing."""
-
-    guest_mode_enabled: bool
-
-
 class SystemSettingsPatchRequest(ApiModel):
     """Patch payload for mutable system settings."""
 
-    guest_mode_enabled: bool | None = None
-    guest_allow_cookie_input: bool | None = None
     asr_provider: str | None = None
     asr_endpoint: str | None = None
     asr_language: str | None = None
@@ -154,8 +111,6 @@ class SystemSettingsPatchRequest(ApiModel):
         if all(
             v is None
             for v in [
-                self.guest_mode_enabled,
-                self.guest_allow_cookie_input,
                 self.asr_provider,
                 self.asr_endpoint,
                 self.asr_language,
@@ -182,14 +137,6 @@ class SystemSettingsPatchRequest(ApiModel):
         ):
             raise ValueError("at least one settings field must be provided")
         return self
-
-
-class GuestCooldownResponse(ApiModel):
-    """Global guest cooldown status."""
-
-    active: bool
-    remaining_seconds: int = Field(ge=0)
-    cooldown_seconds: int = Field(ge=0)
 
 
 class JobCreateRequest(ApiModel):
@@ -358,7 +305,6 @@ class CookieListItem(ApiModel):
     """Public cookie metadata row without plaintext content."""
 
     id: str
-    user_id: str
     name: str
     is_default: bool
     status: str

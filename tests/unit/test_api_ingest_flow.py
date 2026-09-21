@@ -20,7 +20,6 @@ from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepositor
 @pytest.fixture(autouse=True)
 def _default_app_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
 
 
 def _make_control_plane(tmp_path: Path) -> tuple[ApiControlPlane, FileSystemWorkspaceStore]:
@@ -170,7 +169,6 @@ def test_create_job_rejects_ytdlp_advanced_fields(tmp_path: Path) -> None:
 def test_create_job_persists_cookie_id_when_present(tmp_path: Path) -> None:
     control_plane, workspace = _make_control_plane(tmp_path)
     pid = control_plane.create_project(ProjectCreateRequest(title="cookie_id"))
-    control_plane._repository.set_setting("guest_allow_cookie_input", "true")
 
     jid = control_plane.create_job(
         JobCreateRequest(
@@ -190,7 +188,6 @@ def test_create_job_persists_cookie_id_when_present(tmp_path: Path) -> None:
 def test_create_job_cookie_id_takes_priority_over_cookie_file_path(tmp_path: Path) -> None:
     control_plane, workspace = _make_control_plane(tmp_path)
     pid = control_plane.create_project(ProjectCreateRequest(title="cookie_priority"))
-    control_plane._repository.set_setting("guest_allow_cookie_input", "true")
 
     jid = control_plane.create_job(
         JobCreateRequest(

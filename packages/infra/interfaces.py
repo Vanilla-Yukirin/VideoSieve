@@ -8,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import (
-    AuthUserRecord,
     InfraEvent,
     JobRecord,
     OperationLogRecord,
@@ -289,18 +288,6 @@ class JobRepository(ABC):
         """Deactivate the current credential while preserving referenced versions."""
 
     @abstractmethod
-    def get_auth_user(self) -> AuthUserRecord | None:
-        """Read the single auth user record if present."""
-
-    @abstractmethod
-    def create_auth_user(self, *, user_id: str, username: str, password_hash: str) -> None:
-        """Create the single auth user record."""
-
-    @abstractmethod
-    def update_auth_user_password_hash(self, *, user_id: str, password_hash: str) -> None:
-        """Update password hash for one auth user by id."""
-
-    @abstractmethod
     def append_operation_log(
         self,
         *,
@@ -318,15 +305,6 @@ class JobRepository(ABC):
     @abstractmethod
     def list_recent_operation_logs(self, limit: int = 100) -> list[OperationLogRecord]:
         """List operation logs ordered by newest first."""
-
-    @abstractmethod
-    def get_next_allowed_at(self) -> str | None:
-        """Read server-wide guest cooldown next_allowed_at."""
-
-    @abstractmethod
-    def try_acquire(self, now: datetime, cooldown_seconds: int) -> bool:
-        """Try to acquire cooldown slot atomically; return True when accepted."""
-
 
 class WorkspaceStore(ABC):
     """Workspace path and layout helper."""

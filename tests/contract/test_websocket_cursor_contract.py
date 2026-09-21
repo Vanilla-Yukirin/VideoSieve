@@ -40,7 +40,6 @@ def test_reconnect_replays_missed_events_then_sends_authoritative_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "contract-test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
     db_path = tmp_path / "infra.db"
     workspace_path = tmp_path / "workspaces"
 
@@ -119,7 +118,6 @@ def test_control_ack_round_trips_request_id_without_faking_execution_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "contract-test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
     db_path = tmp_path / "infra.db"
     control_plane, gateway, event_bus, repository = _runtime(
         db_path,
@@ -176,7 +174,6 @@ def test_cancel_without_worker_is_persisted_as_applied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "contract-test-secret")
-    monkeypatch.setenv("ENABLE_GUEST_MODE", "true")
     control_plane, gateway, event_bus, repository = _runtime(
         tmp_path / "infra.db",
         tmp_path / "workspaces",

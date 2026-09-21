@@ -9,17 +9,13 @@ from pathlib import Path
 
 from .interfaces import JobRepository
 from .models import (
-    AuthUserRecord,
     InfraEvent,
     JobRecord,
     OperationLogRecord,
     ProjectRecord,
     ProviderSecretRecord,
     UserCookieRecord,
-    parse_iso8601,
 )
-
-GLOBAL_GUEST_COOLDOWN_KEY = "global_guest_job_cooldown"
 
 
 def _utc_now_iso() -> str:
@@ -134,14 +130,6 @@ class SQLiteJobRepository(JobRepository):
             ON provider_secrets(kind)
             WHERE superseded_at IS NULL;
 
-            CREATE TABLE IF NOT EXISTS auth_user (
-              id TEXT PRIMARY KEY,
-              username TEXT NOT NULL,
-              password_hash TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS operation_logs (
               id TEXT PRIMARY KEY,
               actor_type TEXT NOT NULL,
@@ -156,11 +144,10 @@ class SQLiteJobRepository(JobRepository):
             CREATE INDEX IF NOT EXISTS idx_operation_logs_created_at
             ON operation_logs(created_at DESC);
 
-            CREATE TABLE IF NOT EXISTS guest_cooldown (
-              key TEXT PRIMARY KEY,
-              next_allowed_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
+            DROP TABLE IF EXISTS auth_user;
+            DROP TABLE IF EXISTS guest_cooldown;
+            DELETE FROM system_settings
+            WHERE key IN ('guest_mode_enabled', 'guest_allow_cookie_input');
             """
         )
         job_columns = {
@@ -1272,47 +1259,6 @@ class SQLiteJobRepository(JobRepository):
         )
         self._conn.commit()
 
-    def get_auth_user(self) -> AuthUserRecord | None:
-        row = self._conn.execute(
-            """
-            SELECT id, username, password_hash, created_at, updated_at
-            FROM auth_user
-            ORDER BY created_at ASC
-            LIMIT 1
-            """
-        ).fetchone()
-        if row is None:
-            return None
-        return AuthUserRecord(
-            id=row["id"],
-            username=row["username"],
-            password_hash=row["password_hash"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-
-    def create_auth_user(self, *, user_id: str, username: str, password_hash: str) -> None:
-        now = _utc_now_iso()
-        self._conn.execute(
-            """
-            INSERT INTO auth_user (id, username, password_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (user_id, username, password_hash, now, now),
-        )
-        self._conn.commit()
-
-    def update_auth_user_password_hash(self, *, user_id: str, password_hash: str) -> None:
-        self._conn.execute(
-            """
-            UPDATE auth_user
-            SET password_hash = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (password_hash, _utc_now_iso(), user_id),
-        )
-        self._conn.commit()
-
     def append_operation_log(
         self,
         *,
@@ -1383,55 +1329,6 @@ class SQLiteJobRepository(JobRepository):
             )
             for row in rows
         ]
-
-    def get_next_allowed_at(self) -> str | None:
-        row = self._conn.execute(
-            """
-            SELECT next_allowed_at
-            FROM guest_cooldown
-            WHERE key = ?
-            """,
-            (GLOBAL_GUEST_COOLDOWN_KEY,),
-        ).fetchone()
-        if row is None:
-            return None
-        return str(row["next_allowed_at"])
-
-    def try_acquire(self, now: datetime, cooldown_seconds: int) -> bool:
-        now_utc = now.astimezone(UTC)
-        now_iso = now_utc.isoformat()
-        next_allowed = now_utc.timestamp() + cooldown_seconds
-        next_allowed_iso = datetime.fromtimestamp(next_allowed, UTC).isoformat()
-
-        try:
-            self._conn.execute("BEGIN IMMEDIATE")
-            row = self._conn.execute(
-                """
-                SELECT next_allowed_at
-                FROM guest_cooldown
-                WHERE key = ?
-                """,
-                (GLOBAL_GUEST_COOLDOWN_KEY,),
-            ).fetchone()
-
-            can_acquire = row is None or parse_iso8601(str(row["next_allowed_at"])) <= now_utc
-            if can_acquire:
-                self._conn.execute(
-                    """
-                    INSERT INTO guest_cooldown (key, next_allowed_at, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(key)
-                    DO UPDATE SET
-                      next_allowed_at = excluded.next_allowed_at,
-                      updated_at = excluded.updated_at
-                    """,
-                    (GLOBAL_GUEST_COOLDOWN_KEY, next_allowed_iso, now_iso),
-                )
-            self._conn.commit()
-            return can_acquire
-        except Exception:
-            self._conn.rollback()
-            raise
 
     def _to_job_record(self, row: sqlite3.Row) -> JobRecord:
         return JobRecord(

@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import secrets
 import shutil
 import threading
 import time
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Callable
-from datetime import UTC, datetime
 from hashlib import sha256
-from math import ceil
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -38,17 +35,11 @@ from pipeline.control import ControlAckPayload, evaluate_control_command
 
 from .models import (
     ArtifactItem,
-    AuthBootstrapRequest,
-    AuthBootstrapStatusResponse,
-    AuthLoginRequest,
-    AuthMeResponse,
-    AuthTokenResponse,
     CookieCreateRequest,
     CookieListItem,
     CookiePatchRequest,
     CookieValidateRequest,
     CookieValidateResponse,
-    GuestCooldownResponse,
     IngestAssetSelection,
     IngestFormatItem,
     IngestParams,
@@ -57,7 +48,6 @@ from .models import (
     JobCreateRequest,
     JobSnapshot,
     ProjectCreateRequest,
-    PublicAccessFlagsResponse,
     SystemSettingsPatchRequest,
     SystemSettingsResponse,
     utc_now_iso,
@@ -66,9 +56,8 @@ from .models import (
 MAX_LOG_BUFFER = 100
 PROJECT_DELETE_WAIT_SECONDS = 10.0
 PROJECT_DELETE_POLL_SECONDS = 0.2
-DEFAULT_COOKIE_USER_ID = "default_user"
-SETTING_GUEST_MODE_ENABLED = "guest_mode_enabled"
-SETTING_GUEST_ALLOW_COOKIE_INPUT = "guest_allow_cookie_input"
+LOCAL_COOKIE_OWNER_ID = "default_user"
+LOCAL_ACTOR_ID = "local"
 SETTING_ASR_PROVIDER = "asr_provider"
 SETTING_ASR_ENDPOINT = "asr_endpoint"
 SETTING_ASR_LANGUAGE = "asr_language"
@@ -168,16 +157,8 @@ class ApiControlPlane:
         self._pending_job_delete_cache_lock = threading.Lock()
         self._pending_job_deletes_cache: set[str] = set()
         self._hydrate_pending_job_delete_cache()
-        self._sessions: dict[str, str] = {}
-        self._session_lock = threading.Lock()
         self._validate_app_secret_or_raise()
-        cooldown_raw = os.getenv("GUEST_JOB_COOLDOWN_SECONDS", "30")
-        try:
-            self._guest_cooldown_seconds = max(0, int(cooldown_raw))
-        except ValueError:
-            self._guest_cooldown_seconds = 30
         self._initialize_settings_from_env_once()
-        self._validate_guest_cookie_setting_or_raise()
         self._reconcile_pending_job_deletes()
 
     def create_project(self, payload: ProjectCreateRequest) -> str:
@@ -359,96 +340,9 @@ class ApiControlPlane:
                 with self._project_delete_lock:
                     self._deleting_projects.discard(project_id)
 
-    def get_bootstrap_status(self) -> AuthBootstrapStatusResponse:
-        required = self._repository.get_auth_user() is None
-        return AuthBootstrapStatusResponse(bootstrap_required=required)
-
-    def bootstrap_user(self, payload: AuthBootstrapRequest) -> AuthTokenResponse:
-        if self._repository.get_auth_user() is not None:
-            self._append_operation_log(
-                event="auth.bootstrap",
-                actor="system",
-                outcome="rejected",
-                code="bootstrap_required",
-                detail="already bootstrapped",
-            )
-            raise ApiError(
-                code="bootstrap_required",
-                message="bootstrap already completed",
-                status_code=409,
-            )
-
-        user_id = f"u_{uuid.uuid4().hex[:12]}"
-        password_hash = self._hash_password(payload.password)
-        token = self._issue_token()
-        self._repository.create_auth_user(
-            user_id=user_id,
-            username=payload.username,
-            password_hash=password_hash,
-        )
-        with self._session_lock:
-            self._sessions[token] = payload.username
-        self._append_operation_log(
-            event="auth.bootstrap",
-            actor=payload.username,
-            outcome="accepted",
-        )
-        return AuthTokenResponse(token=token, username=payload.username)
-
-    def login(self, payload: AuthLoginRequest) -> AuthTokenResponse:
-        auth = self._repository.get_auth_user()
-        if auth is None:
-            self._append_operation_log(
-                event="auth.login",
-                actor=payload.username,
-                outcome="rejected",
-                code="bootstrap_required",
-                detail="bootstrap not completed",
-            )
-            raise ApiError(
-                code="bootstrap_required",
-                message="bootstrap is required before login",
-                status_code=409,
-            )
-
-        if payload.username != auth.username or not self._verify_password(
-            payload.password, auth.password_hash
-        ):
-            self._append_operation_log(
-                event="auth.login",
-                actor=payload.username,
-                outcome="rejected",
-                code="invalid_credentials",
-                detail="username or password mismatch",
-            )
-            raise ApiError(
-                code="invalid_credentials",
-                message="invalid credentials",
-                status_code=401,
-            )
-
-        token = self._issue_token()
-        with self._session_lock:
-            self._sessions[token] = auth.username
-        self._append_operation_log(event="auth.login", actor=auth.username, outcome="accepted")
-        return AuthTokenResponse(token=token, username=auth.username)
-
-    def logout(self, token: str | None) -> None:
-        username = self._require_user_from_token(token)
-        with self._session_lock:
-            self._sessions.pop(token or "", None)
-        self._append_operation_log(event="auth.logout", actor=username, outcome="accepted")
-
-    def get_me(self, token: str | None) -> AuthMeResponse:
-        username = self._require_user_from_token(token)
-        return AuthMeResponse(username=username)
-
-    def get_system_settings(self, token: str | None) -> SystemSettingsResponse:
-        _ = self._require_user_from_token(token)
+    def get_system_settings(self) -> SystemSettingsResponse:
         settings = self._current_settings()
         return SystemSettingsResponse(
-            guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
-            guest_allow_cookie_input=bool(settings[SETTING_GUEST_ALLOW_COOKIE_INPUT]),
             asr_provider=str(settings[SETTING_ASR_PROVIDER]),
             asr_endpoint=str(settings[SETTING_ASR_ENDPOINT]),
             asr_language=str(settings[SETTING_ASR_LANGUAGE]),
@@ -478,16 +372,9 @@ class ApiControlPlane:
             summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
 
-    def get_public_access_flags(self) -> PublicAccessFlagsResponse:
-        settings = self._current_settings()
-        return PublicAccessFlagsResponse(
-            guest_mode_enabled=bool(settings[SETTING_GUEST_MODE_ENABLED]),
-        )
-
     def patch_system_settings(
-        self, token: str | None, payload: SystemSettingsPatchRequest
+        self, payload: SystemSettingsPatchRequest
     ) -> SystemSettingsResponse:
-        username = self._require_user_from_token(token)
         current = self._current_settings()
         next_asr_token = self._validate_provider_secret_patch(
             payload.asr_token, payload.clear_asr_token, field_name="asr_token"
@@ -500,29 +387,6 @@ class ApiControlPlane:
             payload.clear_summary_api_key,
             field_name="summary_api_key",
         )
-        next_guest_mode = (
-            payload.guest_mode_enabled
-            if payload.guest_mode_enabled is not None
-            else bool(current[SETTING_GUEST_MODE_ENABLED])
-        )
-        next_allow_cookie = (
-            payload.guest_allow_cookie_input
-            if payload.guest_allow_cookie_input is not None
-            else bool(current[SETTING_GUEST_ALLOW_COOKIE_INPUT])
-        )
-        if next_allow_cookie and not self._guest_cookie_key():
-            self._append_operation_log(
-                event="settings.patch",
-                actor=username,
-                outcome="rejected",
-                code="guest_cookie_key_required",
-                detail="missing GUEST_COOKIE_KEY",
-            )
-            raise ApiError(
-                code="guest_cookie_key_required",
-                message="GUEST_COOKIE_KEY is required when guest cookie input is enabled",
-                status_code=422,
-            )
         next_asr_provider = (
             payload.asr_provider.strip().lower()
             if payload.asr_provider is not None
@@ -620,10 +484,6 @@ class ApiControlPlane:
             else int(str(current[SETTING_SUMMARY_MAX_INPUT_CHARS]))
         )
 
-        self._repository.set_setting(SETTING_GUEST_MODE_ENABLED, json.dumps(next_guest_mode))
-        self._repository.set_setting(
-            SETTING_GUEST_ALLOW_COOKIE_INPUT, json.dumps(next_allow_cookie)
-        )
         self._repository.set_setting(SETTING_ASR_PROVIDER, json.dumps(next_asr_provider))
         self._repository.set_setting(SETTING_ASR_ENDPOINT, json.dumps(next_asr_endpoint))
         self._repository.set_setting(SETTING_ASR_LANGUAGE, json.dumps(next_asr_language))
@@ -667,10 +527,8 @@ class ApiControlPlane:
             value=next_summary_api_key,
             clear=payload.clear_summary_api_key is True,
         )
-        self._append_operation_log(event="settings.patch", actor=username, outcome="accepted")
+        self._append_operation_log(event="settings.patch", outcome="accepted")
         return SystemSettingsResponse(
-            guest_mode_enabled=next_guest_mode,
-            guest_allow_cookie_input=next_allow_cookie,
             asr_provider=next_asr_provider,
             asr_endpoint=next_asr_endpoint,
             asr_language=next_asr_language,
@@ -700,18 +558,10 @@ class ApiControlPlane:
             summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
 
-    def get_guest_cooldown(self) -> GuestCooldownResponse:
-        remaining = self._guest_remaining_seconds(datetime.now(UTC))
-        return GuestCooldownResponse(
-            active=remaining > 0,
-            remaining_seconds=remaining,
-            cooldown_seconds=self._guest_cooldown_seconds,
-        )
-
     def create_cookie(self, payload: CookieCreateRequest) -> CookieListItem:
-        """Create one user-scoped encrypted cookie entry."""
+        """Create one encrypted cookie entry for the local installation."""
 
-        user_id = DEFAULT_COOKIE_USER_ID
+        user_id = LOCAL_COOKIE_OWNER_ID
         if payload.is_default:
             self._repository.clear_default_cookie_for_user(user_id)
 
@@ -730,11 +580,11 @@ class ApiControlPlane:
         return self._to_cookie_list_item(created)
 
     def list_cookies(self) -> list[CookieListItem]:
-        """List cookie metadata for current user scope."""
+        """List cookie metadata for the local installation."""
 
         return [
             self._to_cookie_list_item(row)
-            for row in self._repository.list_user_cookies(DEFAULT_COOKIE_USER_ID)
+            for row in self._repository.list_user_cookies(LOCAL_COOKIE_OWNER_ID)
         ]
 
     def patch_cookie(self, cookie_id: str, payload: CookiePatchRequest) -> CookieListItem:
@@ -742,11 +592,11 @@ class ApiControlPlane:
 
         _ = self._require_cookie(cookie_id)
         if payload.is_default:
-            self._repository.clear_default_cookie_for_user(DEFAULT_COOKIE_USER_ID)
+            self._repository.clear_default_cookie_for_user(LOCAL_COOKIE_OWNER_ID)
 
         self._repository.update_user_cookie(
             cookie_id=cookie_id,
-            user_id=DEFAULT_COOKIE_USER_ID,
+            user_id=LOCAL_COOKIE_OWNER_ID,
             name=payload.name,
             cookie_encrypted=(
                 self._encrypt_cookie(payload.cookie_netscape_text)
@@ -764,10 +614,10 @@ class ApiControlPlane:
         return self._to_cookie_list_item(updated)
 
     def delete_cookie(self, cookie_id: str) -> None:
-        """Delete one cookie entry in current user scope."""
+        """Delete one cookie entry in the local installation."""
 
         _ = self._require_cookie(cookie_id)
-        self._repository.delete_user_cookie(cookie_id, DEFAULT_COOKIE_USER_ID)
+        self._repository.delete_user_cookie(cookie_id, LOCAL_COOKIE_OWNER_ID)
 
     def validate_cookie(
         self, cookie_id: str, payload: CookieValidateRequest
@@ -786,7 +636,7 @@ class ApiControlPlane:
             error_code = "cookie_decrypt_failed"
             self._repository.update_user_cookie(
                 cookie_id=cookie_id,
-                user_id=DEFAULT_COOKIE_USER_ID,
+                user_id=LOCAL_COOKIE_OWNER_ID,
                 status=status,
                 last_validated_at=ts,
                 last_error_code=error_code,
@@ -815,7 +665,7 @@ class ApiControlPlane:
 
         self._repository.update_user_cookie(
             cookie_id=cookie_id,
-            user_id=DEFAULT_COOKIE_USER_ID,
+            user_id=LOCAL_COOKIE_OWNER_ID,
             status=status,
             last_validated_at=ts,
             last_error_code=error_code,
@@ -830,7 +680,7 @@ class ApiControlPlane:
         )
 
     def _require_cookie(self, cookie_id: str) -> UserCookieRecord:
-        row = self._repository.get_user_cookie(cookie_id, DEFAULT_COOKIE_USER_ID)
+        row = self._repository.get_user_cookie(cookie_id, LOCAL_COOKIE_OWNER_ID)
         if row is None:
             raise KeyError(f"cookie not found: {cookie_id}")
         return row
@@ -838,7 +688,6 @@ class ApiControlPlane:
     def _to_cookie_list_item(self, row: UserCookieRecord) -> CookieListItem:
         return CookieListItem(
             id=row.id,
-            user_id=row.user_id,
             name=row.name,
             is_default=row.is_default,
             status=row.status,
@@ -903,54 +752,12 @@ class ApiControlPlane:
         elif clear:
             self._repository.clear_active_provider_secret(kind)
 
-    def _hash_password(self, password: str) -> str:
-        salt = uuid.uuid4().hex
-        digest = sha256(f"{salt}:{password}".encode()).hexdigest()
-        return f"v1${salt}${digest}"
-
-    def _verify_password(self, password: str, packed_hash: str) -> bool:
-        parts = packed_hash.split("$", 2)
-        if len(parts) != 3:
-            return False
-        _version, salt, expected = parts
-        actual = sha256(f"{salt}:{password}".encode()).hexdigest()
-        return secrets.compare_digest(actual, expected)
-
-    def _issue_token(self) -> str:
-        return secrets.token_urlsafe(32)
-
-    def _require_user_from_token(self, token: str | None) -> str:
-        if not token:
-            raise ApiError(
-                code="auth_required",
-                message="authentication required",
-                status_code=401,
-            )
-        with self._session_lock:
-            username = self._sessions.get(token)
-        if not isinstance(username, str):
-            raise ApiError(
-                code="auth_required",
-                message="authentication required",
-                status_code=401,
-            )
-        return username
-
-    def _guest_cookie_key(self) -> str:
-        return os.getenv("GUEST_COOKIE_KEY", "").strip()
-
     def _validate_app_secret_or_raise(self) -> None:
         secret = os.getenv("APP_SECRET_KEY", "").strip()
         if not secret:
             raise ApiConfigError("APP_SECRET_KEY is required for API startup")
         if secret == "change-me-in-local-or-production":
             raise ApiConfigError("APP_SECRET_KEY must be changed from the example value")
-
-    def _read_bool_env(self, name: str, *, default: bool) -> bool:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        return raw.strip().lower() in {"1", "true", "yes", "on"}
 
     def _read_setting_str(self, key: str, *, default: str) -> str:
         raw = self._repository.get_setting(key)
@@ -962,19 +769,6 @@ class ApiControlPlane:
         except json.JSONDecodeError:
             return default
         if isinstance(parsed, str):
-            return parsed
-        return default
-
-    def _read_setting_bool(self, key: str, *, default: bool) -> bool:
-        raw = self._repository.get_setting(key)
-        if raw is None:
-            self._repository.set_setting(key, json.dumps(default))
-            return default
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return default
-        if isinstance(parsed, bool):
             return parsed
         return default
 
@@ -992,14 +786,6 @@ class ApiControlPlane:
         return default
 
     def _initialize_settings_from_env_once(self) -> None:
-        _ = self._read_setting_bool(
-            SETTING_GUEST_MODE_ENABLED,
-            default=self._read_bool_env("ENABLE_GUEST_MODE", default=False),
-        )
-        _ = self._read_setting_bool(
-            SETTING_GUEST_ALLOW_COOKIE_INPUT,
-            default=self._read_bool_env("GUEST_ALLOW_COOKIE_INPUT", default=False),
-        )
         _ = self._read_setting_str(
             SETTING_ASR_PROVIDER,
             default=os.getenv("VIDEOSIEVE_ASR_PROVIDER") or _DEFAULT_ASR_PROVIDER,
@@ -1058,14 +844,6 @@ class ApiControlPlane:
 
     def _current_settings(self) -> dict[str, object]:
         return {
-            SETTING_GUEST_MODE_ENABLED: self._read_setting_bool(
-                SETTING_GUEST_MODE_ENABLED,
-                default=self._read_bool_env("ENABLE_GUEST_MODE", default=False),
-            ),
-            SETTING_GUEST_ALLOW_COOKIE_INPUT: self._read_setting_bool(
-                SETTING_GUEST_ALLOW_COOKIE_INPUT,
-                default=self._read_bool_env("GUEST_ALLOW_COOKIE_INPUT", default=False),
-            ),
             SETTING_VLM_BASE_URL: self._read_setting_str(
                 SETTING_VLM_BASE_URL,
                 default=os.getenv("QWEN_BASE_URL") or _DEFAULT_VLM_BASE_URL,
@@ -1126,39 +904,18 @@ class ApiControlPlane:
             ),
         }
 
-    def _validate_guest_cookie_setting_or_raise(self) -> None:
-        settings = self._current_settings()
-        if settings[SETTING_GUEST_ALLOW_COOKIE_INPUT] and not self._guest_cookie_key():
-            raise ApiConfigError(
-                "guest_cookie_key_required: GUEST_COOKIE_KEY is required "
-                "when guest cookie input is enabled"
-            )
-
-    def _parse_iso8601(self, value: str) -> datetime:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-    def _guest_remaining_seconds(self, now: datetime) -> int:
-        next_allowed_at = self._repository.get_next_allowed_at()
-        if next_allowed_at is None:
-            return 0
-        target = self._parse_iso8601(next_allowed_at)
-        delta = (target - now.astimezone(UTC)).total_seconds()
-        return max(0, ceil(delta))
-
     def _append_operation_log(
         self,
         *,
         event: str,
-        actor: str,
         outcome: str,
         code: str | None = None,
         detail: str | None = None,
     ) -> None:
-        actor_type = "guest" if actor == "guest" else "user"
         self._repository.append_operation_log(
             log_id=f"log_{uuid.uuid4().hex[:12]}",
-            actor_type=actor_type,
-            actor_id=None if actor_type == "guest" else actor,
+            actor_type="local",
+            actor_id=LOCAL_ACTOR_ID,
             action=event,
             status=outcome,
             reason_code=code,
@@ -1166,38 +923,8 @@ class ApiControlPlane:
             meta_json=json.dumps({"detail": detail}, ensure_ascii=True),
         )
 
-    def create_job(self, payload: JobCreateRequest, *, actor: str = "guest") -> str:
+    def create_job(self, payload: JobCreateRequest) -> str:
         """Create one queued job under one project."""
-
-        if actor == "guest":
-            settings = self._current_settings()
-            if not settings[SETTING_GUEST_MODE_ENABLED]:
-                self._append_operation_log(
-                    event="guest.job_submit",
-                    actor="guest",
-                    outcome="rejected",
-                    code="auth_required",
-                    detail="guest mode disabled",
-                )
-                raise ApiError(
-                    code="auth_required",
-                    message="authentication required",
-                    status_code=401,
-                )
-            if payload.ingest and payload.ingest.cookie_id is not None:
-                if not settings[SETTING_GUEST_ALLOW_COOKIE_INPUT]:
-                    self._append_operation_log(
-                        event="guest.job_submit",
-                        actor="guest",
-                        outcome="rejected",
-                        code="auth_required",
-                        detail="guest cookie input disabled",
-                    )
-                    raise ApiError(
-                        code="auth_required",
-                        message="authentication required",
-                        status_code=401,
-                    )
 
         project_lock = self._get_project_lock(payload.project_id)
         with project_lock:
@@ -1217,25 +944,6 @@ class ApiControlPlane:
                 payload.project_id,
                 payload.local_video_path,
             )
-
-            if actor == "guest":
-                now = datetime.now(UTC)
-                acquired = self._repository.try_acquire(now, self._guest_cooldown_seconds)
-                if not acquired:
-                    remaining = self._guest_remaining_seconds(now)
-                    self._append_operation_log(
-                        event="guest.job_submit",
-                        actor="guest",
-                        outcome="rejected",
-                        code="guest_cooldown_active",
-                        detail=f"remaining_seconds={remaining}",
-                    )
-                    raise ApiError(
-                        code="guest_cooldown_active",
-                        message="guest cooldown is active",
-                        status_code=429,
-                        details={"remaining_seconds": remaining},
-                    )
 
             job_id = f"j_{uuid.uuid4().hex[:12]}"
             self._workspace.ensure_job_layout(payload.project_id, job_id)
@@ -1305,13 +1013,11 @@ class ApiControlPlane:
             self._repository.create_job(
                 job_id, payload.project_id, status=JobStatus.QUEUED.value, stage=None
             )
-            if actor == "guest":
-                self._append_operation_log(
-                    event="guest.job_submit",
-                    actor="guest",
-                    outcome="accepted",
-                    detail=f"job_id={job_id}",
-                )
+            self._append_operation_log(
+                event="job.submit",
+                outcome="accepted",
+                detail=f"job_id={job_id}",
+            )
 
         return job_id
 

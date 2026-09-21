@@ -17,13 +17,13 @@ Provider credential 不能进入浏览器读响应、普通 SQLite settings、jo
 ## Decision
 
 - `APP_SECRET_KEY`、数据目录、监听地址／端口、Web origin 和进程参数继续作为部署配置；
-- 在线 Provider 的 endpoint、model、参数与 credential 由管理员在 Web 中设置；
+- 在线 Provider 的 endpoint、model、参数与 credential 由操作者在 Web 中设置；
 - Provider credential 使用由 `APP_SECRET_KEY` 派生的密钥加密后持久化；读取 API 只返回
   是否已配置，替换与清除使用显式 write-only 字段；
 - job snapshot 冻结非敏感配置与 credential reference，worker 按 reference 解密；
 - 环境 Provider credential 只兼容缺少新 credential-reference 字段的旧 snapshot，不是新
   安装或新 job 的回退配置；
-- 首次使用流程为创建管理员账号后进入 Provider 引导；总体摘要可以明确跳过；
+- 首次使用直接进入 Provider 引导；总体摘要可以明确跳过；
 - `configured`、`reachable`、`verified` 与真实视频 E2E 是不同状态。
 
 ## Verification Boundary

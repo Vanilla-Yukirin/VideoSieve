@@ -38,7 +38,7 @@ copy .env.example .env.local
 1. 必须替换 `APP_SECRET_KEY`；示例值会被 API 拒绝；
 2. 保持 `VIDEOSIEVE_API_DATA_DIR=runtime/api`，让 API 和 worker 使用同一数据目录；
 3. 保持 `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000`；
-4. 按需设置监听 origin、游客策略等部署参数；
+4. 按需设置监听 origin 等部署参数，Web/API 默认保持回环地址；
 5. 不在 `.env.local` 填写新 Provider 的 endpoint、model 或 credential。
 
 `APP_SECRET_KEY` 只放 `.env.local`，并与 `runtime/api/` 备份分开保管。在线 Provider
@@ -69,12 +69,11 @@ npm.cmd --prefix apps/web run dev
 
 访问 `http://localhost:3000`。首次进入流程是：
 
-1. 创建管理员账号；
-2. 进入 Provider 引导；
-3. 配置 CapsWriter endpoint，以及按需填写选填 Token；
-4. 配置画面摘要 VLM 的 endpoint、model 与 API key；
-5. 按需配置全文摘要 LLM；
-6. 保存后使用一段短视频完成真实验收。
+1. 直接进入 Provider 引导；
+2. 配置 CapsWriter endpoint，以及按需填写选填 Token；
+3. 配置画面摘要 VLM 的 endpoint、model 与 API key；
+4. 按需配置全文摘要 LLM；
+5. 保存后使用一段短视频完成真实验收。
 
 要用生产模式运行前端：
 
@@ -85,11 +84,12 @@ npm.cmd --prefix apps/web run start
 
 ## 4. 本机使用边界
 
-- API 只绑定 `127.0.0.1`。当前鉴权覆盖和密码哈希只适合本机试用，不能直接把 8000
-  端口开放到局域网或公网；
+- 产品内没有账号、登录、游客或 session；Web/API 默认只绑定 loopback。yukirin-server
+  等远程访问必须通过 Tailscale、Yukirin Gateway 或认证反向代理，不能直接把 Web/API
+  端口开放到公网或不受控局域网；
 - 只启动一个 worker。第二个实例会被 `runtime/api/worker.lock` 拒绝；
 - `runtime/api/infra.db`、同目录 WAL/SHM 和 `runtime/api/workspaces/` 是持久数据，不要当缓存删除；
-- 浏览器清理数据后仍可从 SQLite 重新加载项目，但 API 重启后内存登录会话失效，需要重新登录；
+- 浏览器清理数据后仍可从 SQLite 重新加载项目；
 - Windows 休眠、关机或强制结束 worker 会中断运行中的任务。确认旧进程已退出后，在页面显式恢复；
 - 在线 Provider 配置和 credential 均在 Web 修改；
 - 创建 job 时会冻结配置，设置变更只影响之后创建的 job；

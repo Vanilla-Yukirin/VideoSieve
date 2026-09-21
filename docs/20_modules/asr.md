@@ -20,7 +20,7 @@
 - 生产默认 `unconfigured`，必须显式选择外部 provider；
 - `capswriter` 默认实现上游根 WebSocket 协议：发送 Base64 编码的 float32、16 kHz、
   单声道音频消息，接收最终文本、token 和时间戳；
-- Bearer Token 是 WebSocket 握手头的选填项。管理员在 Web Provider 设置中录入，服务端
+- Bearer Token 是 WebSocket 握手头的选填项。操作者在 Web Provider 设置中录入，服务端
   使用 `APP_SECRET_KEY` 加密持久化；job snapshot 只保存 credential reference；
 - `CAPSWRITER_TOKEN` 环境变量只用于解析仍引用该名称的旧 job snapshot，不是新用户
   配置入口；

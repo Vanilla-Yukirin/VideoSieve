@@ -11,7 +11,8 @@
 - 日志、进度、阶段、状态、错误和控制确认增量；
 - `pause|resume|cancel|delete` 控制命令。
 
-认证、设置、项目/任务创建与查询、上传和下载仍使用 HTTP。大文件不通过 WS 传输。
+设置、项目/任务创建与查询、上传和下载仍使用 HTTP。大文件不通过 WS 传输。产品内不做
+WebSocket 会话鉴权，连接者必须已经位于 single-host trusted boundary 内。
 
 ## 2. Client Message
 
@@ -106,4 +107,4 @@ SQLite 行还保存 `channel`、`project_id`、`job_id` 和 `ts`，但当前 WS 
 - SQLite 订阅遇到暂时数据库错误会重连；单个 handler 异常不会毒死后续 cursor；
 - WebSocket 发送失败不回滚已提交状态，客户端通过 cursor 恢复；
 - 生产事件不得把 mock、占位文本或 provider 失败包装为成功 artifact；
-- 每连接发送队列上限、慢客户端断开策略、事件保留期和会话级授权撤销仍待实现。
+- 每连接发送队列上限、慢客户端断开策略和事件保留期仍待实现。

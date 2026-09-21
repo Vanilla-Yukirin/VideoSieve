@@ -230,50 +230,16 @@ Recommended shape:
 - `DELETE_PENDING_CLEANUP`
 - `CONTROL_CONFLICT`
 
-### 5.2 Access/Auth/Cooldown codes [已有代码结构]
+### 5.2 Naming convergence for error codes [规划中（planned）]
 
-- `auth_required`
-- `invalid_credentials`
-- `bootstrap_required`
-- `guest_cookie_key_required`
-- `guest_cooldown_active`
-
-### 5.3 Naming convergence for error codes [规划中（planned）]
-
-- Current contract accepts two stable code families:
-  - Control/state: `UPPER_SNAKE_CASE`
-  - Access/auth/cooldown: `lower_snake_case`
-- Planned convergence will provide canonical + alias mapping before any breaking rename.
+- Current runtime still contains both upper- and lower-snake-case error codes in different paths.
+- Planned convergence must provide canonical + alias mapping before any breaking rename.
 
 Rules:
 - Do not change existing code meaning when introducing aliases.
 - Error code meaning must stay stable across HTTP/event/audit surfaces.
 
-## 6. Auth and Cooldown Contract Semantics
-
-### 6.1 AuthSnapshot [规划中（planned）]
-
-- Purpose: expose current auth mode/state to control-plane clients.
-- Required:
-  - `auth_mode` (for example `single_user` / `guest_enabled`)
-  - `bootstrap_required` (boolean)
-- Optional:
-  - `last_updated_at`
-
-### 6.2 CooldownSnapshot [规划中（planned）]
-
-- Purpose: provide global guest submit cooldown semantics.
-- Required:
-  - `scope` (`global`)
-  - `next_allowed_at`
-- Optional:
-  - `remaining_seconds`
-
-Semantics:
-- Cooldown is shared across all guest clients.
-- A cooldown denial should return an error envelope with `guest_cooldown_active`.
-
-## 7. Artifact Paths
+## 6. Artifact Paths
 
 Current canonical paths:
 - `media/source.mp4` [已实现]
@@ -283,7 +249,7 @@ Current canonical paths:
 - `fusion/timeline.json` [已实现]
 - `outputs/*.md|*.json|*.html` [已实现]
 
-## 8. Versioning and Compatibility
+## 7. Versioning and Compatibility
 
 - `schema_version` follows `major.minor`.
 - Minor version: backward compatible additions.

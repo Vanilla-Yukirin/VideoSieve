@@ -18,7 +18,7 @@
 - verify cancel phase completion before cleanup
 
 ### UI not updating / WS disconnected
-- verify WS connection health and auth
+- verify WS connection health and the outer trusted access path
 - verify API can read SQLite `job_events` after the client's last `event_id`
 - reconnect with the last continuous cursor; if expired, accept `cursor_reset` and rebuild from WS snapshot
 

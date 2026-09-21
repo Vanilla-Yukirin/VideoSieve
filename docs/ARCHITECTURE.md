@@ -1,6 +1,6 @@
 # VideoSieve 架构基线
 
-日期：2026-09-20。
+日期：2026-09-21。
 
 本文定义 VideoSieve 面向“一台电脑或服务器、个人／少量用户”的目标架构。
 架构决策和核心单机运行时已经实现；自动化测试与真实模型端到端验收仍分开记录。
@@ -56,7 +56,7 @@ ASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md) �
 ```text
 浏览器
   │
-  ├─ HTTP：认证、设置、项目/任务创建、上传、下载、健康检查
+  ├─ HTTP：设置、项目/任务创建、上传、下载、健康检查
   │
   └─ WebSocket：job 快照、控制、确认、进度、日志、错误事件
                │
@@ -75,12 +75,12 @@ ASR/VLM/LLM 的输出质量和进程托管仍须按 [质量门禁](QUALITY.md) �
 
 - 任务页通过 WebSocket 获取 job 快照、发送控制命令并接收增量事件；
 - 使用事件游标和状态版本处理重连、去重及乱序；
-- 通过 HTTP 完成认证、设置、项目/任务创建、上传、播放、下载和健康检查；
+- 通过 HTTP 完成设置、项目/任务创建、上传、播放、下载和健康检查；
 - 明确展示“请求已接收”和“worker 已确认生效”的区别。
 
 ### 3.2 FastAPI
 
-- 管理认证、WebSocket 会话、命令校验与持久化；
+- 管理 WebSocket 连接、命令校验与持久化；
 - 创建 job 时先完整写入配置快照，再提交可领取的排队记录；
 - 从 SQLite 读取一致快照与持久事件，向 WebSocket 客户端重放和推送；
 - 提供受路径约束的上传、播放和产物下载；
@@ -93,7 +93,7 @@ SQLite 是单机上的协调与事实存储。当前 schema 保存：
 - `projects` 和 `jobs`；job 行包含 stage、progress、错误、owner、attempt 计数与心跳；
 - 当前控制命令、request ID、版本以及 worker 确认版本；
 - 带单调游标的 `job_events`；
-- 设置、认证用户、Cookie Vault、游客冷却和操作记录。
+- 设置、Provider credential、Cookie Vault 和操作记录。
 
 当前没有独立的 `job_stages`、`job_attempts` 或 `artifacts` 表。阶段检查点和配置快照
 位于 workspace；最终产物由 `deliverables.ready.json` 索引，API 会核对文件大小和
@@ -141,13 +141,15 @@ generation 临时文件，全部校验后逐个原子替换 canonical 文件，�
 
 当前接口边界是：
 
-- HTTP：认证、设置、项目与 job 的创建/查询/删除、Cookie Vault、上传、媒体/产物下载，
+- HTTP：设置、项目与 job 的创建/查询/删除、Cookie Vault、上传、媒体/产物下载，
   以及当前仅表示 API 进程存活的 `/healthz`；
 - WebSocket：单个 job 的权威 snapshot、cursor 重放、实时进度/日志/错误和
   pause/resume/cancel/delete 控制；
 - 项目列表和设置目前仍是 HTTP，不把尚未实现的全业务 WS 写成现状。
 
-HTTP 文件传输和 WebSocket 控制共享同一认证与授权规则。不要通过 WebSocket 传输
+产品内没有账号、登录、游客或会话鉴权。HTTP 文件传输和 WebSocket 控制都假定调用者
+已经进入 single-host trusted boundary。Web/API 默认只绑定回环地址；远程访问必须由
+Tailscale、Yukirin Gateway 或认证反向代理提供外层访问控制。不要通过 WebSocket 传输
 大视频或产物文件，也不要把下载 URL 当作业务状态真相。
 
 ## 6. 状态、控制与确认
@@ -175,7 +177,7 @@ WebSocket 信封发送 `event_type`、`cursor`、`state_version`、`request_id` 
 `schema_version` 尚未加入线上信封。
 
 快照是状态事实，持久事件用于增量、审计和有限期重放；两者都通过 WebSocket 传给
-已建立会话的客户端。`state_version` 小于客户端当前版本的状态更新必须被忽略，日志等
+已建立连接的客户端。`state_version` 小于客户端当前版本的状态更新必须被忽略，日志等
 追加事件按 `event_id` 去重。
 
 断线恢复和游标过期规则以
@@ -187,7 +189,7 @@ WebSocket 信封发送 `event_type`、`cursor`、`state_version`、`request_id` 
 - 启用 WAL、每连接 `foreign_keys=ON` 和合理的 `busy_timeout`；
 - API 与 worker 使用独立连接，只做短事务；
 - 业务状态变化与对应持久事件必须在同一事务提交，不能出现“状态已变但没有 cursor”窗口；
-- API 负责会话、控制命令、job 创建和业务配置写入；
+- API 负责连接、控制命令、job 创建和业务配置写入；
 - worker 负责领取、当前 attempt、stage、执行状态和执行事件写入；
 - 写冲突必须按受限退避重试，耗尽后产生明确错误；
 - checkpoint 只是 WAL 维护，不等于任务崩溃恢复；
@@ -204,7 +206,7 @@ WebSocket 信封发送 `event_type`、`cursor`、`state_version`、`request_id` 
 
 ## 10. 代码边界
 
-- `apps/api`：认证、WS/HTTP 边界、命令和文件访问；
+- `apps/api`：WS/HTTP 边界、命令和文件访问；
 - `apps/web`：页面、WS 客户端状态机与文件传输 UI；
 - `workers`：独立进程启动、依赖装配和任务领取循环；
 - `packages/contracts`：跨模块类型和协议；

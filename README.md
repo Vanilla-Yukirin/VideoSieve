@@ -15,8 +15,11 @@
 任务状态与游标事件保存在 SQLite，前端任务状态和控制通过 WebSocket 传输。Celery 与
 Redis 只保留在历史设计中，不是运行依赖。
 
-VideoSieve 不内置或下载 ASR 模型。首次启动时先创建管理员账号，再进入 Provider
-引导页配置 CapsWriter、画面描述 VLM 和全文摘要 LLM 的 endpoint、model 与 credential。
+VideoSieve 不内置或下载 ASR 模型。首次启动直接进入 Provider 引导页，配置 CapsWriter、
+画面描述 VLM 和全文摘要 LLM 的 endpoint、model 与 credential。产品内没有账号、登录、
+游客或会话；默认只通过回环地址提供 Web/API。yukirin-server 等远程访问必须由 Tailscale、
+Yukirin Gateway 或认证反向代理建立外层访问控制，不能把 Web/API 直接暴露到公网或不受控
+局域网入口。
 Provider credential 由服务端使用 `APP_SECRET_KEY` 加密后持久化，浏览器、任务快照、
 日志和产物都不回显明文。`APP_SECRET_KEY`、数据目录和监听地址／端口仍属于部署配置。
 

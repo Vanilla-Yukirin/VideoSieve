@@ -51,10 +51,12 @@ API 最低启动配置包括：
 - `APP_SECRET_KEY`；
 - SQLite 路径；
 - workspace 根目录；
-- Web origin / cookie / session 安全策略。
+- Web origin 与监听地址／端口。
 
-当前管理会话仍是浏览器 `localStorage` 中的 Bearer token；其适用边界和迁移条件见
-[Security and Secrets](security-and-secrets.md#browser-session-token-tradeoff)。
+产品内没有账号、登录、游客或 session。Web/API 默认只绑定回环地址；yukirin-server
+等远程访问必须通过 Tailscale、Yukirin Gateway 或认证反向代理提供外层访问控制。不得
+把端口直接开放到公网或不受控局域网。详见
+[Security and Secrets](security-and-secrets.md#single-host-trusted-boundary)。
 
 worker 最低启动配置包括：
 
@@ -122,6 +124,6 @@ worker 心跳超时只触发告警并把 active job 标记为 interrupted／需�
 - worker heartbeat 超时后，另一个正在运行的 worker 轮询会把 job 标为 interrupted；
   若没有 worker 进程，状态不会自行推进，部署监控必须检测进程退出；
 - WebSocket 断线后通过递增 cursor 恢复；
-- HTTP 上传／下载与 WS 业务控制使用一致的访问权限；
+- HTTP 上传／下载与 WS 业务控制都只能从已建立的外层受信边界访问；
 - SQLite busy、磁盘满、凭据缺失、模型失败都有明确健康或任务错误；
 - 使用真实视频与真实 provider 完成一次端到端验收。

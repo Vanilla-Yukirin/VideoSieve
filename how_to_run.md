@@ -31,9 +31,6 @@ copy .env.example .env.local
 ```env
 APP_SECRET_KEY=replace-with-a-long-random-value
 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
-ENABLE_GUEST_MODE=false
-GUEST_ALLOW_COOKIE_INPUT=false
-GUEST_JOB_COOLDOWN_SECONDS=120
 ```
 
 在线 ASR、画面描述 VLM 和全文摘要 LLM 的 endpoint、model 与 credential 不属于部署
@@ -101,11 +98,10 @@ npm.cmd --prefix apps/web run dev
 
 首次进入的推荐流程：
 
-1. 创建管理员账号；
-2. 进入 Provider 引导，配置 CapsWriter；
-3. 配置画面描述 VLM 的 endpoint、model 和 API key；
-4. 按需配置全文摘要 LLM；
-5. 保存后用一段短视频做真实验收。
+1. 直接进入 Provider 引导，配置 CapsWriter；
+2. 配置画面描述 VLM 的 endpoint、model 和 API key；
+3. 按需配置全文摘要 LLM；
+4. 保存后用一段短视频做真实验收。
 
 当前尚未实现独立的 Provider 连接测试。页面显示“已配置”只表示字段和 credential 已
 保存，不表示 endpoint 可达、鉴权有效或模型存在；真实短视频成功并人工检查内容，才是
@@ -123,10 +119,14 @@ npm.cmd --prefix apps/web run dev
 - 在部署平台或 GitHub Actions 中配置环境变量：
   - 必填：`APP_SECRET_KEY`
   - 推荐：`NEXT_PUBLIC_API_ORIGIN`
-  - 可选：`ENABLE_GUEST_MODE`、`GUEST_ALLOW_COOKIE_INPUT`、`GUEST_JOB_COOLDOWN_SECONDS`、`GUEST_COOKIE_KEY`
 - 在线 Provider 的 endpoint、model 与 credential 在 Web 中配置，不放入新部署的环境变量。
 - 仅当恢复旧 job snapshot 时，才按其 credential name 临时提供旧环境变量。
 - `NEXT_PUBLIC_*` 变量会暴露到前端浏览器，只能放非敏感配置。
+
+VideoSieve 采用 single-host trusted mode，产品内没有账号、登录、游客或会话鉴权。Web 与
+API 默认只绑定回环地址。若从 yukirin-server 等远程主机访问，必须通过 Tailscale、
+Yukirin Gateway 或带认证的反向代理建立外层访问控制；不要把 Web/API 直接开放到公网或
+不受控的局域网入口。无登录不代表公开访问安全。
 
 ## 常见问题（Windows）
 

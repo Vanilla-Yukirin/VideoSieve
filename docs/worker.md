@@ -10,7 +10,7 @@ This repository now uses a single-agent execution workflow by default.
 
 ## Current Technical Direction
 
-- Single-user first, guest mode optional and disabled by default.
+- Single-host trusted mode; product access control belongs to the outer deployment boundary.
 - ASR runs in an external service selected through the provider adapter. The worker only
   normalizes media with FFmpeg and performs the remote request.
 - Frame understanding runs as FrameSummary-only with free-text outputs.

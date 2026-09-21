@@ -18,12 +18,12 @@ Celery + Redis 并未成为可用运行时。
 
 采用以下单机架构：
 
-- FastAPI 负责认证、WebSocket 会话、命令持久化和受限 HTTP 文件传输；
+- FastAPI 负责 WebSocket 连接、命令持久化和受限 HTTP 文件传输；
 - SQLite 保存持久队列、确认状态、控制请求、attempt、stage、事件和产物索引；
 - 一个独立 Python worker 进程轮询并原子领取任务；
 - 本地 workspace 保存媒体、中间数据和最终产物；
 - WebSocket 承担业务快照、命令、确认与增量事件；
-- HTTP 仅承担页面／初始会话引导、上传、下载及健康检查；
+- HTTP 仅承担页面／Provider 初始化引导、上传、下载及健康检查；
 - 首版不使用 Celery 或 Redis。
 
 SQLite 使用本机磁盘、WAL、连接级外键检查、busy timeout 和短事务。API 与 worker
@@ -41,6 +41,9 @@ SQLite 使用本机磁盘、WAL、连接级外键检查、busy timeout 和短事
 - `ARCHITECTURE-old.md` 与 `ARCHITECTURE-rewrite.md` 中的 Celery + Redis 默认方案。
 
 历史文件保留用于追溯，不据此继续实现 Redis/Celery。
+
+产品访问边界由 [ADR-0008](ADR-0008-single-host-trusted-mode.md) 补充：产品内不提供账号、
+登录、游客或会话，远程访问控制由宿主机外层入口承担。
 
 ## Alternatives Considered
 

@@ -1,7 +1,7 @@
 # Configuration
 
 状态：在线 Provider 的加密 credential vault、job credential reference、worker 解析路径和
-首次账号后的 Provider 引导已实现。独立连接测试尚未实现，真实 provider 端到端验收
+首次 Provider 引导已实现。独立连接测试尚未实现，真实 provider 端到端验收
 仍未执行。
 
 ## 1. 配置分层
@@ -10,7 +10,7 @@
 
 由环境变量或受保护的运行配置提供，只描述进程启动和本机部署边界：
 
-- `APP_SECRET_KEY`，用于会话及 SQLite 中敏感值的加密根密钥；
+- `APP_SECRET_KEY`，用于 SQLite 中敏感值的加密根密钥；它不是用户会话或访问令牌；
 - SQLite 文件路径、workspace 根目录；
 - API/Web 的监听地址、端口与允许 origin；
 - worker 轮询、心跳、busy timeout 等运行参数。
@@ -20,12 +20,12 @@
 
 ### System settings
 
-保存在 SQLite，表示管理员可调整的默认值和产品开关。在线 ASR、frame-summary VLM 和
+保存在 SQLite，表示操作者可调整的默认值和产品开关。在线 ASR、frame-summary VLM 和
 overall-summary LLM 的 endpoint、model、参数与 credential 均从 Web 管理。credential
 使用由 `APP_SECRET_KEY` 派生的密钥加密，读取 API 只返回是否已配置，不返回明文。
 
-首次启动流程为：创建管理员账号 -> Provider 引导 -> 配置所需能力 -> 创建任务。环境
-provider 变量不得成为新用户必须理解的隐藏步骤。
+首次启动流程为：Provider 引导 -> 配置所需能力 -> 创建任务。产品内没有账号、登录、
+游客或会话；环境 provider 变量不得成为新用户必须理解的隐藏步骤。
 
 ### Job snapshot
 
@@ -34,7 +34,7 @@ provider 变量不得成为新用户必须理解的隐藏步骤。
 该快照和受保护的 secret reference，不读取当前 UI 状态或可变 system settings。
 
 优先级为：系统默认值 -> 创建 job 的合法覆盖 -> 不可变 job snapshot。执行开始后，
-管理员修改设置只影响以后创建的 job。
+操作者修改设置只影响以后创建的 job。
 
 ## 2. Snapshot 必须覆盖的内容
 
@@ -110,11 +110,10 @@ worker 开始 attempt 时：
 当前尚未实现独立 Provider 连接测试 API，因此产品只能陈述 `configured`，不能显示
 `reachable` 或 `verified`。`GET /healthz` 也只证明 API 进程存活。
 
-## 7. Guest 与 Cookie 约束
+## 7. Cookie 约束
 
-- guest mode 默认关闭；
-- `guest_allow_cookie_input=true` 时必须提供有效 `GUEST_COOKIE_KEY`，否则启动或设置写入失败；
 - Web 创建 job 使用 `cookie_id`／受保护引用，不传 cookie 明文；
+- Cookie Vault 对外路由使用 `/cookies`；底层历史表名只属于兼容实现细节；
 - `cookie_file_path` 仅作为迁移兼容入口，不是目标 Web 协议；
 - cookie、key 和 token 在日志、事件、快照与错误中完全脱敏。
 

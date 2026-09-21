@@ -68,7 +68,7 @@ API 与 worker 分进程，API 重启不应杀死正在运行的计算任务。
 - `jobs`：排队顺序、实际状态、当前 stage/progress、错误、worker ID、attempt 计数、
   心跳、控制请求/确认版本和 state version；
 - `job_events`：单调递增 ID、job、事件类型、必要内容、state version 与 request ID；
-- `projects`、settings、auth、Cookie Vault、游客冷却和操作记录继续保存在 SQLite；
+- `projects`、settings、Provider credential、Cookie Vault 和操作记录继续保存在 SQLite；
 - job 配置、阶段 checkpoint 和重数据保存在 workspace；
 - 最终 deliverables 的路径、大小和 SHA-256 保存在最后发布的
   `outputs/deliverables.ready.json`，API 每次暴露前重新核对。

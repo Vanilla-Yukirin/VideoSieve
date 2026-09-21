@@ -1,96 +1,81 @@
 # Security and Secrets
 
+## Single-host Trusted Boundary
+
+VideoSieve 采用 single-host trusted mode：产品内没有账号、登录、登出、游客、session 或
+按用户授权。HTTP 与 WebSocket 都假定调用者已经位于部署方建立的受信边界内。
+
+- Web/API 默认只监听 `127.0.0.1` / `localhost`；
+- yukirin-server 等远程访问必须通过 Tailscale、Yukirin Gateway 或认证反向代理；
+- 不得把 Web/API 端口直接开放到公网或不受控局域网入口；
+- 无登录不等于公开访问安全，CORS 也不能代替网络访问控制；
+- 若未来需要不可信多用户访问，必须重新设计身份、授权、CSRF、WebSocket 握手和审计，
+  并以新 ADR 修改当前边界。
+
 ## Rules
 
 - never commit secrets to git
-- use environment variables or secret manager
-- redact sensitive fields in logs/events
+- encrypt persisted credentials
+- redact sensitive fields in logs/events/errors
+- keep browser-visible configuration non-secret
 
 Status markers:
+
 - `implemented`: active in current runtime.
 - `planned`: target behavior not yet exposed.
 
 ## Secret Types
 
-- provider API keys
-- cookie credentials (if needed for source download)
-- storage credentials
+- provider API keys and optional CapsWriter token
+- cookie credentials used for source download
+- `APP_SECRET_KEY`
+- future storage credentials, if introduced
 
 ## Online Provider Credentials
 
-- `implemented` 管理员在 Web Provider 设置中录入 CapsWriter Token、VLM API key 和 summary
-  API key；endpoint 与 model 也由同一页面管理；
-- `implemented` provider credential 使用由 `APP_SECRET_KEY` 派生的密钥加密后持久化；数据库
-  可以保存密文和 credential metadata，不能保存可直接使用的明文；
-- 读取接口只返回 `configured` 等布尔／状态信息；替换和清除 credential 使用显式写操作，
-  不通过空字符串或掩码值猜测；
-- job snapshot 只保存 credential reference。日志、事件、错误、产物、浏览器状态和操作
-  记录都不得包含 credential 明文；
-- `CAPSWRITER_TOKEN`、`QWEN_API_KEY` 与 `SUMMARY_API_KEY` 环境变量仅作为旧 snapshot
-  兼容入口。新用户路径不得要求编辑这些变量；
-- `planned` 独立 Provider 连接测试尚未实现。credential 已保存不代表鉴权、可达性、
-  模型能力或真实视频 E2E 已验证。
+- `implemented` Web Provider 设置录入 CapsWriter Token、VLM API key 和 summary API key；
+  endpoint 与 model 由同一页面管理；
+- `implemented` credential 使用由 `APP_SECRET_KEY` 派生的密钥加密后持久化；数据库只保存
+  密文与 metadata，读取 API 只返回 `configured` 状态；
+- 替换和清除 credential 使用显式 write-only 操作，不用空字符串或掩码值猜测；
+- job snapshot 只保存 credential reference；日志、事件、错误、产物、浏览器状态和操作记录
+  不得包含明文；
+- `CAPSWRITER_TOKEN`、`QWEN_API_KEY` 与 `SUMMARY_API_KEY` 环境变量只兼容旧 snapshot，
+  新用户不应编辑这些变量；
+- `planned` 独立 Provider 连接测试尚未实现。credential 已保存不代表 endpoint 可达、
+  鉴权有效、模型存在或真实视频 E2E 已验证。
 
-## Cookie Handling (High Sensitivity)
+## Cookie Handling
 
-- `implemented` cookie vault stores encrypted cookie text server-side; plaintext is not returned by API responses
-- `implemented` cookie validation requires a concrete video-page URL and rejects site homepage/root URLs
-- cookie-related fields must be fully redacted in logs/events/errors
-- `implemented` prefer `cookie_id` in API job payloads; resolve cookie material server-side
-- `implemented` keep `cookie_file_path` only as migration fallback in controlled local/dev deployments
+- `implemented` Cookie Vault 在服务端加密保存 cookie，读取 API 不返回明文；
+- `implemented` 对外 API 使用 `/cookies`，底层历史表名只属于兼容实现细节；
+- `implemented` validation 要求具体视频页 URL，并拒绝站点首页；
+- cookie 字段在日志、事件和错误中完全脱敏；
+- job 请求优先使用 `cookie_id`，服务端解析实际 cookie；
+- `cookie_file_path` 只作为受控本地迁移兼容入口。
 
-## API Startup Preconditions
+## APP_SECRET_KEY
 
-- `implemented` `APP_SECRET_KEY` is mandatory for API startup (fail-fast).
-- `implemented` missing or blank `APP_SECRET_KEY` prevents service startup instead of deferring failure to runtime handlers.
-- API 与 worker 必须使用同一 `APP_SECRET_KEY`，否则 worker 无法解析网页保存的 provider
-  credential；轮换前必须完成受控重加密，直接替换会使现有密文不可读。
+- `implemented` API 启动必须提供非空且非示例值的 `APP_SECRET_KEY`；
+- API 与 worker 必须使用同一密钥，否则 worker 无法解密网页保存的 provider credential；
+- 轮换前必须完成受控重加密，直接替换会使现有密文不可读；
+- `APP_SECRET_KEY` 是静态数据加密根密钥，不是用户密码、Bearer token 或访问控制机制。
 
-## Minimum Deployment Env (API)
-
-- `APP_SECRET_KEY`
-- `ENABLE_GUEST_MODE`
-- `GUEST_ALLOW_COOKIE_INPUT`
-- `GUEST_COOKIE_KEY`
-- `GUEST_JOB_COOLDOWN_SECONDS`
-
-在线 Provider key 不属于新部署的最低环境变量集合。
-
-Constraint:
-- `implemented` if `guest_allow_cookie_input=true` in persisted settings while `GUEST_COOKIE_KEY` is empty, runtime must reject configuration.
+API 的最低部署环境包含 `APP_SECRET_KEY`、数据目录、监听地址／端口和允许的 Web origin。
+在线 Provider key 不属于新部署环境变量集合。
 
 ## Frontend Public Env Boundary
 
-- `NEXT_PUBLIC_*` variables are public and shipped to browser clients.
-- Do not place secrets in `NEXT_PUBLIC_*` values.
-- Examples of non-secret public config: `NEXT_PUBLIC_API_ORIGIN`.
-
-## Browser Session Token Tradeoff
-
-- `implemented` 当前 Web 把管理会话 token 存在浏览器 `localStorage`，请求时通过
-  `Authorization: Bearer ...` 发送；SSR 使用空的 server snapshot，hydration 后再读取 token，
-  避免服务端与客户端首屏状态不一致。
-- 这意味着一旦页面发生 XSS，攻击脚本可以读取 token。该实现只接受于当前“一台主机、
-  一个或少量可信用户”的自托管范围，不能据此声称适合直接暴露为公网多用户服务。
-- 当前前端不把模型输出或 Markdown 作为 HTML 注入；润色稿只渲染文本和经过严格字符集
-  校验的 frame 占位符。部署时仍需限制允许的 Web origin、使用 TLS，并避免加载不可信
-  第三方脚本。
-- `planned` 若部署范围扩展到公网或不可信多用户，认证应迁移到 `HttpOnly`、`Secure`、
-  合适 `SameSite` 的服务端 cookie，并同时设计 CSRF 防护、WebSocket 握手认证和会话撤销；
-  不能只把 Bearer token 改存 cookie。
-
-## Current Local Authentication Boundary
-
-- 当前只把管理会话用于设置读取/修改和 job 提交；project、Cookie Vault、产物下载、
-  job control 与 WebSocket 尚未统一要求登录。因此 API 只允许绑定回环地址，不能直接
-  开放到局域网或公网；
-- 密码当前使用随机 salt 加单次 SHA-256，缺少适合密码存储的成本参数。公网或不可信
-  多用户部署前必须迁移到 Argon2、scrypt 或 PBKDF2，并设计旧哈希升级；
-- session 保存在 API 进程内存中，API 重启会要求重新登录，账户本身仍保存在 SQLite；
-- 上述限制不影响回环地址上的个人试用，但属于扩大部署范围前的阻断项。
+- `NEXT_PUBLIC_*` 会发给浏览器，不能包含任何秘密；
+- `NEXT_PUBLIC_API_ORIGIN` 可以公开；
+- 前端不保存 auth token，因为产品没有登录或 session；
+- 模型输出和 Markdown 不作为任意 HTML 注入；仍应限制 origin、使用安全的外层远程入口，
+  并避免加载不可信第三方脚本。
 
 ## Operational Guardrails
 
-- rotate keys periodically
-- least privilege for service accounts
-- separate dev/prod credentials
+- 定期验证备份和密钥恢复；
+- Provider 使用最小权限凭据，并区分开发与正式环境；
+- 外层 Tailscale、Yukirin Gateway 或认证反向代理的访问策略属于部署必需项，必须与
+  Web/API 一起验收；
+- 外层入口失效或绕过时，停止远程开放，不能依赖产品内不存在的登录兜底。

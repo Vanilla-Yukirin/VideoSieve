@@ -1,13 +1,20 @@
 # App: api
 
-状态：SQLite 队列与 job WebSocket 控制面已实现。REST 路由承担认证、设置、项目与
-任务创建、上传和下载；这就是当前接口边界，不再把它描述成等待全量迁移到 WS 的旧接口。
-标为 `implemented` 只表示代码路径存在，不代替运行验收。
+状态：SQLite 队列与 job WebSocket 控制面已实现。REST 路由承担设置、项目与任务创建、
+上传和下载；产品内没有账号、登录、游客或会话鉴权。标为 `implemented` 只表示代码路径
+存在，不代替运行验收。
 
 ## Purpose
 
-提供认证、受限 HTTP 文件接口与 WebSocket 业务网关。API 创建任务时只持久化配置快照
-和 queued 记录，不在 API 进程内执行媒体 pipeline。
+提供受限 HTTP 文件接口与 WebSocket 业务网关。API 创建任务时只持久化配置快照和
+queued 记录，不在 API 进程内执行媒体 pipeline。
+
+## Trusted Boundary
+
+- Web/API 默认只监听回环地址；HTTP 与 WebSocket 都假定调用者已经位于受信边界内；
+- yukirin-server 等远程访问必须通过 Tailscale、Yukirin Gateway 或认证反向代理；
+- 不得把 API/Web 直接开放到公网或不受控局域网入口；无登录不等于公开访问安全；
+- `APP_SECRET_KEY` 只保护 SQLite 中的敏感值，不是调用者身份或会话凭据。
 
 ## Domain Axis (Project vs Job)
 
@@ -20,79 +27,73 @@
 - validate commands and persist project/job/config records
 - serve authoritative snapshots and cursor events over WebSocket
 - expose uploads, media/artifact downloads and health checks over HTTP
-- read SQLite events and push them to authenticated WS subscriptions
+- read SQLite events and push them to trusted WS connections
 
 ## Interfaces
 
-Current runtime exposes REST endpoints for auth/settings/project/job/config/artifact and a
-job WebSocket channel. The implemented split is:
+Current runtime exposes REST endpoints for settings/project/job/config/artifact and a job WebSocket
+channel:
 
-- HTTP: authentication, settings, project/job CRUD, upload, media/artifact download and health;
-- WebSocket: one job's authoritative snapshot, control commands and cursor events;
-- large binary files never travel inside WebSocket messages.
+- HTTP：Provider 设置、project/job CRUD、上传、媒体/产物下载和健康检查；
+- WebSocket：单个 job 的权威 snapshot、控制命令和 cursor events；
+- 大文件不在 WebSocket 消息中传输。
 
-The `/ws/jobs/{job_id}` route and command registry are versioned with
-`docs/10_system/events-and-websocket.md`.
+`/ws/jobs/{job_id}` 与命令注册以
+[Events and WebSocket Protocol](../10_system/events-and-websocket.md) 为准。
 
 Status markers used below:
-- `implemented`: code path observed in the rebuild audit; runtime/E2E validation is separate.
+
+- `implemented`: code path observed; runtime/E2E validation is separate.
 - `planned`: documented target, not in current runtime.
 
 Key REST endpoints:
-- `implemented` `GET /public/access-flags`: public bootstrap hint (`guest_mode_enabled` only).
-- `implemented` `GET /auth/bootstrap-status`, `POST /auth/bootstrap`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`.
-- `implemented` `GET /settings/system`, `PATCH /settings/system`.
-- `implemented` `GET /projects`: list SQLite-backed projects in stable newest-first creation order.
-- `implemented` `GET /guest/cooldown`: global cooldown state (`active`, `remaining_seconds`, `cooldown_seconds`).
-- `implemented` `POST /ingest/probe`: URL format probe only (no download).
-- `implemented` `POST /jobs`: create a job snapshot and persist a queued job in the audited REST path.
-- `implemented` `POST /projects/{project_id}/jobs/upload`: stage an upload inside the project's
-  workspace, then create a job; rejected job creation removes the staged file.
-- `implemented` `GET /jobs/{job_id}/source-video`: returns workspace `media/source.mp4` for player/download.
-- `implemented` Cookie Vault: `POST /me/cookies`, `GET /me/cookies`, `PATCH /me/cookies/{cookie_id}`, `DELETE /me/cookies/{cookie_id}`.
-- `implemented` `POST /me/cookies/{cookie_id}/validate`: validate cookie against a concrete video page URL.
-- `planned` `GET /operation-logs`: query operation logs via API endpoint (current runtime writes logs to storage only).
 
-Provider settings notes:
+- `implemented` `GET /settings/system`, `PATCH /settings/system`；
+- `implemented` `GET /projects`：以稳定的创建时间倒序返回 SQLite 项目；
+- `implemented` `POST /ingest/probe`：只探测 URL 格式，不下载；
+- `implemented` `POST /jobs`：冻结配置快照并写入 queued job；
+- `implemented` `POST /projects/{project_id}/jobs/upload`：在项目 workspace 暂存上传后创建 job；
+- `implemented` `GET /jobs/{job_id}/source-video`：提供 workspace 视频；
+- `implemented` Cookie Vault：`POST /cookies`、`GET /cookies`、
+  `PATCH /cookies/{cookie_id}`、`DELETE /cookies/{cookie_id}`；
+- `implemented` `POST /cookies/{cookie_id}/validate`：用具体视频页 URL 验证 cookie；
+- `planned` `GET /operation-logs`：当前 runtime 只写操作记录，尚无查询端点。
+
+底层历史表名若仍保留，只属于兼容实现细节；对外契约只使用上述 `/cookies` 路由。
+
+## Provider Settings
 
 - `implemented` `PATCH /settings/system` 接受 write-only 的 CapsWriter Token、VLM API key
-  与 summary API key，并提供显式 clear 字段；替换与清除不能在同一请求中发生；
+  与 summary API key，并提供显式 clear 字段；替换与清除不能同时发生；
 - `implemented` `GET /settings/system` 只返回各 credential 的 `*_configured` 状态，不返回
   明文、密文或掩码占位值；
-- `implemented` 创建 job 时只把 provider 非敏感配置与 credential reference 写入 snapshot；
+- `implemented` 创建 job 时只把非敏感 Provider 配置与 credential reference 写入 snapshot；
 - `planned` 当前没有 Provider 连接测试接口；设置保存成功只能解释为 `configured`。
 
-Ingest config notes:
-- Create-job path is format-id only (`analysis_asset` + `quality_asset` with `video_format_id`/`audio_format_id`).
-- Probe path no longer accepts `ytdlp_sort` from client payload.
-- Create-job accepts `cookie_id` (preferred) and keeps `cookie_file_path` as migration fallback.
-- Security policy: do not accept raw `cookie_content` from Web create-job payloads.
+`configured` 只表示结构完整且 credential reference 存在；它不证明 endpoint `reachable`、
+credential/model `verified`，也不等于真实视频 E2E。
 
-Cookie validate notes:
-- `implemented` `source_url` is required and must point to a concrete video page.
-- `implemented` homepage/root URLs (for example `https://www.bilibili.com` or `https://bilibili.com/`) are rejected to avoid false-negative validation.
+## Ingest and Artifact Notes
 
-Artifact exposure notes:
-- `implemented` `GET /jobs/{job_id}/artifacts` only returns final deliverables whose readiness
-  manifest matches project/job identity and whose file size/SHA-256 still matches.
-- `implemented` constrained download routes expose individual artifacts and the keyframe archive.
+- Create-job path uses format IDs (`analysis_asset` + `quality_asset`)；
+- create-job 接受 `cookie_id`，`cookie_file_path` 只作为迁移兼容入口；
+- Web 请求不接受明文 `cookie_content`；
+- cookie validate 要求具体视频页 URL，并拒绝站点首页，避免假阴性；
+- `GET /jobs/{job_id}/artifacts` 只返回 readiness manifest 身份、大小与 SHA-256 均匹配的
+  final deliverables；下载路由继续约束在 workspace 内。
 
 ## Control Semantics
 
-- UI controls (`pause/resume/cancel/delete`) always target a specific `job_id`.
-- Re-run creates a new `job_id`; previous jobs remain queryable by snapshot/history.
-- accepted requests are persisted separately from worker-confirmed applied state.
-- API cannot report paused/cancelled merely because it wrote a control flag.
-- heartbeat timeout yields `interrupted`; API cannot auto-dispatch a replacement attempt.
+- UI 控制始终针对一个 `job_id`；重跑产生新的 `job_id`；
+- accepted 请求与 worker-confirmed applied 状态分开持久化；
+- API 不能仅因写入控制标志就报告 paused/cancelled；
+- heartbeat timeout 产生 `interrupted`，不能自动派发替代 attempt。
 
 ## Notes
 
-- API 不直接实现算法，算法由 `packages/*` 提供
-- job state truth is a WebSocket snapshot backed by SQLite; increments use persisted event cursor
-- process-local notifications may wake the gateway but are never the recovery source
-- `/healthz` currently proves API liveness only; DB/workspace/worker readiness is not yet implemented.
-- `APP_SECRET_KEY` is a startup precondition for API runtime; missing key fails fast at startup.
-- `implemented` API error semantics in runtime:
-  - `auth_required`, `invalid_credentials`, `bootstrap_required`
-  - `guest_cookie_key_required`, `guest_cooldown_active`
-  - `not_found`, `validation_error`, `config_error`, `internal_error`
+- API 不直接实现算法，算法由 `packages/*` 提供；
+- job state truth 是 SQLite-backed WebSocket snapshot，增量使用持久 event cursor；
+- 进程内通知只能唤醒 gateway，不能作为恢复来源；
+- `/healthz` 只证明 API liveness，不证明数据库、workspace、worker 或 provider readiness；
+- `APP_SECRET_KEY` 缺失时 API 启动失败；
+- 当前通用错误包括 `not_found`、`validation_error`、`config_error`、`internal_error`。

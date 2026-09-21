@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import InvalidStatus, WebSocketException
 from websockets.sync.client import connect as _connect_ws
 from websockets.typing import Subprotocol
 
@@ -252,6 +252,23 @@ class CapsWriterWebSocketProvider(ASRProvider):
                 "ASR_PROVIDER_TIMEOUT",
                 "CapsWriter WebSocket handshake timed out",
                 retryable=True,
+            ) from exc
+        except InvalidStatus as exc:
+            status = exc.response.status_code
+            if status in {401, 403}:
+                raise ASRProviderError(
+                    "ASR_PROVIDER_AUTH_FAILED",
+                    f"CapsWriter WebSocket handshake returned HTTP {status}",
+                    hint=(
+                        "Configure the optional Bearer token when this CapsWriter "
+                        "deployment enables authentication."
+                    ),
+                    retryable=False,
+                ) from exc
+            raise ASRProviderError(
+                "ASR_PROVIDER_REQUEST_FAILED",
+                f"CapsWriter WebSocket handshake returned HTTP {status}",
+                retryable=status >= 500,
             ) from exc
         except (OSError, ValueError, WebSocketException) as exc:
             raise ASRProviderError(

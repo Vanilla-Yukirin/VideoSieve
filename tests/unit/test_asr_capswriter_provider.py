@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from asr import (
     ASRProviderError,
@@ -104,6 +107,22 @@ def test_websocket_provider_sends_optional_bearer_token(monkeypatch: pytest.Monk
     )
 
     assert connect_kwargs["additional_headers"] == {"Authorization": "Bearer secret"}
+
+
+def test_websocket_connection_test_reports_optional_token_auth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject(*_args: object, **_kwargs: object) -> None:
+        raise InvalidStatus(Response(401, "Unauthorized", Headers()))
+
+    monkeypatch.setattr("asr.capswriter._connect_ws", reject)
+
+    with pytest.raises(ASRProviderError) as exc_info:
+        CapsWriterWebSocketProvider(endpoint="ws://localhost:6016").test_connection()
+
+    assert exc_info.value.code == "ASR_PROVIDER_AUTH_FAILED"
+    assert "optional Bearer token" in exc_info.value.hint
+    assert exc_info.value.retryable is False
 
 
 def test_websocket_provider_rejects_http_endpoint() -> None:

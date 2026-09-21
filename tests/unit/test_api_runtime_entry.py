@@ -92,6 +92,25 @@ def test_runtime_lists_projects_from_sqlite(tmp_path: Path) -> None:
         }
 
 
+def test_runtime_renames_project_and_rejects_blank_title(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        project_id = client.post("/projects", json={"title": "before"}).json()["project_id"]
+
+        renamed = client.patch(
+            f"/projects/{project_id}",
+            json={"title": "  after  "},
+        )
+        assert renamed.status_code == 200
+        assert renamed.json()["title"] == "after"
+
+        blank = client.patch(f"/projects/{project_id}", json={"title": "   "})
+        assert blank.status_code == 422
+        assert client.get(f"/projects/{project_id}").json()["title"] == "after"
+
+        missing = client.patch("/projects/p_missing", json={"title": "new"})
+        assert missing.status_code == 404
+
+
 def test_runtime_upload_is_staged_inside_project_workspace_with_safe_name(
     tmp_path: Path,
 ) -> None:

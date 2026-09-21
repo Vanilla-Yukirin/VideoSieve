@@ -3,6 +3,7 @@ import {
   Job,
   JobSnapshot,
   CreateProjectRequest,
+  ProjectPatchRequest,
   DeleteProjectResponse,
   ApiErrorResponse,
   SystemSettingsResponse,
@@ -113,6 +114,13 @@ export const api = {
   listProjects: () => fetchJson<Project[]>("/projects"),
 
   getProject: (projectId: string) => fetchJson<Project>(`/projects/${projectId}`),
+
+  patchProject: (projectId: string, payload: ProjectPatchRequest) =>
+    fetchJson<Project>(`/projects/${projectId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
 
   deleteProject: (projectId: string, forceCancelActive = false) =>
     fetchJson<DeleteProjectResponse>(

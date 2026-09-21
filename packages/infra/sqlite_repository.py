@@ -286,6 +286,13 @@ class SQLiteJobRepository(JobRepository):
             for row in rows
         ]
 
+    def update_project_title(self, project_id: str, title: str) -> None:
+        self._conn.execute(
+            "UPDATE projects SET title = ?, updated_at = ? WHERE project_id = ?",
+            (title, _utc_now_iso(), project_id),
+        )
+        self._conn.commit()
+
     def update_project_status(self, project_id: str, status: str) -> None:
         self._conn.execute(
             """

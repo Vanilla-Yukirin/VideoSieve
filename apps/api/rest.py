@@ -13,6 +13,7 @@ from .models import (
     IngestProbeRequest,
     JobCreateRequest,
     ProjectCreateRequest,
+    ProjectPatchRequest,
     ProviderProfileCreateRequest,
     ProviderProfilePatchRequest,
     SystemSettingsPatchRequest,
@@ -30,6 +31,7 @@ REST_ROUTES: tuple[str, ...] = (
     "POST /projects",
     "GET /projects",
     "GET /projects/{project_id}",
+    "PATCH /projects/{project_id}",
     "DELETE /projects/{project_id}",
     "POST /jobs",
     "POST /projects/{project_id}/jobs/upload",
@@ -70,6 +72,15 @@ def get_project(control_plane: ApiControlPlane, project_id: str) -> dict[str, st
     if project is None:
         raise KeyError(f"project not found: {project_id}")
     return project
+
+
+def patch_project(
+    control_plane: ApiControlPlane, project_id: str, payload: dict[str, Any]
+) -> dict[str, str | None]:
+    """PATCH /projects/{project_id}"""
+
+    request = ProjectPatchRequest.model_validate(payload)
+    return control_plane.patch_project(project_id, request)
 
 
 def delete_project(

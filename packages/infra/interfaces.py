@@ -79,6 +79,10 @@ class JobRepository(ABC):
         """List projects in stable newest-first creation order."""
 
     @abstractmethod
+    def update_project_title(self, project_id: str, title: str) -> None:
+        """Persist a new title without changing project execution state."""
+
+    @abstractmethod
     def update_project_status(self, project_id: str, status: str) -> None:
         """Update project status."""
 

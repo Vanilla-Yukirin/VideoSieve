@@ -20,6 +20,7 @@ from apps.api.rest import (
     get_system_settings,
     list_job_artifacts,
     list_project_jobs,
+    patch_project,
     patch_system_settings,
     probe_ingest_formats,
 )
@@ -99,6 +100,8 @@ def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:
     control_plane, repository, bus = _make_control_plane(tmp_path)
 
     project_id = create_project(control_plane, {"title": "demo"})["project_id"]
+    renamed = patch_project(control_plane, project_id, {"title": "  renamed project  "})
+    assert renamed["title"] == "renamed project"
     job_id = create_job(control_plane, {"project_id": project_id})["job_id"]
 
     repository.update_project_status(project_id, JobStatus.RUNNING.value)

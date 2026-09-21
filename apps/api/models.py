@@ -49,6 +49,19 @@ class ProjectCreateRequest(ApiModel):
     title: str | None = None
 
 
+class ProjectPatchRequest(ApiModel):
+    """Mutable project metadata."""
+
+    title: str = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def normalize_title(self) -> ProjectPatchRequest:
+        self.title = self.title.strip()
+        if not self.title:
+            raise ValueError("title must not be blank")
+        return self
+
+
 class SystemSettingsResponse(ApiModel):
     """System settings consumed by settings page."""
 

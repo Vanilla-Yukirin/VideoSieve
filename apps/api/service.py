@@ -51,6 +51,7 @@ from .models import (
     JobCreateRequest,
     JobSnapshot,
     ProjectCreateRequest,
+    ProjectPatchRequest,
     ProviderProfileCreateRequest,
     ProviderProfilePatchRequest,
     ProviderProfileResponse,
@@ -257,6 +258,20 @@ class ApiControlPlane:
             }
             for project in self._repository.list_projects()
         ]
+
+    def patch_project(
+        self, project_id: str, payload: ProjectPatchRequest
+    ) -> dict[str, str | None]:
+        """Update user-editable project metadata."""
+
+        project_lock = self._get_project_lock(project_id)
+        with project_lock:
+            if self._repository.get_project(project_id) is None:
+                raise KeyError(f"project not found: {project_id}")
+            self._repository.update_project_title(project_id, payload.title)
+            updated = self.get_project(project_id)
+            assert updated is not None
+            return updated
 
     def delete_project(
         self, project_id: str, *, force_cancel_active: bool = False

@@ -57,6 +57,10 @@ export interface CreateProjectRequest {
   title?: string;
 }
 
+export interface ProjectPatchRequest {
+  title: string;
+}
+
 export interface ApiErrorResponse {
   code: string;
   message: string;

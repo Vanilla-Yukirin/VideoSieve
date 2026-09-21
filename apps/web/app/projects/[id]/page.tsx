@@ -15,6 +15,7 @@ import { CookieListItem, DualAssetIngestParams, ProviderProfile } from "@/lib/ap
 import { resolveDefaultCookieId } from "@/lib/cookies/helpers";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ProjectTitleEditor } from "@/components/ProjectTitleEditor";
 import { defaultProfileId, profilesForCapability } from "@/lib/settings/providerSetup";
 
 export default function ProjectDetail() {
@@ -39,7 +40,7 @@ export default function ProjectDetail() {
     forceCancelActive: boolean;
     description: string;
   } | null>(null);
-  const { data: project, error: projectError } = useSWR(
+  const { data: project, error: projectError, mutate: refreshProject } = useSWR(
     projectId ? `/projects/${projectId}` : null,
     () => api.getProject(projectId)
   );
@@ -228,6 +229,11 @@ export default function ProjectDetail() {
     });
   };
 
+  const handleRenameProject = async (title: string) => {
+    const updated = await api.patchProject(projectId, { title });
+    await refreshProject(updated, false);
+  };
+
   if (projectError) {
     return (
       <div className="container mx-auto p-8 text-center">
@@ -251,11 +257,11 @@ export default function ProjectDetail() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <div>
-           <h1 className="text-2xl font-bold tracking-tight">{project.title}</h1>
+        <div className="min-w-0 flex-1">
+           <ProjectTitleEditor title={project.title} onSave={handleRenameProject} />
            <p className="text-muted-foreground text-sm">{project.project_id}</p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto shrink-0">
              <Button
                 variant="destructive"
                 size="sm"

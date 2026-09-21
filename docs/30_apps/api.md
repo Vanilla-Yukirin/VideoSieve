@@ -50,6 +50,7 @@ Key REST endpoints:
 
 - `implemented` `GET /settings/system`, `PATCH /settings/system`；
 - `implemented` `GET /projects`：以稳定的创建时间倒序返回 SQLite 项目；
+- `implemented` `PATCH /projects/{project_id}`：持久化修改项目标题；
 - `implemented` `POST /ingest/probe`：只探测 URL 格式，不下载；
 - `implemented` `POST /jobs`：冻结配置快照并写入 queued job；
 - `implemented` `POST /projects/{project_id}/jobs/upload`：在项目 workspace 暂存上传后创建 job；
@@ -63,12 +64,9 @@ Key REST endpoints:
 
 ## Provider Settings
 
-- `implemented` `PATCH /settings/system` 接受 write-only 的 CapsWriter Token、VLM API key
-  与 summary API key，并提供显式 clear 字段；替换与清除不能同时发生；
-- `implemented` `GET /settings/system` 只返回各 credential 的 `*_configured` 状态，不返回
-  明文、密文或掩码占位值；
-- `implemented` 创建 job 时只把非敏感 Provider 配置与 credential reference 写入 snapshot；
-- `planned` 当前没有 Provider 连接测试接口；设置保存成功只能解释为 `configured`。
+- `implemented` `/provider-profiles` 提供多配置的增删改查、默认项切换和 write-only credential；
+- `implemented` `POST /provider-profiles/{profile_id}/test` 执行真实最小请求，只返回脱敏状态与耗时；
+- `implemented` 创建 job 时只把选中的非敏感 Provider 配置与 credential reference 写入 snapshot。
 
 `configured` 只表示结构完整且 credential reference 存在；它不证明 endpoint `reachable`、
 credential/model `verified`，也不等于真实视频 E2E。

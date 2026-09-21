@@ -52,6 +52,7 @@ from .rest import (
     list_projects,
     list_provider_profiles,
     patch_cookie,
+    patch_project,
     patch_provider_profile,
     patch_system_settings,
     probe_ingest_formats,
@@ -339,6 +340,12 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
     @app.get("/projects/{project_id}")
     async def get_projects(project_id: str, request: Request) -> dict[str, str | None]:
         return get_project(_control_plane(request), project_id)
+
+    @app.patch("/projects/{project_id}")
+    async def patch_projects(
+        project_id: str, request: Request, payload: dict[str, Any]
+    ) -> dict[str, str | None]:
+        return patch_project(_control_plane(request), project_id, payload)
 
     @app.delete("/projects/{project_id}")
     async def delete_projects(

@@ -159,6 +159,10 @@ export type MessageKey =
   | "project.deletePendingCancel"
   | "project.deletePendingCleanup"
   | "project.deleteInProgress"
+  | "project.rename"
+  | "project.renamePlaceholder"
+  | "project.renameRequired"
+  | "project.renameFailed"
   | "cookie.title"
   | "cookie.back"
   | "cookie.desc"
@@ -453,6 +457,10 @@ export const messages: Record<Locale, MessageMap> = {
     "project.deletePendingCancel": "任务仍在取消中，项目暂未删除。请稍后重试。",
     "project.deletePendingCleanup": "任务已取消请求，但资源仍在释放中。请稍后重试删除。",
     "project.deleteInProgress": "项目删除进行中，请稍候。",
+    "project.rename": "编辑项目名称",
+    "project.renamePlaceholder": "输入项目名称",
+    "project.renameRequired": "项目名称不能为空。",
+    "project.renameFailed": "项目名称保存失败，请重试。",
     "cookie.title": "Cookie Vault",
     "cookie.back": "返回项目",
     "cookie.desc": "按 ID 管理站点 Cookie。提交后不回显明文。",
@@ -744,6 +752,10 @@ export const messages: Record<Locale, MessageMap> = {
     "project.deletePendingCancel": "Jobs are still cancelling. Project was not deleted yet. Please retry shortly.",
     "project.deletePendingCleanup": "Cancel was requested, but resources are still being released. Please retry deletion shortly.",
     "project.deleteInProgress": "Project deletion is in progress. Please wait.",
+    "project.rename": "Edit project name",
+    "project.renamePlaceholder": "Enter a project name",
+    "project.renameRequired": "Project name cannot be empty.",
+    "project.renameFailed": "Failed to save the project name. Please try again.",
     "cookie.title": "Cookie Vault",
     "cookie.back": "Back to Projects",
     "cookie.desc": "Manage site cookies by id. Cookie plaintext is never shown after submit.",

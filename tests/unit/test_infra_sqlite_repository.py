@@ -40,6 +40,20 @@ def test_sqlite_repository_project_and_job_crud(tmp_path: Path) -> None:
     repo.close()
 
 
+def test_sqlite_repository_update_project_title_preserves_status(tmp_path: Path) -> None:
+    repo = SQLiteJobRepository(tmp_path / "infra.db")
+    repo.ensure_schema()
+    repo.upsert_project("p-title", title="Before", status="running")
+
+    repo.update_project_title("p-title", "After")
+
+    project = repo.get_project("p-title")
+    assert project is not None
+    assert project.title == "After"
+    assert project.status == "running"
+    repo.close()
+
+
 def test_sqlite_repository_list_jobs_ordered(tmp_path: Path) -> None:
     repo = SQLiteJobRepository(tmp_path / "infra.db")
     repo.ensure_schema()

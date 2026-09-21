@@ -9,8 +9,10 @@ from apps.api.models import (
     ProjectCreateRequest,
     ProviderProfileCreateRequest,
     ProviderProfilePatchRequest,
+    SystemSettingsPatchRequest,
 )
 from apps.api.service import ApiControlPlane, ApiError
+from pydantic import SecretStr
 
 from infra import FileSystemWorkspaceStore, InMemoryEventBus, SQLiteJobRepository
 
@@ -55,12 +57,14 @@ def test_profiles_are_write_only_versioned_and_selected_per_job(tmp_path: Path) 
             protocol="openai_responses",
             api_root="https://api.example/v1",
             model="vision-model",
-            credential="top-secret",
+            credential=SecretStr("top-secret"),
         )
     )
     replacement = control.patch_provider_profile(
         vlm.id,
-        ProviderProfilePatchRequest(model="vision-model-2", credential="new-secret"),
+        ProviderProfilePatchRequest(
+            model="vision-model-2", credential=SecretStr("new-secret")
+        ),
     )
 
     assert replacement.revision == 2
@@ -68,6 +72,14 @@ def test_profiles_are_write_only_versioned_and_selected_per_job(tmp_path: Path) 
     serialized = json.dumps([item.model_dump() for item in control.list_provider_profiles()])
     assert "top-secret" not in serialized
     assert "new-secret" not in serialized
+
+    control.patch_system_settings(
+        SystemSettingsPatchRequest(
+            vlm_concurrency=2,
+            vlm_rpm=9,
+            vlm_frame_prompt_zh="custom global frame prompt",
+        )
+    )
 
     project_id = control.create_project(ProjectCreateRequest(title="profiles"))
     job_id = control.create_job(
@@ -86,6 +98,9 @@ def test_profiles_are_write_only_versioned_and_selected_per_job(tmp_path: Path) 
     assert snapshot["frame_summary"]["profile_id"] == vlm.id
     assert snapshot["frame_summary"]["protocol"] == "openai_responses"
     assert snapshot["frame_summary"]["model"] == "vision-model-2"
+    assert snapshot["frame_summary"]["concurrency"] == 2
+    assert snapshot["frame_summary"]["rpm"] == 9
+    assert snapshot["frame_summary"]["prompt_zh"] == "custom global frame prompt"
     assert "new-secret" not in json.dumps(snapshot)
     kind = snapshot["frame_summary"]["credential_kind"]
     assert repository.get_provider_secret(

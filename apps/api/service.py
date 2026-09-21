@@ -1417,6 +1417,7 @@ class ApiControlPlane:
     def _profile_job_snapshot(self, profile: dict[str, object]) -> dict[str, object]:
         capability = str(profile["capability"])
         options = cast(dict[str, object], profile["options"])
+        settings = self._current_settings()
         credential_kind = str(profile["credential_kind"])
         common: dict[str, object] = {
             "profile_id": profile["id"],
@@ -1441,19 +1442,29 @@ class ApiControlPlane:
                 "base_url": profile["api_root"],
                 "model": profile["model"],
                 "auth_mode": profile["auth_mode"],
-                "prompt_zh": options.get("prompt_zh", _DEFAULT_VLM_PROMPT_ZH),
-                "prompt_en": options.get("prompt_en", _DEFAULT_VLM_PROMPT_EN),
-                "concurrency": options.get("concurrency", _DEFAULT_VLM_CONCURRENCY),
-                "rpm": options.get("rpm", _DEFAULT_VLM_RPM),
+                "prompt_zh": options.get(
+                    "prompt_zh", settings[SETTING_VLM_FRAME_PROMPT_ZH]
+                ),
+                "prompt_en": options.get(
+                    "prompt_en", settings[SETTING_VLM_FRAME_PROMPT_EN]
+                ),
+                "concurrency": options.get(
+                    "concurrency", settings[SETTING_VLM_CONCURRENCY]
+                ),
+                "rpm": options.get("rpm", settings[SETTING_VLM_RPM]),
             }
         return common | {
             "base_url": profile["api_root"],
             "model": profile["model"],
             "auth_mode": profile["auth_mode"],
-            "prompt_zh": options.get("prompt_zh", _DEFAULT_SUMMARY_PROMPT_ZH),
-            "prompt_en": options.get("prompt_en", _DEFAULT_SUMMARY_PROMPT_EN),
+            "prompt_zh": options.get(
+                "prompt_zh", settings[SETTING_SUMMARY_PROMPT_ZH]
+            ),
+            "prompt_en": options.get(
+                "prompt_en", settings[SETTING_SUMMARY_PROMPT_EN]
+            ),
             "max_input_chars": options.get(
-                "max_input_chars", _DEFAULT_SUMMARY_MAX_INPUT_CHARS
+                "max_input_chars", settings[SETTING_SUMMARY_MAX_INPUT_CHARS]
             ),
         }
 

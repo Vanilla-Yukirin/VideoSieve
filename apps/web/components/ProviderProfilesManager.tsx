@@ -7,6 +7,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/Card";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Dialog } from "@/components/Dialog";
 import { api } from "@/lib/api/client";
 import type {
   ProviderAuthMode,
@@ -325,7 +326,10 @@ export function ProviderProfilesManager({
                       <Button type="button" size="sm" variant="outline" onClick={() => void testProfileId(profile.id)} disabled={busy}>
                         <Wifi className="mr-1 h-3.5 w-3.5" /> {t("providers.test")}
                       </Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setEditor(editProfile(profile))} disabled={busy}>
+                      <Button type="button" size="sm" variant="outline" onClick={() => {
+                        setError(null);
+                        setEditor(editProfile(profile));
+                      }} disabled={busy}>
                         <Pencil className="mr-1 h-3.5 w-3.5" /> {t("providers.edit")}
                       </Button>
                       <Button type="button" size="sm" variant="destructive" onClick={() => setDeleteTarget(profile)} disabled={busy}>
@@ -341,12 +345,35 @@ export function ProviderProfilesManager({
       ))}
 
       {editor ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editor.profileId ? t("providers.editTitle") : t("providers.addTitle")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <TextField label={t("providers.displayName")} value={editor.displayName} onChange={(displayName) => setEditor({ ...editor, displayName })} disabled={busy} />
+        <Dialog
+          open
+          title={editor.profileId ? t("providers.editTitle") : t("providers.addTitle")}
+          description={capabilityTitle(editor.capability, t)}
+          closeLabel={t("common.cancel")}
+          initialFocusSelector="#provider-display-name"
+          size="xl"
+          busy={busy}
+          onClose={() => {
+            setEditor(null);
+            setError(null);
+          }}
+          footer={
+            <>
+              <Button type="button" variant="outline" onClick={() => {
+                setEditor(null);
+                setError(null);
+              }} disabled={busy}>{t("common.cancel")}</Button>
+              <Button type="button" variant="outline" onClick={() => void saveEditor(true)} isLoading={busy}>
+                <Wifi className="mr-1 h-4 w-4" /> {t("providers.saveAndTest")}
+              </Button>
+              <Button type="button" onClick={() => void saveEditor(false)} isLoading={busy}>
+                <CheckCircle2 className="mr-1 h-4 w-4" /> {t("common.save")}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <TextField id="provider-display-name" label={t("providers.displayName")} value={editor.displayName} onChange={(displayName) => setEditor({ ...editor, displayName })} disabled={busy} />
 
             {editor.capability === "asr" ? (
               <div className="space-y-1">
@@ -386,16 +413,16 @@ export function ProviderProfilesManager({
               </>
             )}
 
-            <TextField label={editor.capability === "asr" ? t("providers.serviceUrl") : t("providers.apiRoot")} value={editor.apiRoot} onChange={(apiRoot) => setEditor({ ...editor, apiRoot })} disabled={busy} placeholder={editor.capability === "asr" ? "ws://127.0.0.1:6016" : "https://api.example.com/v1"} />
+            <TextField id="provider-api-root" label={editor.capability === "asr" ? t("providers.serviceUrl") : t("providers.apiRoot")} value={editor.apiRoot} onChange={(apiRoot) => setEditor({ ...editor, apiRoot })} disabled={busy} placeholder={editor.capability === "asr" ? "ws://127.0.0.1:6016" : "https://api.example.com/v1"} />
             <p className="text-xs text-muted-foreground">
               {editor.capability === "asr" ? t("providers.capswriterUrlHint") : t("providers.apiRootHint")}
             </p>
 
             {editor.capability !== "asr" ? (
-              <TextField label={t("providers.model")} value={editor.model} onChange={(model) => setEditor({ ...editor, model })} disabled={busy} />
+              <TextField id="provider-model" label={t("providers.model")} value={editor.model} onChange={(model) => setEditor({ ...editor, model })} disabled={busy} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextField label={t("settings.asrLanguage")} value={editor.language} onChange={(language) => setEditor({ ...editor, language })} disabled={busy} />
+                <TextField id="provider-language" label={t("settings.asrLanguage")} value={editor.language} onChange={(language) => setEditor({ ...editor, language })} disabled={busy} />
                 <div className="space-y-1">
                   <label className="text-sm font-medium" htmlFor="provider-timeout">{t("settings.asrTimeout")}</label>
                   <input id="provider-timeout" type="number" min={1} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.timeoutSeconds} onChange={(event) => setEditor({ ...editor, timeoutSeconds: Math.max(1, Number(event.target.value) || 1) })} disabled={busy} />
@@ -433,17 +460,8 @@ export function ProviderProfilesManager({
             </label>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditor(null)} disabled={busy}>{t("common.cancel")}</Button>
-              <Button type="button" variant="outline" onClick={() => void saveEditor(true)} isLoading={busy}>
-                <Wifi className="mr-1 h-4 w-4" /> {t("providers.saveAndTest")}
-              </Button>
-              <Button type="button" onClick={() => void saveEditor(false)} isLoading={busy}>
-                <CheckCircle2 className="mr-1 h-4 w-4" /> {t("common.save")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Dialog>
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : null}
@@ -463,12 +481,14 @@ export function ProviderProfilesManager({
 }
 
 function TextField({
+  id,
   label,
   value,
   onChange,
   disabled,
   placeholder,
 }: {
+  id?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -477,8 +497,8 @@ function TextField({
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-sm font-medium">{label}</label>
-      <input className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} placeholder={placeholder} />
+      <label className="text-sm font-medium" htmlFor={id}>{label}</label>
+      <input id={id} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} placeholder={placeholder} />
     </div>
   );
 }

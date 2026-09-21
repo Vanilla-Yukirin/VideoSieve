@@ -23,7 +23,7 @@ Recommended flow:
 
 ## Options
 
-- A: yt-dlp download
+- A: yt-dlp download（依赖下限随站点兼容性更新；当前为 `2026.8.19`）
 - B: local upload import
 
 ## Params
@@ -52,7 +52,9 @@ Dual-asset download planning:
 ## Failure & Fallback
 
 - retry with alternative format
-- request cookie-based auth when needed
+- 公公开视频通常无需 Cookie；登录、会员或高码率格式可能需要 Cookie
+- HTTP 412 表示站点拒绝请求，可能来自 extractor 兼容性或站点风控，不能单独证明必须登录
+- 遇到 412 时先使用仓库锁定的新版 yt-dlp，再按顺序尝试等待、Cookie 或获准的其他网络出口
 
 Security:
 - Web/API should not pass raw `cookie_content` from UI; use secret reference or mounted cookie file.

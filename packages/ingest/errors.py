@@ -56,10 +56,11 @@ def map_download_error(
     if "http error 412" in lowered or "precondition failed" in lowered:
         return IngestError(
             code=INGEST_DOWNLOAD_FAILED,
-            message=message,
+            message="The source site rejected the media metadata request (HTTP 412).",
             hint=(
-                "The source site rejected the metadata request. For Bilibili, retry with a "
-                "valid Cookie Vault entry or from a network that the site permits."
+                "This does not necessarily mean login is required. It can be extractor "
+                "compatibility or site risk control; update VideoSieve/yt-dlp, wait and retry, "
+                "then try a valid Cookie Vault entry or another permitted network."
             ),
             retryable=False,
             context=context,

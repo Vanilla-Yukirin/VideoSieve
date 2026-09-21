@@ -38,8 +38,10 @@ from .rest import (
     create_cookie,
     create_job,
     create_project,
+    create_provider_profile,
     delete_cookie,
     delete_project,
+    delete_provider_profile,
     get_job,
     get_job_snapshot,
     get_project,
@@ -48,9 +50,12 @@ from .rest import (
     list_job_artifacts,
     list_project_jobs,
     list_projects,
+    list_provider_profiles,
     patch_cookie,
+    patch_provider_profile,
     patch_system_settings,
     probe_ingest_formats,
+    test_provider_profile,
     validate_cookie,
 )
 from .service import ApiConfigError, ApiControlPlane, ApiError
@@ -293,6 +298,36 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
     async def patch_settings(request: Request, payload: dict[str, Any]) -> dict[str, object]:
         return patch_system_settings(_control_plane(request), payload)
 
+    @app.get("/provider-profiles")
+    async def get_provider_profiles(
+        request: Request, capability: str | None = None
+    ) -> list[dict[str, Any]]:
+        return list_provider_profiles(_control_plane(request), capability)
+
+    @app.post("/provider-profiles")
+    async def post_provider_profile(
+        request: Request, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return create_provider_profile(_control_plane(request), payload)
+
+    @app.patch("/provider-profiles/{profile_id}")
+    async def patch_provider_profile_route(
+        profile_id: str, request: Request, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return patch_provider_profile(_control_plane(request), profile_id, payload)
+
+    @app.delete("/provider-profiles/{profile_id}")
+    async def delete_provider_profile_route(
+        profile_id: str, request: Request
+    ) -> dict[str, bool]:
+        return delete_provider_profile(_control_plane(request), profile_id)
+
+    @app.post("/provider-profiles/{profile_id}/test")
+    async def test_provider_profile_route(
+        profile_id: str, request: Request
+    ) -> dict[str, Any]:
+        return test_provider_profile(_control_plane(request), profile_id)
+
     @app.post("/projects")
     async def post_projects(payload: dict[str, Any], request: Request) -> dict[str, str]:
         return create_project(_control_plane(request), payload)
@@ -328,6 +363,9 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
         video: Annotated[UploadFile, File()],
         context: Annotated[str, Form()] = "",
         summary_enabled: Annotated[str, Form()] = "false",
+        asr_profile_id: Annotated[str, Form()] = "",
+        frame_summary_profile_id: Annotated[str, Form()] = "",
+        overall_summary_profile_id: Annotated[str, Form()] = "",
     ) -> dict[str, str]:
         control_plane = _control_plane(request)
         video_path = control_plane.stage_local_upload(
@@ -340,6 +378,9 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
             "summary_enabled": summary_enabled.lower() == "true",
             "local_video_path": str(video_path),
             "local_video_context": context.strip() if context.strip() else None,
+            "asr_profile_id": asr_profile_id.strip() or None,
+            "frame_summary_profile_id": frame_summary_profile_id.strip() or None,
+            "overall_summary_profile_id": overall_summary_profile_id.strip() or None,
         }
         try:
             return create_job(control_plane, payload)

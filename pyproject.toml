@@ -39,6 +39,7 @@ packages = [
   "packages/asr",
   "packages/keyframes",
   "packages/frame_summary",
+  "packages/model_api",
   "packages/overall_summary",
   "packages/deliverables",
   "packages/fusion",

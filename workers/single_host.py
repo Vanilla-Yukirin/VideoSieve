@@ -371,19 +371,19 @@ class SingleHostWorker:
         asr_token = _resolve_provider_secret(
             self._repository,
             asr_config,
-            kind="capswriter_token",
+            kind=_optional_str(asr_config.get("credential_kind")) or "capswriter_token",
             fallback_env="CAPSWRITER_TOKEN",
         )
         frame_summary_api_key = _resolve_provider_secret(
             self._repository,
             frame_config,
-            kind="vlm_api_key",
+            kind=_optional_str(frame_config.get("credential_kind")) or "vlm_api_key",
             fallback_env="QWEN_API_KEY",
         )
         summary_api_key = _resolve_provider_secret(
             self._repository,
             summary_config,
-            kind="summary_api_key",
+            kind=_optional_str(summary_config.get("credential_kind")) or "summary_api_key",
             fallback_env="SUMMARY_API_KEY",
         )
 

@@ -618,6 +618,9 @@ class PipelineOrchestrator:
                         "model",
                         error_prefix="FRAME_SUMMARY_CONFIG_MISSING",
                     ),
+                    protocol=_optional_config_str(raw_frame_config, "protocol")
+                    or "openai_chat_completions",
+                    auth_mode=_optional_config_str(raw_frame_config, "auth_mode"),
                     prompt_zh=_optional_config_str(raw_frame_config, "prompt_zh"),
                     prompt_en=_optional_config_str(raw_frame_config, "prompt_en"),
                 ),
@@ -651,6 +654,9 @@ class PipelineOrchestrator:
                         allow_env_fallback=self._allow_provider_env_fallback,
                         base_url=_required_config_str(raw_summary_config, "base_url"),
                         model=_required_config_str(raw_summary_config, "model"),
+                        protocol=_optional_config_str(raw_summary_config, "protocol")
+                        or "openai_chat_completions",
+                        auth_mode=_optional_config_str(raw_summary_config, "auth_mode"),
                         prompt_zh=_optional_config_str(raw_summary_config, "prompt_zh"),
                         prompt_en=_optional_config_str(raw_summary_config, "prompt_en"),
                     ),

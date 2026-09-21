@@ -6,13 +6,12 @@ import json
 import os
 import threading
 import time
-import urllib.error
-import urllib.request
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from infra.interfaces import WorkspaceStore
+from model_api import ModelApiError, request_model_text
 
 from .providers import FrameSummaryProvider, FrameSummaryProviderError, FrameSummaryResult
 
@@ -46,7 +45,11 @@ class _RpmLimiter:
 
 
 class QwenFrameSummaryProvider:
-    """Qwen-compatible provider for free-text frame summaries."""
+    """Protocol-selectable provider for free-text frame summaries.
+
+    The historical class name remains as a compatibility alias for callers and
+    stored provenance. New profiles select an explicit wire protocol.
+    """
 
     # Built-in default prompts — also used as fallback when DB value is empty
     DEFAULT_PROMPT_ZH = (
@@ -65,6 +68,8 @@ class QwenFrameSummaryProvider:
         api_key: str | None = None,
         endpoint: str | None = None,
         model: str | None = None,
+        protocol: str = "openai_chat_completions",
+        auth_mode: str | None = None,
         timeout_seconds: float | None = None,
         prompt_zh: str | None = None,
         prompt_en: str | None = None,
@@ -80,6 +85,8 @@ class QwenFrameSummaryProvider:
             or "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
         )
         self._model = model or os.getenv("VLM_MODEL") or "qwen3.5-plus"
+        self._protocol = protocol
+        self._auth_mode = auth_mode
         raw_timeout = timeout_seconds or float(os.getenv("VLM_TIMEOUT_SECONDS", "60"))
         self._timeout_seconds = max(5.0, raw_timeout)
         self._prompt_zh = prompt_zh or None
@@ -87,7 +94,7 @@ class QwenFrameSummaryProvider:
 
     @property
     def adapter_name(self) -> str:
-        return "qwen_frame_summary"
+        return f"model_frame_summary:{self._protocol}"
 
     def _build_prompt(self, *, language_hint: str | None) -> str:
         lang = (language_hint or "zh").strip().lower()
@@ -115,109 +122,51 @@ class QwenFrameSummaryProvider:
         if not self._api_key:
             raise FrameSummaryProviderError(
                 "FRAME_SUMMARY_CONFIG_MISSING",
-                "QWEN_API_KEY is required for frame summary generation",
+                "an API key is required for frame summary generation",
                 retryable=False,
             )
 
-        payload = {
-            "model": self._model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": self._build_prompt(language_hint=language_hint),
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": self._image_data_url(image_path)},
-                        },
-                    ],
-                }
-            ],
-            "temperature": 0.2,
-        }
-        request = urllib.request.Request(
-            self._endpoint,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self._api_key}",
-            },
-            method="POST",
-        )
-
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
-                raw = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            retryable = exc.code == 429 or exc.code >= 500
-            raise FrameSummaryProviderError(
-                "FRAME_SUMMARY_PROVIDER_HTTP_ERROR",
-                f"frame summary provider returned HTTP {exc.code}",
-                retryable=retryable,
-            ) from exc
-        except (TimeoutError, urllib.error.URLError) as exc:
-            raise FrameSummaryProviderError(
-                "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
-                "frame summary provider request failed",
-                retryable=True,
-            ) from exc
-
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise FrameSummaryProviderError(
-                "FRAME_SUMMARY_INVALID_RESPONSE",
-                "frame summary provider returned invalid JSON",
-                retryable=True,
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise FrameSummaryProviderError(
-                "FRAME_SUMMARY_INVALID_RESPONSE",
-                "frame summary provider response must be a JSON object",
-                retryable=True,
+            text = request_model_text(
+                protocol=self._protocol,
+                api_root=self._endpoint,
+                model=self._model,
+                api_key=self._api_key,
+                system_prompt=(
+                    "Describe only what is visible in the supplied video frame. "
+                    "Do not invent missing context."
+                ),
+                user_text=self._build_prompt(language_hint=language_hint),
+                image_data_url=self._image_data_url(image_path),
+                timeout_seconds=self._timeout_seconds,
+                auth_mode=self._auth_mode,
             )
-        text = _extract_message_text(parsed).strip()
-        if not text:
+        except (ModelApiError, ValueError) as exc:
+            code = {
+                "MODEL_CONFIG_MISSING": "FRAME_SUMMARY_CONFIG_MISSING",
+                "MODEL_PROVIDER_HTTP_ERROR": "FRAME_SUMMARY_PROVIDER_HTTP_ERROR",
+                "MODEL_PROVIDER_UNAVAILABLE": "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
+                "MODEL_INVALID_RESPONSE": "FRAME_SUMMARY_INVALID_RESPONSE",
+                "MODEL_EMPTY_RESPONSE": "FRAME_SUMMARY_EMPTY_RESPONSE",
+            }.get(getattr(exc, "code", ""), "FRAME_SUMMARY_CONFIG_INVALID")
             raise FrameSummaryProviderError(
-                "FRAME_SUMMARY_EMPTY_RESPONSE",
-                "frame summary provider returned empty content",
-                retryable=True,
-            )
+                code,
+                str(exc),
+                retryable=(
+                    bool(getattr(exc, "retryable", False))
+                    or code
+                    in {
+                        "FRAME_SUMMARY_INVALID_RESPONSE",
+                        "FRAME_SUMMARY_EMPTY_RESPONSE",
+                    }
+                ),
+            ) from exc
         return FrameSummaryResult(
             frame_id=frame_id,
             lang=lang,
             provider=self.adapter_name,
             description_text=text,
         )
-
-
-def _extract_message_text(payload: dict[str, object]) -> str:
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return ""
-    first = choices[0]
-    if not isinstance(first, dict):
-        return ""
-    message = first.get("message")
-    if not isinstance(message, dict):
-        return ""
-    content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str):
-                    chunks.append(text)
-        return "\n".join(chunks)
-    return ""
-
-
 class FrameSummaryService:
     """Read keyframes and output ``frame_summary/frame_summary.jsonl``."""
 

@@ -13,6 +13,8 @@ from .models import (
     IngestProbeRequest,
     JobCreateRequest,
     ProjectCreateRequest,
+    ProviderProfileCreateRequest,
+    ProviderProfilePatchRequest,
     SystemSettingsPatchRequest,
 )
 from .service import ApiControlPlane
@@ -20,6 +22,11 @@ from .service import ApiControlPlane
 REST_ROUTES: tuple[str, ...] = (
     "GET /settings/system",
     "PATCH /settings/system",
+    "GET /provider-profiles",
+    "POST /provider-profiles",
+    "PATCH /provider-profiles/{profile_id}",
+    "DELETE /provider-profiles/{profile_id}",
+    "POST /provider-profiles/{profile_id}/test",
     "POST /projects",
     "GET /projects",
     "GET /projects/{project_id}",
@@ -103,6 +110,50 @@ def patch_system_settings(
 
     request = SystemSettingsPatchRequest.model_validate(payload)
     return control_plane.patch_system_settings(request).model_dump(mode="json")
+
+
+def list_provider_profiles(
+    control_plane: ApiControlPlane, capability: str | None = None
+) -> list[dict[str, Any]]:
+    """GET /provider-profiles"""
+
+    return [
+        item.model_dump(mode="json")
+        for item in control_plane.list_provider_profiles(capability)
+    ]
+
+
+def create_provider_profile(
+    control_plane: ApiControlPlane, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """POST /provider-profiles"""
+
+    request = ProviderProfileCreateRequest.model_validate(payload)
+    return control_plane.create_provider_profile(request).model_dump(mode="json")
+
+
+def patch_provider_profile(
+    control_plane: ApiControlPlane, profile_id: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """PATCH /provider-profiles/{profile_id}"""
+
+    request = ProviderProfilePatchRequest.model_validate(payload)
+    return control_plane.patch_provider_profile(profile_id, request).model_dump(mode="json")
+
+
+def delete_provider_profile(control_plane: ApiControlPlane, profile_id: str) -> dict[str, bool]:
+    """DELETE /provider-profiles/{profile_id}"""
+
+    control_plane.delete_provider_profile(profile_id)
+    return {"deleted": True}
+
+
+def test_provider_profile(
+    control_plane: ApiControlPlane, profile_id: str
+) -> dict[str, Any]:
+    """POST /provider-profiles/{profile_id}/test"""
+
+    return control_plane.test_provider_profile(profile_id).model_dump(mode="json")
 
 
 def get_job(control_plane: ApiControlPlane, job_id: str) -> dict[str, str | None]:

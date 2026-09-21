@@ -13,9 +13,11 @@ from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 from typing import BinaryIO, cast
+from urllib.parse import urlparse
 
 from pydantic import SecretStr
 
+from asr import ASRProviderError, CapsWriterWebSocketProvider
 from contracts import ControlCommandType, JobStatus
 from core import DELETE_PENDING_CLEANUP
 from infra import (
@@ -30,6 +32,7 @@ from infra import (
 from infra.secrets import SecretCipherError, decrypt_secret, encrypt_secret
 from ingest import IngestRequest, probe_url_formats
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
+from model_api import MODEL_PROTOCOLS, ModelApiError, request_model_text
 from overall_summary import OpenAICompatibleSummaryProvider
 from pipeline.control import ControlAckPayload, evaluate_control_command
 
@@ -48,6 +51,10 @@ from .models import (
     JobCreateRequest,
     JobSnapshot,
     ProjectCreateRequest,
+    ProviderProfileCreateRequest,
+    ProviderProfilePatchRequest,
+    ProviderProfileResponse,
+    ProviderProfileTestResponse,
     SystemSettingsPatchRequest,
     SystemSettingsResponse,
     utc_now_iso,
@@ -77,10 +84,11 @@ SETTING_SUMMARY_MAX_INPUT_CHARS = "summary_max_input_chars"
 PROVIDER_SECRET_ASR_TOKEN = "capswriter_token"
 PROVIDER_SECRET_VLM_API_KEY = "vlm_api_key"
 PROVIDER_SECRET_SUMMARY_API_KEY = "summary_api_key"
+SETTING_PROVIDER_PROFILES = "provider_profiles_v1"
 
 # Must match QwenFrameSummaryProvider.DEFAULT_PROMPT_ZH / DEFAULT_PROMPT_EN exactly
-_DEFAULT_VLM_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-_DEFAULT_VLM_MODEL = "qwen3.5-plus"
+_DEFAULT_VLM_BASE_URL = ""
+_DEFAULT_VLM_MODEL = ""
 _DEFAULT_VLM_PROMPT_ZH = (
     "请直接用自然语言回答，不要JSON。"
     "请对当前画面做一段完整描述，优先覆盖主要内容、上方区域信息、下方区域信息、可见文字和图示关系。"
@@ -97,13 +105,17 @@ _DEFAULT_ASR_ENDPOINT = ""
 _DEFAULT_ASR_LANGUAGE = "auto"
 _DEFAULT_ASR_CONTEXT = ""
 _DEFAULT_ASR_TIMEOUT_SECONDS = 900
-_DEFAULT_SUMMARY_BASE_URL = (
-    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-)
-_DEFAULT_SUMMARY_MODEL = "qwen-plus"
+_DEFAULT_SUMMARY_BASE_URL = ""
+_DEFAULT_SUMMARY_MODEL = ""
 _DEFAULT_SUMMARY_PROMPT_ZH = OpenAICompatibleSummaryProvider.DEFAULT_PROMPT_ZH
 _DEFAULT_SUMMARY_PROMPT_EN = OpenAICompatibleSummaryProvider.DEFAULT_PROMPT_EN
 _DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24_000
+_MODEL_PROTOCOLS = set(MODEL_PROTOCOLS)
+_PROFILE_CAPABILITIES = {"asr", "frame_summary", "overall_summary"}
+_TINY_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 class ApiError(RuntimeError):
@@ -159,6 +171,7 @@ class ApiControlPlane:
         self._hydrate_pending_job_delete_cache()
         self._validate_app_secret_or_raise()
         self._initialize_settings_once()
+        self._initialize_provider_profiles_once()
         self._reconcile_pending_job_deletes()
 
     def create_project(self, payload: ProjectCreateRequest) -> str:
@@ -558,6 +571,198 @@ class ApiControlPlane:
             summary_prompt_en_default=_DEFAULT_SUMMARY_PROMPT_EN,
         )
 
+    def list_provider_profiles(
+        self, capability: str | None = None
+    ) -> list[ProviderProfileResponse]:
+        """List reusable provider profiles without returning credentials."""
+
+        if capability is not None and capability not in _PROFILE_CAPABILITIES:
+            raise ApiError(
+                code="provider_capability_invalid",
+                message=f"unsupported provider capability: {capability}",
+                status_code=422,
+            )
+        profiles = self._read_provider_profiles()
+        return [
+            self._provider_profile_response(profile)
+            for profile in profiles
+            if capability is None or profile["capability"] == capability
+        ]
+
+    def create_provider_profile(
+        self, payload: ProviderProfileCreateRequest
+    ) -> ProviderProfileResponse:
+        """Persist a new provider profile and its optional write-only credential."""
+
+        profiles = self._read_provider_profiles()
+        profile_id = f"pp_{uuid.uuid4().hex[:12]}"
+        credential_kind = f"provider_profile:{profile_id}"
+        profile = self._normalize_provider_profile(
+            {
+                "id": profile_id,
+                "display_name": payload.display_name,
+                "capability": payload.capability,
+                "protocol": payload.protocol,
+                "api_root": payload.api_root,
+                "model": payload.model,
+                "auth_mode": payload.auth_mode,
+                "options": payload.options,
+                "revision": 1,
+                "is_default": payload.is_default
+                or not any(item["capability"] == payload.capability for item in profiles),
+                "credential_kind": credential_kind,
+            }
+        )
+        if profile["is_default"]:
+            self._clear_profile_default(profiles, str(profile["capability"]))
+        profiles.append(profile)
+        if payload.credential is not None:
+            plaintext = payload.credential.get_secret_value().strip()
+            if not plaintext:
+                raise ApiError(
+                    code="provider_secret_empty",
+                    message="provider credential cannot be empty",
+                    status_code=422,
+                )
+            self._repository.create_provider_secret(
+                secret_id=f"s_{uuid.uuid4().hex}",
+                kind=credential_kind,
+                secret_encrypted=encrypt_secret(plaintext),
+            )
+        self._write_provider_profiles(profiles)
+        self._append_operation_log(event="provider_profile.create", outcome="accepted")
+        return self._provider_profile_response(profile)
+
+    def patch_provider_profile(
+        self, profile_id: str, payload: ProviderProfilePatchRequest
+    ) -> ProviderProfileResponse:
+        """Update a profile and invalidate its prior verification revision."""
+
+        profiles = self._read_provider_profiles()
+        index = self._provider_profile_index(profiles, profile_id)
+        current = profiles[index]
+        candidate = dict(current)
+        for name in (
+            "display_name",
+            "protocol",
+            "api_root",
+            "model",
+            "auth_mode",
+            "options",
+            "is_default",
+        ):
+            value = getattr(payload, name)
+            if value is not None:
+                candidate[name] = value
+        candidate["revision"] = int(str(current["revision"])) + 1
+        normalized = self._normalize_provider_profile(candidate)
+        if normalized["is_default"]:
+            self._clear_profile_default(profiles, str(normalized["capability"]))
+
+        credential_kind = str(normalized["credential_kind"])
+        if payload.credential is not None:
+            plaintext = payload.credential.get_secret_value().strip()
+            if not plaintext:
+                raise ApiError(
+                    code="provider_secret_empty",
+                    message="provider credential cannot be empty",
+                    status_code=422,
+                )
+            if not credential_kind.startswith("provider_profile:"):
+                credential_kind = f"provider_profile:{profile_id}"
+                normalized["credential_kind"] = credential_kind
+            self._repository.create_provider_secret(
+                secret_id=f"s_{uuid.uuid4().hex}",
+                kind=credential_kind,
+                secret_encrypted=encrypt_secret(plaintext),
+            )
+        elif payload.clear_credential is True:
+            self._repository.clear_active_provider_secret(credential_kind)
+
+        profiles[index] = normalized
+        self._ensure_profile_default(profiles, str(normalized["capability"]))
+        self._write_provider_profiles(profiles)
+        self._append_operation_log(event="provider_profile.patch", outcome="accepted")
+        return self._provider_profile_response(normalized)
+
+    def delete_provider_profile(self, profile_id: str) -> None:
+        """Delete a reusable profile while retaining versioned job credentials."""
+
+        profiles = self._read_provider_profiles()
+        index = self._provider_profile_index(profiles, profile_id)
+        removed = profiles.pop(index)
+        self._repository.clear_active_provider_secret(str(removed["credential_kind"]))
+        self._ensure_profile_default(profiles, str(removed["capability"]))
+        self._write_provider_profiles(profiles)
+        self._append_operation_log(event="provider_profile.delete", outcome="accepted")
+
+    def test_provider_profile(self, profile_id: str) -> ProviderProfileTestResponse:
+        """Perform a real minimal request against one saved profile."""
+
+        profiles = self._read_provider_profiles()
+        profile = profiles[self._provider_profile_index(profiles, profile_id)]
+        credential = self._decrypt_profile_credential(profile)
+        started = time.monotonic()
+        try:
+            protocol = str(profile["protocol"])
+            capability = str(profile["capability"])
+            options = cast(dict[str, object], profile["options"])
+            if protocol == "capswriter_ws":
+                CapsWriterWebSocketProvider(
+                    endpoint=str(profile["api_root"]),
+                    token=credential,
+                    timeout_seconds=min(int(str(options.get("timeout_seconds", 30))), 30),
+                ).test_connection()
+                message = "CapsWriter WebSocket handshake succeeded"
+            else:
+                if not credential:
+                    raise ApiError(
+                        code="provider_credential_required",
+                        message="configure an API key before testing this profile",
+                        status_code=422,
+                    )
+                request_model_text(
+                    protocol=protocol,
+                    api_root=str(profile["api_root"]),
+                    model=str(profile["model"]),
+                    api_key=credential,
+                    system_prompt="Return a short literal description of the supplied test input.",
+                    user_text=(
+                        "Describe this one-pixel test image in a few words."
+                        if capability == "frame_summary"
+                        else "Reply with exactly: VideoSieve provider test succeeded"
+                    ),
+                    image_data_url=(
+                        _TINY_PNG_DATA_URL if capability == "frame_summary" else None
+                    ),
+                    timeout_seconds=30,
+                    auth_mode=str(profile["auth_mode"]),
+                )
+                message = (
+                    "image inference succeeded"
+                    if capability == "frame_summary"
+                    else "text inference succeeded"
+                )
+        except ApiError:
+            raise
+        except (ASRProviderError, ModelApiError, OSError, ValueError) as exc:
+            raise ApiError(
+                code=str(getattr(exc, "code", "provider_test_failed")),
+                message=str(exc),
+                status_code=502,
+                details={"retryable": bool(getattr(exc, "retryable", False))},
+            ) from exc
+        return ProviderProfileTestResponse.model_validate(
+            {
+                "status": "succeeded",
+                "capability": profile["capability"],
+                "protocol": profile["protocol"],
+                "model": str(profile["model"]),
+                "latency_ms": max(0, round((time.monotonic() - started) * 1000)),
+                "message": message,
+            }
+        )
+
     def create_cookie(self, payload: CookieCreateRequest) -> CookieListItem:
         """Create one encrypted cookie entry for the local installation."""
 
@@ -899,6 +1104,359 @@ class ApiControlPlane:
             ),
         }
 
+    def _initialize_provider_profiles_once(self) -> None:
+        """Migrate actively configured legacy settings into reusable profiles."""
+
+        if self._repository.get_setting(SETTING_PROVIDER_PROFILES) is not None:
+            return
+        settings = self._current_settings()
+        profiles: list[dict[str, object]] = []
+
+        asr_provider = str(settings[SETTING_ASR_PROVIDER])
+        asr_endpoint = str(settings[SETTING_ASR_ENDPOINT]).strip()
+        if asr_provider == "capswriter" and asr_endpoint:
+            profiles.append(
+                self._normalize_provider_profile(
+                    {
+                        "id": f"pp_{uuid.uuid4().hex[:12]}",
+                        "display_name": "CapsWriter",
+                        "capability": "asr",
+                        "protocol": "capswriter_ws",
+                        "api_root": asr_endpoint,
+                        "model": "",
+                        "auth_mode": "optional_bearer",
+                        "options": {
+                            "language": settings[SETTING_ASR_LANGUAGE],
+                            "context": settings[SETTING_ASR_CONTEXT],
+                            "timeout_seconds": settings[SETTING_ASR_TIMEOUT_SECONDS],
+                            "segment_seconds": 60.0,
+                            "overlap_seconds": 4.0,
+                        },
+                        "revision": 1,
+                        "is_default": True,
+                        "credential_kind": PROVIDER_SECRET_ASR_TOKEN,
+                    }
+                )
+            )
+
+        vlm_root = str(settings[SETTING_VLM_BASE_URL]).strip()
+        vlm_model = str(settings[SETTING_VLM_MODEL]).strip()
+        if (
+            vlm_root
+            and vlm_model
+            and self._provider_secret_configured(PROVIDER_SECRET_VLM_API_KEY)
+        ):
+            profiles.append(
+                self._normalize_provider_profile(
+                    {
+                        "id": f"pp_{uuid.uuid4().hex[:12]}",
+                        "display_name": "迁移的画面摘要配置",
+                        "capability": "frame_summary",
+                        "protocol": "openai_chat_completions",
+                        "api_root": self._strip_model_route(vlm_root),
+                        "model": vlm_model,
+                        "auth_mode": "bearer",
+                        "options": {
+                            "prompt_zh": settings[SETTING_VLM_FRAME_PROMPT_ZH],
+                            "prompt_en": settings[SETTING_VLM_FRAME_PROMPT_EN],
+                            "concurrency": settings[SETTING_VLM_CONCURRENCY],
+                            "rpm": settings[SETTING_VLM_RPM],
+                        },
+                        "revision": 1,
+                        "is_default": True,
+                        "credential_kind": PROVIDER_SECRET_VLM_API_KEY,
+                    }
+                )
+            )
+
+        summary_root = str(settings[SETTING_SUMMARY_BASE_URL]).strip()
+        summary_model = str(settings[SETTING_SUMMARY_MODEL]).strip()
+        if (
+            summary_root
+            and summary_model
+            and self._provider_secret_configured(PROVIDER_SECRET_SUMMARY_API_KEY)
+        ):
+            profiles.append(
+                self._normalize_provider_profile(
+                    {
+                        "id": f"pp_{uuid.uuid4().hex[:12]}",
+                        "display_name": "迁移的整体摘要配置",
+                        "capability": "overall_summary",
+                        "protocol": "openai_chat_completions",
+                        "api_root": self._strip_model_route(summary_root),
+                        "model": summary_model,
+                        "auth_mode": "bearer",
+                        "options": {
+                            "prompt_zh": settings[SETTING_SUMMARY_PROMPT_ZH],
+                            "prompt_en": settings[SETTING_SUMMARY_PROMPT_EN],
+                            "max_input_chars": settings[SETTING_SUMMARY_MAX_INPUT_CHARS],
+                        },
+                        "revision": 1,
+                        "is_default": True,
+                        "credential_kind": PROVIDER_SECRET_SUMMARY_API_KEY,
+                    }
+                )
+            )
+        self._write_provider_profiles(profiles)
+
+    def _read_provider_profiles(self) -> list[dict[str, object]]:
+        raw = self._repository.get_setting(SETTING_PROVIDER_PROFILES)
+        if raw is None:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ApiConfigError("provider profile storage contains invalid JSON") from exc
+        if not isinstance(parsed, list):
+            raise ApiConfigError("provider profile storage must be a JSON array")
+        profiles: list[dict[str, object]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                raise ApiConfigError("provider profile entry must be an object")
+            try:
+                profiles.append(self._normalize_provider_profile(item))
+            except ApiError as exc:
+                raise ApiConfigError(f"stored provider profile is invalid: {exc}") from exc
+        return profiles
+
+    def _write_provider_profiles(self, profiles: list[dict[str, object]]) -> None:
+        self._repository.set_setting(
+            SETTING_PROVIDER_PROFILES,
+            json.dumps(profiles, ensure_ascii=False, separators=(",", ":")),
+        )
+
+    def _normalize_provider_profile(
+        self, raw: dict[str, object]
+    ) -> dict[str, object]:
+        profile_id = str(raw.get("id") or "").strip()
+        display_name = str(raw.get("display_name") or "").strip()
+        capability = str(raw.get("capability") or "").strip()
+        protocol = str(raw.get("protocol") or "").strip()
+        api_root = str(raw.get("api_root") or "").strip().rstrip("/")
+        model = str(raw.get("model") or "").strip()
+        auth_mode = str(raw.get("auth_mode") or "bearer").strip()
+        options = raw.get("options")
+        credential_kind = str(raw.get("credential_kind") or "").strip()
+        if not profile_id or not display_name or len(display_name) > 100:
+            raise ApiError(
+                code="provider_profile_invalid",
+                message="profile id and a display name of at most 100 characters are required",
+                status_code=422,
+            )
+        if capability not in _PROFILE_CAPABILITIES:
+            raise ApiError(
+                code="provider_capability_invalid",
+                message=f"unsupported provider capability: {capability}",
+                status_code=422,
+            )
+        if capability == "asr" and protocol != "capswriter_ws":
+            raise ApiError(
+                code="provider_protocol_not_implemented",
+                message=(
+                    "only CapsWriter WebSocket ASR is implemented; "
+                    "Alibaba Cloud ASR is planned"
+                ),
+                status_code=422,
+            )
+        if capability != "asr" and protocol not in _MODEL_PROTOCOLS:
+            raise ApiError(
+                code="provider_protocol_invalid",
+                message=f"unsupported model protocol: {protocol}",
+                status_code=422,
+            )
+        parsed_url = urlparse(api_root if "://" in api_root else f"ws://{api_root}")
+        allowed_schemes = {"ws", "wss"} if capability == "asr" else {"http", "https"}
+        if parsed_url.scheme not in allowed_schemes or not parsed_url.netloc:
+            raise ApiError(
+                code="provider_api_root_invalid",
+                message=(
+                    "CapsWriter requires ws:// or wss://"
+                    if capability == "asr"
+                    else "model API root requires http:// or https://"
+                ),
+                status_code=422,
+            )
+        if capability != "asr" and any(
+            api_root.endswith(f"/{suffix}")
+            for suffix in ("chat/completions", "responses", "messages")
+        ):
+            raise ApiError(
+                code="provider_api_root_has_route",
+                message=(
+                    "enter the API root, usually ending in /v1; do not include "
+                    "/chat/completions, /responses, or /messages"
+                ),
+                status_code=422,
+            )
+        if capability != "asr" and not model:
+            raise ApiError(
+                code="provider_model_required",
+                message="model is required for language and vision profiles",
+                status_code=422,
+            )
+        if auth_mode not in {"bearer", "x_api_key", "optional_bearer"}:
+            raise ApiError(
+                code="provider_auth_mode_invalid",
+                message=f"unsupported provider auth mode: {auth_mode}",
+                status_code=422,
+            )
+        if not isinstance(options, dict):
+            raise ApiError(
+                code="provider_options_invalid",
+                message="provider options must be an object",
+                status_code=422,
+            )
+        if not credential_kind:
+            credential_kind = f"provider_profile:{profile_id}"
+        revision = raw.get("revision", 1)
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            revision = 1
+        return {
+            "id": profile_id,
+            "display_name": display_name,
+            "capability": capability,
+            "protocol": protocol,
+            "api_root": api_root,
+            "model": model,
+            "auth_mode": auth_mode,
+            "options": options,
+            "revision": revision,
+            "is_default": raw.get("is_default") is True,
+            "credential_kind": credential_kind,
+        }
+
+    def _provider_profile_response(
+        self, profile: dict[str, object]
+    ) -> ProviderProfileResponse:
+        credential_kind = str(profile["credential_kind"])
+        return ProviderProfileResponse.model_validate(
+            {
+                key: value
+                for key, value in profile.items()
+                if key != "credential_kind"
+            }
+            | {
+                "credential_configured": self._provider_secret_configured(
+                    credential_kind
+                )
+            }
+        )
+
+    @staticmethod
+    def _provider_profile_index(
+        profiles: list[dict[str, object]], profile_id: str
+    ) -> int:
+        for index, profile in enumerate(profiles):
+            if profile["id"] == profile_id:
+                return index
+        raise ApiError(
+            code="provider_profile_not_found",
+            message=f"provider profile not found: {profile_id}",
+            status_code=404,
+        )
+
+    @staticmethod
+    def _clear_profile_default(
+        profiles: list[dict[str, object]], capability: str
+    ) -> None:
+        for profile in profiles:
+            if profile["capability"] == capability:
+                profile["is_default"] = False
+
+    @staticmethod
+    def _ensure_profile_default(
+        profiles: list[dict[str, object]], capability: str
+    ) -> None:
+        candidates = [profile for profile in profiles if profile["capability"] == capability]
+        if candidates and not any(profile["is_default"] is True for profile in candidates):
+            candidates[0]["is_default"] = True
+
+    @staticmethod
+    def _strip_model_route(value: str) -> str:
+        root = value.strip().rstrip("/")
+        for suffix in ("/chat/completions", "/responses", "/messages"):
+            if root.endswith(suffix):
+                return root[: -len(suffix)]
+        return root
+
+    def _decrypt_profile_credential(self, profile: dict[str, object]) -> str | None:
+        kind = str(profile["credential_kind"])
+        record = self._repository.get_active_provider_secret(kind)
+        if record is None:
+            return None
+        try:
+            return cast(str, decrypt_secret(record.secret_encrypted)).strip() or None
+        except SecretCipherError as exc:
+            raise ApiError(
+                code="provider_credential_unreadable",
+                message="provider credential cannot be decrypted with APP_SECRET_KEY",
+                status_code=500,
+            ) from exc
+
+    def _select_provider_profile(
+        self,
+        profiles: list[dict[str, object]],
+        capability: str,
+        requested_id: str | None,
+    ) -> dict[str, object] | None:
+        candidates = [profile for profile in profiles if profile["capability"] == capability]
+        if requested_id:
+            for profile in candidates:
+                if profile["id"] == requested_id:
+                    return profile
+            raise ApiError(
+                code="provider_profile_not_found",
+                message=f"{capability} provider profile not found: {requested_id}",
+                status_code=422,
+            )
+        for profile in candidates:
+            if profile["is_default"] is True:
+                return profile
+        return candidates[0] if candidates else None
+
+    def _profile_job_snapshot(self, profile: dict[str, object]) -> dict[str, object]:
+        capability = str(profile["capability"])
+        options = cast(dict[str, object], profile["options"])
+        credential_kind = str(profile["credential_kind"])
+        common: dict[str, object] = {
+            "profile_id": profile["id"],
+            "profile_revision": profile["revision"],
+            "protocol": profile["protocol"],
+            "credential_kind": credential_kind,
+            "credential_ref": self._active_provider_secret_ref(credential_kind),
+        }
+        if capability == "asr":
+            return common | {
+                "provider": "capswriter",
+                "transport": "websocket",
+                "endpoint": profile["api_root"],
+                "language": options.get("language", "auto"),
+                "context": options.get("context", ""),
+                "timeout_seconds": options.get("timeout_seconds", 900),
+                "segment_seconds": options.get("segment_seconds", 60.0),
+                "overlap_seconds": options.get("overlap_seconds", 4.0),
+            }
+        if capability == "frame_summary":
+            return common | {
+                "base_url": profile["api_root"],
+                "model": profile["model"],
+                "auth_mode": profile["auth_mode"],
+                "prompt_zh": options.get("prompt_zh", _DEFAULT_VLM_PROMPT_ZH),
+                "prompt_en": options.get("prompt_en", _DEFAULT_VLM_PROMPT_EN),
+                "concurrency": options.get("concurrency", _DEFAULT_VLM_CONCURRENCY),
+                "rpm": options.get("rpm", _DEFAULT_VLM_RPM),
+            }
+        return common | {
+            "base_url": profile["api_root"],
+            "model": profile["model"],
+            "auth_mode": profile["auth_mode"],
+            "prompt_zh": options.get("prompt_zh", _DEFAULT_SUMMARY_PROMPT_ZH),
+            "prompt_en": options.get("prompt_en", _DEFAULT_SUMMARY_PROMPT_EN),
+            "max_input_chars": options.get(
+                "max_input_chars", _DEFAULT_SUMMARY_MAX_INPUT_CHARS
+            ),
+        }
+
     def _append_operation_log(
         self,
         *,
@@ -950,40 +1508,66 @@ class ApiControlPlane:
                 "job_id": job_id,
             }
             runtime_settings = self._current_settings()
-            config["asr"] = {
-                "provider": runtime_settings[SETTING_ASR_PROVIDER],
-                "transport": "websocket",
-                "endpoint": runtime_settings[SETTING_ASR_ENDPOINT],
-                "language": runtime_settings[SETTING_ASR_LANGUAGE],
-                "context": runtime_settings[SETTING_ASR_CONTEXT],
-                "timeout_seconds": runtime_settings[SETTING_ASR_TIMEOUT_SECONDS],
-                "credential_ref": self._active_provider_secret_ref(
-                    PROVIDER_SECRET_ASR_TOKEN
-                ),
-                "segment_seconds": 60.0,
-                "overlap_seconds": 4.0,
-            }
-            config["frame_summary"] = {
-                "base_url": runtime_settings[SETTING_VLM_BASE_URL],
-                "model": runtime_settings[SETTING_VLM_MODEL],
-                "prompt_zh": runtime_settings[SETTING_VLM_FRAME_PROMPT_ZH],
-                "prompt_en": runtime_settings[SETTING_VLM_FRAME_PROMPT_EN],
-                "concurrency": runtime_settings[SETTING_VLM_CONCURRENCY],
-                "rpm": runtime_settings[SETTING_VLM_RPM],
-                "credential_ref": self._active_provider_secret_ref(
-                    PROVIDER_SECRET_VLM_API_KEY
-                ),
-            }
-            config["overall_summary"] = {
-                "base_url": runtime_settings[SETTING_SUMMARY_BASE_URL],
-                "model": runtime_settings[SETTING_SUMMARY_MODEL],
-                "prompt_zh": runtime_settings[SETTING_SUMMARY_PROMPT_ZH],
-                "prompt_en": runtime_settings[SETTING_SUMMARY_PROMPT_EN],
-                "max_input_chars": runtime_settings[SETTING_SUMMARY_MAX_INPUT_CHARS],
-                "credential_ref": self._active_provider_secret_ref(
-                    PROVIDER_SECRET_SUMMARY_API_KEY
-                ),
-            }
+            profiles = self._read_provider_profiles()
+            asr_profile = self._select_provider_profile(
+                profiles, "asr", payload.asr_profile_id
+            )
+            frame_profile = self._select_provider_profile(
+                profiles, "frame_summary", payload.frame_summary_profile_id
+            )
+            summary_profile = self._select_provider_profile(
+                profiles, "overall_summary", payload.overall_summary_profile_id
+            )
+            if asr_profile or frame_profile or summary_profile:
+                config["schema_version"] = "2.0"
+            config["asr"] = (
+                self._profile_job_snapshot(asr_profile)
+                if asr_profile is not None
+                else {
+                    "provider": runtime_settings[SETTING_ASR_PROVIDER],
+                    "transport": "websocket",
+                    "endpoint": runtime_settings[SETTING_ASR_ENDPOINT],
+                    "language": runtime_settings[SETTING_ASR_LANGUAGE],
+                    "context": runtime_settings[SETTING_ASR_CONTEXT],
+                    "timeout_seconds": runtime_settings[SETTING_ASR_TIMEOUT_SECONDS],
+                    "credential_ref": self._active_provider_secret_ref(
+                        PROVIDER_SECRET_ASR_TOKEN
+                    ),
+                    "segment_seconds": 60.0,
+                    "overlap_seconds": 4.0,
+                }
+            )
+            config["frame_summary"] = (
+                self._profile_job_snapshot(frame_profile)
+                if frame_profile is not None
+                else {
+                    "protocol": "openai_chat_completions",
+                    "base_url": runtime_settings[SETTING_VLM_BASE_URL],
+                    "model": runtime_settings[SETTING_VLM_MODEL],
+                    "prompt_zh": runtime_settings[SETTING_VLM_FRAME_PROMPT_ZH],
+                    "prompt_en": runtime_settings[SETTING_VLM_FRAME_PROMPT_EN],
+                    "concurrency": runtime_settings[SETTING_VLM_CONCURRENCY],
+                    "rpm": runtime_settings[SETTING_VLM_RPM],
+                    "credential_ref": self._active_provider_secret_ref(
+                        PROVIDER_SECRET_VLM_API_KEY
+                    ),
+                }
+            )
+            config["overall_summary"] = (
+                self._profile_job_snapshot(summary_profile)
+                if summary_profile is not None
+                else {
+                    "protocol": "openai_chat_completions",
+                    "base_url": runtime_settings[SETTING_SUMMARY_BASE_URL],
+                    "model": runtime_settings[SETTING_SUMMARY_MODEL],
+                    "prompt_zh": runtime_settings[SETTING_SUMMARY_PROMPT_ZH],
+                    "prompt_en": runtime_settings[SETTING_SUMMARY_PROMPT_EN],
+                    "max_input_chars": runtime_settings[SETTING_SUMMARY_MAX_INPUT_CHARS],
+                    "credential_ref": self._active_provider_secret_ref(
+                        PROVIDER_SECRET_SUMMARY_API_KEY
+                    ),
+                }
+            )
             if payload.summary_enabled is not None:
                 config["summary_enabled"] = payload.summary_enabled
             if payload.ingest:

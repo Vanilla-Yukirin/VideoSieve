@@ -43,7 +43,7 @@ def test_frame_summary_missing_api_key_is_an_explicit_failure(
     monkeypatch.setenv("QWEN_API_KEY", "legacy-env-key")
     provider = QwenFrameSummaryProvider(api_key=None, allow_env_fallback=False)
 
-    with pytest.raises(FrameSummaryProviderError, match="QWEN_API_KEY") as exc_info:
+    with pytest.raises(FrameSummaryProviderError, match="API key") as exc_info:
         provider.summarize_frame("frame-1", _image(tmp_path), language_hint="zh")
     assert exc_info.value.code == "FRAME_SUMMARY_CONFIG_MISSING"
     assert exc_info.value.retryable is False

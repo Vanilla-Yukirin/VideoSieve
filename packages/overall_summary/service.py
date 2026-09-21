@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from contracts.models import SCHEMA_VERSION
 from infra.interfaces import WorkspaceStore
+from model_api import ModelApiError, request_model_text
 
 from .evidence import (
     evidence_sha256,
@@ -66,6 +64,8 @@ class OpenAICompatibleSummaryProvider:
         *,
         base_url: str,
         model: str,
+        protocol: str = "openai_chat_completions",
+        auth_mode: str | None = None,
         api_key: str | None = None,
         prompt_zh: str | None = None,
         prompt_en: str | None = None,
@@ -74,6 +74,8 @@ class OpenAICompatibleSummaryProvider:
     ) -> None:
         self._base_url = base_url.strip()
         self._model = model.strip()
+        self._protocol = protocol
+        self._auth_mode = auth_mode
         key_value = api_key
         if key_value is None and allow_env_fallback:
             key_value = os.getenv("SUMMARY_API_KEY", "")
@@ -84,7 +86,7 @@ class OpenAICompatibleSummaryProvider:
 
     @property
     def provider_name(self) -> str:
-        return "openai_compatible_summary"
+        return f"model_summary:{self._protocol}"
 
     @property
     def model_name(self) -> str:
@@ -112,7 +114,7 @@ class OpenAICompatibleSummaryProvider:
             parameters={
                 "temperature": _TEMPERATURE,
                 "timeout_seconds": self._timeout_seconds,
-                "api": "openai-compatible-chat-completions",
+                "api": self._protocol,
             },
         )
 
@@ -145,73 +147,35 @@ class OpenAICompatibleSummaryProvider:
             task = _PARTIAL_TASK_ZH if is_zh else _PARTIAL_TASK_EN
         else:
             task = _FINAL_TASK_ZH if is_zh else _FINAL_TASK_EN
-        body = json.dumps(
-            {
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"{task}\n\n{source_text}"},
-                ],
-                "temperature": _TEMPERATURE,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            self._base_url,
-            data=body,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            raise OverallSummaryProviderError(
-                "OVERALL_SUMMARY_PROVIDER_HTTP_ERROR",
-                f"overall summary provider returned HTTP {exc.code}",
-                retryable=exc.code == 429 or exc.code >= 500,
-            ) from exc
-        except (TimeoutError, urllib.error.URLError) as exc:
-            raise OverallSummaryProviderError(
-                "OVERALL_SUMMARY_PROVIDER_UNAVAILABLE",
-                "overall summary provider request failed",
-                retryable=True,
-            ) from exc
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise OverallSummaryProviderError(
-                "OVERALL_SUMMARY_INVALID_RESPONSE",
-                "overall summary provider returned invalid JSON",
-            ) from exc
-
-        content = self._extract_content(payload)
-        if not content:
-            raise OverallSummaryProviderError(
-                "OVERALL_SUMMARY_EMPTY_RESPONSE",
-                "overall summary provider returned empty content",
+            content = request_model_text(
+                protocol=self._protocol,
+                api_root=self._base_url,
+                model=self._model,
+                api_key=self._api_key,
+                system_prompt=system_prompt,
+                user_text=f"{task}\n\n{source_text}",
+                timeout_seconds=self._timeout_seconds,
+                auth_mode=self._auth_mode,
             )
+        except (ModelApiError, ValueError) as exc:
+            code = {
+                "MODEL_CONFIG_MISSING": "OVERALL_SUMMARY_CONFIG_MISSING",
+                "MODEL_PROVIDER_HTTP_ERROR": "OVERALL_SUMMARY_PROVIDER_HTTP_ERROR",
+                "MODEL_PROVIDER_UNAVAILABLE": "OVERALL_SUMMARY_PROVIDER_UNAVAILABLE",
+                "MODEL_INVALID_RESPONSE": "OVERALL_SUMMARY_INVALID_RESPONSE",
+                "MODEL_EMPTY_RESPONSE": "OVERALL_SUMMARY_EMPTY_RESPONSE",
+            }.get(getattr(exc, "code", ""), "OVERALL_SUMMARY_CONFIG_INVALID")
+            raise OverallSummaryProviderError(
+                code,
+                str(exc),
+                retryable=bool(getattr(exc, "retryable", False)),
+            ) from exc
         return OverallSummaryResult(
             text=content,
             provider=self.provider_name,
             model=self.model_name,
         )
-
-    @staticmethod
-    def _extract_content(payload: Any) -> str:
-        if not isinstance(payload, dict):
-            return ""
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-            return ""
-        message = choices[0].get("message")
-        if not isinstance(message, dict):
-            return ""
-        content = message.get("content")
-        return content.strip() if isinstance(content, str) else ""
-
-
 class OverallSummaryService:
     """Collect every text/visual evidence row and synthesize a final summary."""
 

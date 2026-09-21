@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
@@ -139,12 +140,101 @@ class SystemSettingsPatchRequest(ApiModel):
         return self
 
 
+ProviderCapability = Literal["asr", "frame_summary", "overall_summary"]
+ProviderProtocol = Literal[
+    "capswriter_ws",
+    "openai_chat_completions",
+    "openai_responses",
+    "anthropic_messages",
+]
+ProviderAuthMode = Literal["bearer", "x_api_key", "optional_bearer"]
+
+
+class ProviderProfileResponse(ApiModel):
+    """One reusable external provider configuration without its credential."""
+
+    id: str
+    display_name: str
+    capability: ProviderCapability
+    protocol: ProviderProtocol
+    api_root: str
+    model: str
+    auth_mode: ProviderAuthMode
+    options: dict[str, Any]
+    revision: int
+    is_default: bool
+    credential_configured: bool
+
+
+class ProviderProfileCreateRequest(ApiModel):
+    """Create one reusable provider profile."""
+
+    display_name: str
+    capability: ProviderCapability
+    protocol: ProviderProtocol
+    api_root: str
+    model: str = ""
+    auth_mode: ProviderAuthMode = "bearer"
+    options: dict[str, Any] = Field(default_factory=dict)
+    is_default: bool = False
+    credential: SecretStr | None = None
+
+
+class ProviderProfilePatchRequest(ApiModel):
+    """Patch one profile and optionally rotate or clear its credential."""
+
+    display_name: str | None = None
+    protocol: ProviderProtocol | None = None
+    api_root: str | None = None
+    model: str | None = None
+    auth_mode: ProviderAuthMode | None = None
+    options: dict[str, Any] | None = None
+    is_default: bool | None = None
+    credential: SecretStr | None = None
+    clear_credential: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_patch(self) -> ProviderProfilePatchRequest:
+        if self.credential is not None and self.clear_credential is True:
+            raise ValueError("credential and clear_credential cannot be used together")
+        if all(
+            value is None
+            for value in (
+                self.display_name,
+                self.protocol,
+                self.api_root,
+                self.model,
+                self.auth_mode,
+                self.options,
+                self.is_default,
+                self.credential,
+                self.clear_credential,
+            )
+        ):
+            raise ValueError("at least one profile field must be provided")
+        return self
+
+
+class ProviderProfileTestResponse(ApiModel):
+    """Sanitized result from a real minimal provider request."""
+
+    status: Literal["succeeded"]
+    capability: ProviderCapability
+    protocol: ProviderProtocol
+    model: str
+    latency_ms: int
+    message: str
+
+
 class JobCreateRequest(ApiModel):
     """Job create payload."""
 
     project_id: str
     ingest: IngestParams | None = None
     summary_enabled: bool | None = None
+    asr_profile_id: str | None = None
+    frame_summary_profile_id: str | None = None
+    overall_summary_profile_id: str | None = None
     local_video_path: str | None = None
     local_video_context: str | None = None
 

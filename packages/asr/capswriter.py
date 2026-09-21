@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect as _connect_ws
 from websockets.typing import Subprotocol
 
@@ -231,6 +232,34 @@ class CapsWriterWebSocketProvider(ASRProvider):
     def adapter_name(self) -> str:
         return "capswriter"
 
+    def test_connection(self) -> None:
+        """Verify the official WebSocket handshake without submitting audio."""
+
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
+        try:
+            with _connect_ws(
+                self._endpoint,
+                subprotocols=[Subprotocol("binary")],
+                additional_headers=headers,
+                proxy=None,
+                open_timeout=min(30, self._timeout_seconds),
+                max_size=None,
+                max_queue=None,
+            ):
+                return
+        except TimeoutError as exc:
+            raise ASRProviderError(
+                "ASR_PROVIDER_TIMEOUT",
+                "CapsWriter WebSocket handshake timed out",
+                retryable=True,
+            ) from exc
+        except (OSError, ValueError, WebSocketException) as exc:
+            raise ASRProviderError(
+                "ASR_PROVIDER_REQUEST_FAILED",
+                f"CapsWriter WebSocket handshake failed: {exc}",
+                retryable=True,
+            ) from exc
+
     def transcribe(self, request: ASRRequest) -> ASRResult:
         task_id = str(uuid.uuid4())
         language = request.language_hint or self._language
@@ -305,7 +334,7 @@ class CapsWriterWebSocketProvider(ASRProvider):
                 f"CapsWriter WebSocket request timed out after {self._timeout_seconds}s",
                 retryable=True,
             ) from exc
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, WebSocketException, json.JSONDecodeError) as exc:
             raise ASRProviderError(
                 "ASR_PROVIDER_REQUEST_FAILED",
                 f"CapsWriter WebSocket request failed: {exc}",

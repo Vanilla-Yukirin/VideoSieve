@@ -28,7 +28,8 @@ Date: 2026-09-21
   模型由操作者明确填写。
 - Profile 测试发送真实最小请求：CapsWriter 执行官方 `binary` 子协议握手，画面摘要发送
   内置一像素 PNG，整体摘要发送短文本。结果只返回耗时和脱敏状态，不返回上游响应体、
-  请求头或 credential。
+  请求头或 credential。编辑器测试直接使用当前草稿，不先保存；临时 credential 只用于
+  当次请求，已有 Profile 的空 credential 输入可只读复用已保存密钥。
 - 创建任务时可以分别选择 ASR、画面摘要和整体摘要 Profile。API 将 Profile ID、revision、
   协议、模型、参数和 credential reference 冻结进 job snapshot；后续修改默认项不改变
   已有 job。

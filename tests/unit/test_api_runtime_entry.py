@@ -73,6 +73,24 @@ def test_runtime_healthz_and_rest_smoke(tmp_path: Path) -> None:
         assert fetched_job.json()["project_id"] == project_id
 
 
+def test_provider_draft_test_route_validates_without_persisting(tmp_path: Path) -> None:
+    with _make_client(tmp_path) as client:
+        response = client.post(
+            "/provider-profiles/test-draft",
+            json={
+                "capability": "overall_summary",
+                "protocol": "openai_chat_completions",
+                "api_root": "https://api.example/v1/chat/completions",
+                "model": "test-model",
+                "credential": "temporary-token",
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["code"] == "provider_api_root_has_route"
+        assert client.get("/provider-profiles").json() == []
+
+
 def test_runtime_lists_projects_from_sqlite(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         first = client.post("/projects", json={"title": "first"}).json()["project_id"]

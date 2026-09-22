@@ -53,6 +53,7 @@ from .models import (
     ProjectCreateRequest,
     ProjectPatchRequest,
     ProviderProfileCreateRequest,
+    ProviderProfileDraftTestRequest,
     ProviderProfilePatchRequest,
     ProviderProfileResponse,
     ProviderProfileTestResponse,
@@ -717,6 +718,58 @@ class ApiControlPlane:
         profiles = self._read_provider_profiles()
         profile = profiles[self._provider_profile_index(profiles, profile_id)]
         credential = self._decrypt_profile_credential(profile)
+        return self._test_provider_profile_connection(profile, credential)
+
+    def test_provider_profile_draft(
+        self, payload: ProviderProfileDraftTestRequest
+    ) -> ProviderProfileTestResponse:
+        """Test current editor values without persisting profile or credential changes."""
+
+        profile = self._normalize_provider_profile(
+            {
+                "id": "provider_test_draft",
+                "display_name": "Draft provider test",
+                "capability": payload.capability,
+                "protocol": payload.protocol,
+                "api_root": payload.api_root,
+                "model": payload.model,
+                "auth_mode": payload.auth_mode,
+                "options": payload.options,
+                "revision": 1,
+                "is_default": False,
+                "credential_kind": "provider_profile:test-draft",
+            }
+        )
+        credential: str | None = None
+        if payload.credential is not None:
+            credential = payload.credential.get_secret_value().strip()
+            if not credential:
+                raise ApiError(
+                    code="provider_secret_empty",
+                    message="provider credential cannot be empty",
+                    status_code=422,
+                )
+        elif payload.saved_credential_profile_id:
+            profiles = self._read_provider_profiles()
+            saved = profiles[
+                self._provider_profile_index(
+                    profiles, payload.saved_credential_profile_id
+                )
+            ]
+            if saved["capability"] != profile["capability"]:
+                raise ApiError(
+                    code="provider_credential_capability_mismatch",
+                    message="saved credential profile capability does not match the draft",
+                    status_code=422,
+                )
+            credential = self._decrypt_profile_credential(saved)
+        return self._test_provider_profile_connection(profile, credential)
+
+    def _test_provider_profile_connection(
+        self, profile: dict[str, object], credential: str | None
+    ) -> ProviderProfileTestResponse:
+        """Execute the shared minimal provider request without writing state."""
+
         started = time.monotonic()
         try:
             protocol = str(profile["protocol"])

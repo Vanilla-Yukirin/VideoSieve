@@ -57,6 +57,7 @@ from .rest import (
     patch_system_settings,
     probe_ingest_formats,
     test_provider_profile,
+    test_provider_profile_draft,
     validate_cookie,
 )
 from .service import ApiConfigError, ApiControlPlane, ApiError
@@ -310,6 +311,12 @@ def create_app(*, data_dir: Path | None = None, event_bus_in_memory: bool | None
         request: Request, payload: dict[str, Any]
     ) -> dict[str, Any]:
         return create_provider_profile(_control_plane(request), payload)
+
+    @app.post("/provider-profiles/test-draft")
+    async def test_provider_profile_draft_route(
+        request: Request, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return test_provider_profile_draft(_control_plane(request), payload)
 
     @app.patch("/provider-profiles/{profile_id}")
     async def patch_provider_profile_route(

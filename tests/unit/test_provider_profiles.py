@@ -8,6 +8,7 @@ from apps.api.models import (
     JobCreateRequest,
     ProjectCreateRequest,
     ProviderProfileCreateRequest,
+    ProviderProfileDraftTestRequest,
     ProviderProfilePatchRequest,
     SystemSettingsPatchRequest,
 )
@@ -134,3 +135,84 @@ def test_profile_rejects_full_protocol_route_and_unimplemented_asr(tmp_path: Pat
             )
         )
     assert planned_error.value.code == "provider_protocol_not_implemented"
+
+
+def test_draft_test_uses_current_values_without_persisting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control, repository, _ = _control_plane(tmp_path)
+    observed: list[dict[str, object]] = []
+
+    class FakeCapsWriter:
+        def __init__(self, **kwargs: object) -> None:
+            observed.append(kwargs)
+
+        def test_connection(self) -> None:
+            return None
+
+    monkeypatch.setattr("apps.api.service.CapsWriterWebSocketProvider", FakeCapsWriter)
+
+    result = control.test_provider_profile_draft(
+        ProviderProfileDraftTestRequest(
+            capability="asr",
+            protocol="capswriter_ws",
+            api_root="ws://draft.example:6016",
+            auth_mode="optional_bearer",
+            options={"timeout_seconds": 8},
+            credential=SecretStr("temporary-token"),
+        )
+    )
+
+    assert result.status == "succeeded"
+    assert observed == [
+        {
+            "endpoint": "ws://draft.example:6016",
+            "token": "temporary-token",
+            "timeout_seconds": 8,
+        }
+    ]
+    assert control.list_provider_profiles() == []
+    assert repository.get_active_provider_secret("provider_profile:test-draft") is None
+
+
+def test_draft_test_can_reuse_saved_credential_without_saving_edits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control, _, _ = _control_plane(tmp_path)
+    saved = control.create_provider_profile(
+        ProviderProfileCreateRequest(
+            display_name="Saved CapsWriter",
+            capability="asr",
+            protocol="capswriter_ws",
+            api_root="ws://saved.example:6016",
+            auth_mode="optional_bearer",
+            credential=SecretStr("saved-token"),
+        )
+    )
+    observed: dict[str, object] = {}
+
+    class FakeCapsWriter:
+        def __init__(self, **kwargs: object) -> None:
+            observed.update(kwargs)
+
+        def test_connection(self) -> None:
+            return None
+
+    monkeypatch.setattr("apps.api.service.CapsWriterWebSocketProvider", FakeCapsWriter)
+
+    control.test_provider_profile_draft(
+        ProviderProfileDraftTestRequest(
+            capability="asr",
+            protocol="capswriter_ws",
+            api_root="ws://edited.example:6016",
+            auth_mode="optional_bearer",
+            saved_credential_profile_id=saved.id,
+        )
+    )
+
+    assert observed["endpoint"] == "ws://edited.example:6016"
+    assert observed["token"] == "saved-token"
+    profiles = control.list_provider_profiles()
+    assert len(profiles) == 1
+    assert profiles[0].api_root == "ws://saved.example:6016"
+    assert profiles[0].revision == 1

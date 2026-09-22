@@ -228,6 +228,19 @@ class ProviderProfilePatchRequest(ApiModel):
         return self
 
 
+class ProviderProfileDraftTestRequest(ApiModel):
+    """Test the current editor values without persisting the profile."""
+
+    capability: ProviderCapability
+    protocol: ProviderProtocol
+    api_root: str
+    model: str = ""
+    auth_mode: ProviderAuthMode = "bearer"
+    options: dict[str, Any] = Field(default_factory=dict)
+    credential: SecretStr | None = None
+    saved_credential_profile_id: str | None = None
+
+
 class ProviderProfileTestResponse(ApiModel):
     """Sanitized result from a real minimal provider request."""
 

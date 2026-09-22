@@ -111,9 +111,12 @@ worker 开始 attempt 时：
 - `verified`：使用当前 credential 和 model 完成最小真实调用并解析合法响应；
 - real E2E：真实视频经过 ASR/VLM/LLM，产物与内容经人工复核。
 
-Profile 测试 API 使用保存的 credential 发起真实最小请求。CapsWriter 测试 WebSocket
-握手，VLM 测试图片输入，LLM 测试文本输入；一次成功可陈述该配置在测试时 `verified`，
-但不持久承诺可用性，也不替代真实视频 E2E。`GET /healthz` 仍只证明 API 进程存活。
+Profile 测试 API 可测试已保存配置，也可直接测试编辑器中的草稿。草稿测试使用当前填写
+的 endpoint、协议、模型、参数和临时 credential，不创建或修改 Profile，也不写入
+credential；编辑已有 Profile 且 credential 留空时，可只读复用该 Profile 已保存的
+credential。CapsWriter 测试 WebSocket 握手，VLM 测试图片输入，LLM 测试文本输入；
+一次成功可陈述该组值在测试时 `verified`，但不持久承诺可用性，也不替代真实视频 E2E。
+`GET /healthz` 仍只证明 API 进程存活。
 
 ## 7. Cookie 约束
 

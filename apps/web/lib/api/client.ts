@@ -20,6 +20,7 @@ import {
   ProviderCapability,
   ProviderProfile,
   ProviderProfileCreateRequest,
+  ProviderProfileDraftTestRequest,
   ProviderProfilePatchRequest,
   ProviderProfileTestResponse,
 } from "./types";
@@ -81,6 +82,13 @@ export const api = {
 
   createProviderProfile: (payload: ProviderProfileCreateRequest) =>
     fetchJson<ProviderProfile>("/provider-profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  testProviderProfileDraft: (payload: ProviderProfileDraftTestRequest) =>
+    fetchJson<ProviderProfileTestResponse>("/provider-profiles/test-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

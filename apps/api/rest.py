@@ -15,6 +15,7 @@ from .models import (
     ProjectCreateRequest,
     ProjectPatchRequest,
     ProviderProfileCreateRequest,
+    ProviderProfileDraftTestRequest,
     ProviderProfilePatchRequest,
     SystemSettingsPatchRequest,
 )
@@ -25,6 +26,7 @@ REST_ROUTES: tuple[str, ...] = (
     "PATCH /settings/system",
     "GET /provider-profiles",
     "POST /provider-profiles",
+    "POST /provider-profiles/test-draft",
     "PATCH /provider-profiles/{profile_id}",
     "DELETE /provider-profiles/{profile_id}",
     "POST /provider-profiles/{profile_id}/test",
@@ -141,6 +143,15 @@ def create_provider_profile(
 
     request = ProviderProfileCreateRequest.model_validate(payload)
     return control_plane.create_provider_profile(request).model_dump(mode="json")
+
+
+def test_provider_profile_draft(
+    control_plane: ApiControlPlane, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """POST /provider-profiles/test-draft"""
+
+    request = ProviderProfileDraftTestRequest.model_validate(payload)
+    return control_plane.test_provider_profile_draft(request).model_dump(mode="json")
 
 
 def patch_provider_profile(

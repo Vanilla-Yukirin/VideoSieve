@@ -162,6 +162,17 @@ export interface ProviderProfileCreateRequest {
   credential?: string;
 }
 
+export interface ProviderProfileDraftTestRequest {
+  capability: ProviderCapability;
+  protocol: ProviderProtocol;
+  api_root: string;
+  model?: string;
+  auth_mode?: ProviderAuthMode;
+  options?: Record<string, unknown>;
+  credential?: string;
+  saved_credential_profile_id?: string;
+}
+
 export interface ProviderProfilePatchRequest {
   display_name?: string;
   protocol?: ProviderProtocol;

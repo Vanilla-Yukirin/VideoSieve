@@ -65,6 +65,8 @@ Key REST endpoints:
 ## Provider Settings
 
 - `implemented` `/provider-profiles` 提供多配置的增删改查、默认项切换和 write-only credential；
+- `implemented` `POST /provider-profiles/test-draft` 使用当前表单值执行真实最小请求，不保存
+  Profile 或 credential；编辑已有 Profile 时可通过 ID 只读复用已保存 credential；
 - `implemented` `POST /provider-profiles/{profile_id}/test` 执行真实最小请求，只返回脱敏状态与耗时；
 - `implemented` 创建 job 时只把选中的非敏感 Provider 配置与 credential reference 写入 snapshot。
 

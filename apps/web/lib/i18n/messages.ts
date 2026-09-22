@@ -103,7 +103,6 @@ export type MessageKey =
   | "providers.credentialMissing"
   | "providers.setDefault"
   | "providers.test"
-  | "providers.saveAndTest"
   | "providers.testing"
   | "providers.testSucceeded"
   | "providers.testFailed"
@@ -405,7 +404,6 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.credentialMissing": "未保存密钥",
     "providers.setDefault": "设为默认",
     "providers.test": "测试连接",
-    "providers.saveAndTest": "保存并测试",
     "providers.testing": "正在发起真实测试请求...",
     "providers.testSucceeded": "测试成功，耗时 {latency} ms。",
     "providers.testFailed": "测试失败。",
@@ -704,7 +702,6 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.credentialMissing": "credential missing",
     "providers.setDefault": "Set default",
     "providers.test": "Test connection",
-    "providers.saveAndTest": "Save and test",
     "providers.testing": "Sending a real test request...",
     "providers.testSucceeded": "Test succeeded in {latency} ms.",
     "providers.testFailed": "Test failed.",

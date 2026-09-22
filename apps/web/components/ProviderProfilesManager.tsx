@@ -14,6 +14,7 @@ import type {
   ProviderCapability,
   ProviderProfile,
   ProviderProfileCreateRequest,
+  ProviderProfileDraftTestRequest,
   ProviderProtocol,
 } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -115,6 +116,34 @@ function protocolLabel(protocol: ProviderProtocol): string {
   }[protocol];
 }
 
+function editorDraftTestPayload(editor: EditorState): ProviderProfileDraftTestRequest {
+  return {
+    capability: editor.capability,
+    protocol: editor.protocol,
+    api_root: editor.apiRoot.trim(),
+    model: editor.capability === "asr" ? "" : editor.model.trim(),
+    auth_mode: editor.authMode,
+    options:
+      editor.capability === "asr"
+        ? {
+            ...editor.options,
+            language: editor.language.trim() || "auto",
+            context: editor.context.trim(),
+            timeout_seconds: editor.timeoutSeconds,
+          }
+        : editor.options,
+    ...(editor.credential.trim() ? { credential: editor.credential.trim() } : {}),
+  };
+}
+
+function editorPayload(editor: EditorState): ProviderProfileCreateRequest {
+  return {
+    ...editorDraftTestPayload(editor),
+    display_name: editor.displayName.trim(),
+    is_default: editor.isDefault,
+  };
+}
+
 export function ProviderProfilesManager({
   profiles,
   onProfilesChange,
@@ -123,6 +152,8 @@ export function ProviderProfilesManager({
   const { t } = useI18n();
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editorAction, setEditorAction] = useState<"save" | "test" | null>(null);
+  const [editorTestResult, setEditorTestResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProviderProfile | null>(null);
   const [testResults, setTestResults] = useState<Record<string, string>>({});
@@ -141,39 +172,45 @@ export function ProviderProfilesManager({
       apiRoot: template.apiRoot,
       authMode: template.authMode,
     });
+    setError(null);
+    setEditorTestResult(null);
   };
 
-  const saveEditor = async (testAfterSave = false) => {
-    if (!editor) return;
-    if (!editor.displayName.trim() || !editor.apiRoot.trim()) {
+  const updateEditor = (patch: Partial<EditorState>) => {
+    setEditor((current) => current ? { ...current, ...patch } : current);
+    setError(null);
+    setEditorTestResult(null);
+  };
+
+  const closeEditor = () => {
+    setEditor(null);
+    setError(null);
+    setEditorTestResult(null);
+  };
+
+  const validateEditor = (
+    current: EditorState,
+    requireDisplayName: boolean,
+  ): boolean => {
+    if (!current.apiRoot.trim() || (requireDisplayName && !current.displayName.trim())) {
       setError(t("providers.required"));
-      return;
+      return false;
     }
-    if (editor.capability !== "asr" && !editor.model.trim()) {
+    if (current.capability !== "asr" && !current.model.trim()) {
       setError(t("providers.modelRequired"));
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const saveEditor = async () => {
+    if (!editor) return;
+    if (!validateEditor(editor, true)) return;
     setBusy(true);
+    setEditorAction("save");
     setError(null);
     try {
-      const common = {
-        display_name: editor.displayName.trim(),
-        protocol: editor.protocol,
-        api_root: editor.apiRoot.trim(),
-        model: editor.capability === "asr" ? "" : editor.model.trim(),
-        auth_mode: editor.authMode,
-        options:
-          editor.capability === "asr"
-            ? {
-                ...editor.options,
-                language: editor.language.trim() || "auto",
-                context: editor.context.trim(),
-                timeout_seconds: editor.timeoutSeconds,
-              }
-            : editor.options,
-        is_default: editor.isDefault,
-        ...(editor.credential.trim() ? { credential: editor.credential.trim() } : {}),
-      };
+      const { capability, ...common } = editorPayload(editor);
       const savedProfile = editor.profileId
         ? await api.patchProviderProfile(editor.profileId, {
           ...common,
@@ -181,7 +218,7 @@ export function ProviderProfilesManager({
         })
         : await api.createProviderProfile({
           ...common,
-          capability: editor.capability,
+          capability,
         } satisfies ProviderProfileCreateRequest);
       setTestResults((current) => {
         const next = { ...current };
@@ -189,14 +226,42 @@ export function ProviderProfilesManager({
         return next;
       });
       await onProfilesChange();
-      setEditor(null);
-      if (testAfterSave) {
-        await testProfileId(savedProfile.id);
-      }
+      closeEditor();
     } catch (unknownError) {
       setError(unknownError instanceof Error ? unknownError.message : t("providers.saveFailed"));
     } finally {
       setBusy(false);
+      setEditorAction(null);
+    }
+  };
+
+  const testEditor = async () => {
+    if (!editor) return;
+    if (!validateEditor(editor, false)) return;
+    setBusy(true);
+    setEditorAction("test");
+    setError(null);
+    setEditorTestResult(t("providers.testing"));
+    try {
+      const payload: ProviderProfileDraftTestRequest = {
+        ...editorDraftTestPayload(editor),
+        ...(
+          editor.profileId
+          && editor.credentialConfigured
+          && !editor.clearCredential
+          && !editor.credential.trim()
+            ? { saved_credential_profile_id: editor.profileId }
+            : {}
+        ),
+      };
+      const result = await api.testProviderProfileDraft(payload);
+      setEditorTestResult(t("providers.testSucceeded", { latency: result.latency_ms }));
+    } catch (unknownError) {
+      setEditorTestResult(null);
+      setError(unknownError instanceof Error ? unknownError.message : t("providers.testFailed"));
+    } finally {
+      setBusy(false);
+      setEditorAction(null);
     }
   };
 
@@ -276,6 +341,7 @@ export function ProviderProfilesManager({
                 size="sm"
                 onClick={() => {
                   setError(null);
+                  setEditorTestResult(null);
                   setEditor(newEditor(capability, grouped[capability].length === 0));
                 }}
                 disabled={busy}
@@ -328,6 +394,7 @@ export function ProviderProfilesManager({
                       </Button>
                       <Button type="button" size="sm" variant="outline" onClick={() => {
                         setError(null);
+                        setEditorTestResult(null);
                         setEditor(editProfile(profile));
                       }} disabled={busy}>
                         <Pencil className="mr-1 h-3.5 w-3.5" /> {t("providers.edit")}
@@ -353,27 +420,21 @@ export function ProviderProfilesManager({
           initialFocusSelector="#provider-display-name"
           size="xl"
           busy={busy}
-          onClose={() => {
-            setEditor(null);
-            setError(null);
-          }}
+          onClose={closeEditor}
           footer={
             <>
-              <Button type="button" variant="outline" onClick={() => {
-                setEditor(null);
-                setError(null);
-              }} disabled={busy}>{t("common.cancel")}</Button>
-              <Button type="button" variant="outline" onClick={() => void saveEditor(true)} isLoading={busy}>
-                <Wifi className="mr-1 h-4 w-4" /> {t("providers.saveAndTest")}
+              <Button type="button" variant="outline" onClick={closeEditor} disabled={busy}>{t("common.cancel")}</Button>
+              <Button type="button" variant="outline" onClick={() => void testEditor()} isLoading={editorAction === "test"} disabled={busy}>
+                <Wifi className="mr-1 h-4 w-4" /> {t("providers.test")}
               </Button>
-              <Button type="button" onClick={() => void saveEditor(false)} isLoading={busy}>
+              <Button type="button" onClick={() => void saveEditor()} isLoading={editorAction === "save"} disabled={busy}>
                 <CheckCircle2 className="mr-1 h-4 w-4" /> {t("common.save")}
               </Button>
             </>
           }
         >
           <div className="space-y-4">
-            <TextField id="provider-display-name" label={t("providers.displayName")} value={editor.displayName} onChange={(displayName) => setEditor({ ...editor, displayName })} disabled={busy} />
+            <TextField id="provider-display-name" label={t("providers.displayName")} value={editor.displayName} onChange={(displayName) => updateEditor({ displayName })} disabled={busy} />
 
             {editor.capability === "asr" ? (
               <div className="space-y-1">
@@ -398,8 +459,7 @@ export function ProviderProfilesManager({
                   <label className="text-sm font-medium" htmlFor="provider-protocol">{t("providers.protocol")}</label>
                   <select id="provider-protocol" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.protocol} onChange={(event) => {
                     const protocol = event.target.value as ProviderProtocol;
-                    setEditor({
-                      ...editor,
+                    updateEditor({
                       template: "custom",
                       protocol,
                       authMode: protocol === "anthropic_messages" ? "x_api_key" : "bearer",
@@ -413,19 +473,19 @@ export function ProviderProfilesManager({
               </>
             )}
 
-            <TextField id="provider-api-root" label={editor.capability === "asr" ? t("providers.serviceUrl") : t("providers.apiRoot")} value={editor.apiRoot} onChange={(apiRoot) => setEditor({ ...editor, apiRoot })} disabled={busy} placeholder={editor.capability === "asr" ? "ws://127.0.0.1:6016" : "https://api.example.com/v1"} />
+            <TextField id="provider-api-root" label={editor.capability === "asr" ? t("providers.serviceUrl") : t("providers.apiRoot")} value={editor.apiRoot} onChange={(apiRoot) => updateEditor({ apiRoot })} disabled={busy} placeholder={editor.capability === "asr" ? "ws://127.0.0.1:6016" : "https://api.example.com/v1"} />
             <p className="text-xs text-muted-foreground">
               {editor.capability === "asr" ? t("providers.capswriterUrlHint") : t("providers.apiRootHint")}
             </p>
 
             {editor.capability !== "asr" ? (
-              <TextField id="provider-model" label={t("providers.model")} value={editor.model} onChange={(model) => setEditor({ ...editor, model })} disabled={busy} />
+              <TextField id="provider-model" label={t("providers.model")} value={editor.model} onChange={(model) => updateEditor({ model })} disabled={busy} />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextField id="provider-language" label={t("settings.asrLanguage")} value={editor.language} onChange={(language) => setEditor({ ...editor, language })} disabled={busy} />
+                <TextField id="provider-language" label={t("settings.asrLanguage")} value={editor.language} onChange={(language) => updateEditor({ language })} disabled={busy} />
                 <div className="space-y-1">
                   <label className="text-sm font-medium" htmlFor="provider-timeout">{t("settings.asrTimeout")}</label>
-                  <input id="provider-timeout" type="number" min={1} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.timeoutSeconds} onChange={(event) => setEditor({ ...editor, timeoutSeconds: Math.max(1, Number(event.target.value) || 1) })} disabled={busy} />
+                  <input id="provider-timeout" type="number" min={1} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.timeoutSeconds} onChange={(event) => updateEditor({ timeoutSeconds: Math.max(1, Number(event.target.value) || 1) })} disabled={busy} />
                 </div>
               </div>
             )}
@@ -433,7 +493,7 @@ export function ProviderProfilesManager({
             {editor.capability === "asr" ? (
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="provider-context">{t("settings.asrContext")}</label>
-                <textarea id="provider-context" rows={3} maxLength={2000} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={editor.context} onChange={(event) => setEditor({ ...editor, context: event.target.value })} disabled={busy} />
+                <textarea id="provider-context" rows={3} maxLength={2000} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={editor.context} onChange={(event) => updateEditor({ context: event.target.value })} disabled={busy} />
               </div>
             ) : null}
 
@@ -444,22 +504,23 @@ export function ProviderProfilesManager({
                   {editor.credentialConfigured ? t("providers.credentialConfigured") : t("providers.credentialNotSaved")}
                 </span>
               </div>
-              <input id="provider-credential" type="password" autoComplete="new-password" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.credential} onChange={(event) => setEditor({ ...editor, credential: event.target.value, clearCredential: false })} placeholder={editor.credentialConfigured ? t("providers.keepCredential") : editor.capability === "asr" ? t("providers.optionalCredential") : "API key"} disabled={busy || editor.clearCredential} />
+              <input id="provider-credential" type="password" autoComplete="new-password" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editor.credential} onChange={(event) => updateEditor({ credential: event.target.value, clearCredential: false })} placeholder={editor.credentialConfigured ? t("providers.keepCredential") : editor.capability === "asr" ? t("providers.optionalCredential") : "API key"} disabled={busy || editor.clearCredential} />
               <p className="text-xs text-muted-foreground">{t("providers.credentialHint")}</p>
               {editor.profileId && editor.credentialConfigured ? (
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <input type="checkbox" checked={editor.clearCredential} onChange={(event) => setEditor({ ...editor, clearCredential: event.target.checked, credential: "" })} disabled={busy} />
+                  <input type="checkbox" checked={editor.clearCredential} onChange={(event) => updateEditor({ clearCredential: event.target.checked, credential: "" })} disabled={busy} />
                   {t("settings.clearCredential")}
                 </label>
               ) : null}
             </div>
 
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={editor.isDefault} onChange={(event) => setEditor({ ...editor, isDefault: event.target.checked })} disabled={busy} />
+              <input type="checkbox" checked={editor.isDefault} onChange={(event) => updateEditor({ isDefault: event.target.checked })} disabled={busy} />
               {t("providers.useDefault")}
             </label>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {editorTestResult ? <p className="text-sm text-muted-foreground">{editorTestResult}</p> : null}
           </div>
         </Dialog>
       ) : error ? (

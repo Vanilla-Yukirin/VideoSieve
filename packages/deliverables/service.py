@@ -276,7 +276,7 @@ class DeliverablesService:
         return {
             "artifact_type": artifact_type,
             "path": canonical_path.relative_to(
-                self._workspace_store.job_root(project_id, job_id)
+                self._workspace_store.job_root(project_id, job_id).resolve()
             ).as_posix(),
             "size_bytes": staged_path.stat().st_size,
             "sha256": sha256_file(staged_path),

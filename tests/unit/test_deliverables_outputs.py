@@ -109,6 +109,36 @@ def test_deliverables_writes_expected_files_and_content(tmp_path: Path) -> None:
     }
 
 
+def test_deliverables_manifest_with_relative_workspace_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = FileSystemWorkspaceStore(Path("workspaces"))
+    timeline_path = store.timeline_file("project-relative", "job-relative")
+    timeline_path.parent.mkdir(parents=True, exist_ok=True)
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "project_id": "project-relative",
+                "job_id": "job-relative",
+                "chunks": [
+                    {"chunk_id": "ch_0001", "start": 0.0, "end": 1.0, "text": "content"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = DeliverablesService(store).run("project-relative", job_id="job-relative")
+
+    manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+    assert {item["path"] for item in manifest["artifacts"]} == {
+        "outputs/clean_transcript.md",
+        "outputs/illustrated_notes.md",
+    }
+
+
 def test_deliverables_missing_or_empty_timeline_behavior(tmp_path: Path) -> None:
     store = FileSystemWorkspaceStore(tmp_path / "workspaces")
     service = DeliverablesService(store)

@@ -161,6 +161,18 @@ def test_pipeline_orchestrates_all_stages_and_writes_checkpoint(tmp_path: Path) 
     assert job.status == JobStatus.SUCCEEDED.value
 
 
+def test_ingest_uses_source_title_when_no_title_was_supplied(tmp_path: Path) -> None:
+    runtime, _, workspace = _make_runtime(tmp_path)
+    source = tmp_path / "lesson.mp4"
+    source.write_bytes(b"video")
+
+    result = runtime.run_job(project_id="p1", job_id="j1", source_path=str(source))
+
+    assert result.status == JobStatus.SUCCEEDED.value
+    metadata = json.loads(workspace.job_meta_file("p1", "j1").read_text(encoding="utf-8"))
+    assert metadata["title"] == "lesson"
+
+
 def test_pipeline_exits_early_when_job_already_cancelled(tmp_path: Path) -> None:
     runtime, repository, workspace = _make_runtime(tmp_path, worker_id=None)
     repository.update_job_status("j1", status=JobStatus.CANCELLED.value, stage=None)

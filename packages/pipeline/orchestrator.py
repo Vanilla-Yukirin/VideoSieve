@@ -471,7 +471,7 @@ class PipelineOrchestrator:
             request_payload: dict[str, Any] = {
                 "project_id": project_id,
                 "job_id": job_id,
-                "title": title or "上传视频",
+                "title": title,
                 "description": description,
                 "tags": tags,
                 "language_hint": language_hint,

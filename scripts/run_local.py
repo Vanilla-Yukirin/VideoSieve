@@ -352,8 +352,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--env-file", type=Path, default=Path(".env.local"))
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--api-port", type=int, default=8000)
-    parser.add_argument("--web-port", type=int, default=3000)
+    parser.add_argument("--api-port", type=int, default=8847)
+    parser.add_argument("--web-port", type=int, default=3847)
     parser.add_argument("--startup-timeout", type=float, default=30.0)
     parser.add_argument("--force-build", action="store_true")
     parser.add_argument(

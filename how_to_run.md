@@ -30,7 +30,7 @@ copy .env.example .env.local
 
 ```env
 APP_SECRET_KEY=replace-with-a-long-random-value
-NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000
+NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8847
 ```
 
 在线 ASR、画面描述 VLM 和全文摘要 LLM 的 endpoint、model 与 credential 不属于部署
@@ -88,25 +88,25 @@ uv run python scripts/run_local.py --check-only
 进程。worker 崩溃或心跳过期会把任务标为 `interrupted`，必须显式恢复，不会自动重复执行。
 
 三个组件仍是相互隔离的进程，但不再要求打开三个终端。实际只有两个本机监听端口：
-Web 使用 `3000`，API 与任务 WebSocket 共用 `8000`；worker 不监听任何网络端口。Next.js
+Web 使用 `3847`，API 与任务 WebSocket 共用 `8847`；worker 不监听任何网络端口。Next.js
 负责服务页面和把 `/api/*` 代理给 FastAPI，所以不能在不增加额外反向代理层的情况下把两个
 监听端口直接合并。
 
 如需单独诊断，原始入口仍可直接运行：
 
 ```powershell
-uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8847
 uv run python -m workers.single_host --env-file .env.local
 npm.cmd --prefix apps/web run start
 ```
 
 ## 4. 浏览器访问
 
-- Web：`http://localhost:3000`
-- API 健康检查：`http://127.0.0.1:8000/healthz`
+- Web：`http://localhost:3847`
+- API 健康检查：`http://127.0.0.1:8847/healthz`
 
 日常只打开 Web 地址。FastAPI 没有首页，因此浏览器直接访问
-`http://127.0.0.1:8000/` 返回 `404 Not Found` 是正常行为。
+`http://127.0.0.1:8847/` 返回 `404 Not Found` 是正常行为。
 
 首次进入的推荐流程：
 
@@ -147,23 +147,23 @@ Yukirin Gateway 或带认证的反向代理建立外层访问控制；不要把 
 - 当前项目统一使用 `uv + .venv`，便于跨机器迁移与依赖锁定。
 - 执行 Python 命令时统一用 `uv run ...`。
 
-### 1) 端口绑定失败（例如 8000）
+### 1) 端口绑定失败（例如 8847）
 
 如果出现类似错误：
 
-`[Errno 13] ... bind on address ('127.0.0.1', 8000)`，或启动器报告端口已占用。
+`[Errno 13] ... bind on address ('127.0.0.1', 8847)`，或启动器报告端口已占用。
 
 执行检查：
 
 ```powershell
-netstat -ano | findstr :8000
+netstat -ano | findstr :8847
 netsh interface ipv4 show excludedportrange protocol=tcp
 ```
 
 说明：
 
-- 如果 8000 在排除端口范围内（例如 `7940-8039`），该端口被 Windows 保留。
-- 直接换端口最省事（本方案默认 `8000`）。
+- 如果 8847 在排除端口范围内，该端口被 Windows 保留。
+- 直接换端口最省事（本方案默认 `8847`）。
 
 ### 2) 前端改了环境变量不生效
 

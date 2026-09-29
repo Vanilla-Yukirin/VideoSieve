@@ -8,6 +8,7 @@ import pytest
 from scripts.run_local import (
     LocalRunError,
     _log,
+    build_parser,
     load_and_validate_env,
     port_is_available,
     validate_node_version,
@@ -20,11 +21,11 @@ def test_load_and_validate_env_accepts_local_api_origin(tmp_path: Path) -> None:
     env_file = tmp_path / ".env.local"
     env_file.write_text(
         "APP_SECRET_KEY=a-real-local-secret\n"
-        "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000\n",
+        "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8847\n",
         encoding="utf-8",
     )
 
-    values = load_and_validate_env(env_file, api_port=8000)
+    values = load_and_validate_env(env_file, api_port=8847)
 
     assert values["APP_SECRET_KEY"] == "a-real-local-secret"
 
@@ -32,10 +33,10 @@ def test_load_and_validate_env_accepts_local_api_origin(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "content, message",
     [
-        ("NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000\n", "APP_SECRET_KEY"),
+        ("NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8847\n", "APP_SECRET_KEY"),
         (
             "APP_SECRET_KEY=change-me-in-local-or-production\n"
-            "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000\n",
+            "NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8847\n",
             "example value",
         ),
         (
@@ -55,7 +56,12 @@ def test_load_and_validate_env_rejects_invalid_startup_config(
     env_file.write_text(content, encoding="utf-8")
 
     with pytest.raises(LocalRunError, match=message):
-        load_and_validate_env(env_file, api_port=8000)
+        load_and_validate_env(env_file, api_port=8847)
+
+
+def test_local_launcher_uses_dedicated_default_ports() -> None:
+    args = build_parser().parse_args([])
+    assert (args.web_port, args.api_port) == (3847, 8847)
 
 
 def test_port_is_available_reports_an_existing_listener() -> None:

@@ -37,7 +37,7 @@ copy .env.example .env.local
 
 1. 必须替换 `APP_SECRET_KEY`；示例值会被 API 拒绝；
 2. 保持 `VIDEOSIEVE_API_DATA_DIR=runtime/api`，让 API 和 worker 使用同一数据目录；
-3. 保持 `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000`；
+3. 保持 `NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8847`；
 4. 按需设置监听 origin 等部署参数，Web/API 默认保持回环地址；
 5. 不在 `.env.local` 填写新 Provider 的 endpoint、model 或 credential。
 
@@ -54,7 +54,7 @@ uv run python scripts/run_local.py
 ```
 
 启动器会检查 `.env.local` 和 `APP_SECRET_KEY`、Python/Node/npm、FFmpeg/ffprobe、
-`3000`/`8000` 端口及前端依赖。需要时会依据锁文件运行 `npm ci`，并在首次启动或前端
+`3847`/`8847` 端口及前端依赖。需要时会依据锁文件运行 `npm ci`，并在首次启动或前端
 源码、配置、`.env.local` 变化后执行生产构建。随后它在后台分别运行 API、独立 worker
 和生产 Next.js Web，在当前终端以来源前缀汇总三者日志。任一进程启动失败或运行中退出，
 启动器都会报告错误并停止其余进程；按一次 `Ctrl+C` 会停止整组进程。
@@ -71,7 +71,7 @@ Web 构建必须强制刷新时：
 uv run python scripts/run_local.py --force-build
 ```
 
-访问 `http://localhost:3000`。首次进入流程是：
+访问 `http://localhost:3847`。首次进入流程是：
 
 1. 直接进入 Provider 引导；
 2. 配置 CapsWriter endpoint，以及按需填写选填 Token；
@@ -80,14 +80,14 @@ uv run python scripts/run_local.py --force-build
 5. 保存后使用一段短视频完成真实验收。
 
 这仍然是三个隔离的进程，但只需要一个终端。网络上只有两个回环监听端口：Web 使用
-`3000`，FastAPI 与任务 WebSocket 共用 `8000`；worker 通过 SQLite 领取任务，不监听端口。
-日常只访问 Web 地址。FastAPI 没有 `/` 页面，直接打开 `http://127.0.0.1:8000/` 返回
-404 是正常行为；其健康检查地址是 `http://127.0.0.1:8000/healthz`。
+`3847`，FastAPI 与任务 WebSocket 共用 `8847`；worker 通过 SQLite 领取任务，不监听端口。
+日常只访问 Web 地址。FastAPI 没有 `/` 页面，直接打开 `http://127.0.0.1:8847/` 返回
+404 是正常行为；其健康检查地址是 `http://127.0.0.1:8847/healthz`。
 
 如需单独诊断，可以继续分别运行原始入口：
 
 ```powershell
-uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8000
+uv run python -m uvicorn apps.api.main:app --env-file .env.local --host 127.0.0.1 --port 8847
 uv run python -m workers.single_host --env-file .env.local
 npm.cmd --prefix apps/web run build
 npm.cmd --prefix apps/web run start

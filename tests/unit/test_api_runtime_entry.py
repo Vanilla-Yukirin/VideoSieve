@@ -467,7 +467,7 @@ def test_runtime_startup_rejects_example_app_secret(
 
 def test_runtime_cors_accepts_both_localhost_spellings(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
-        for origin in ("http://localhost:3000", "http://127.0.0.1:3000"):
+        for origin in ("http://localhost:3847", "http://127.0.0.1:3847"):
             response = client.options(
                 "/healthz",
                 headers={

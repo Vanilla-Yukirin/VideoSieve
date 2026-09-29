@@ -106,7 +106,7 @@ def _web_origins() -> list[str]:
     raw = os.getenv("VIDEOSIEVE_WEB_ORIGINS", "")
     if raw.strip():
         return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
-    return ["http://localhost:3000", "http://127.0.0.1:3000"]
+    return ["http://localhost:3847", "http://127.0.0.1:3847"]
 
 
 def _validation_details(exc: ValidationError | RequestValidationError) -> list[dict[str, Any]]:

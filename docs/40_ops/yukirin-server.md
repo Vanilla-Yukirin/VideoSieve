@@ -1,20 +1,22 @@
 # yukirin-server 部署记录与运维
 
-状态：2026-09-29 在 yukirin-server 的 `vanilla` 用户下实际部署。本文中的地址是当天核实的
-Tailscale 地址；变更网络或服务前重新核对。VideoSieve 本体运行在该主机，ASR、视觉模型和
+状态：2026-09-29 在 yukirin-server 的 `vanilla` 用户下实际部署，并切换到 Tailscale
+Serve HTTPS。变更网络或服务前重新核对。VideoSieve 本体运行在该主机，ASR、视觉模型和
 全文摘要仍是外部 Provider 调用，不随应用一起安装模型。
 
 ## 当前入口和边界
 
-- Web：`http://yukirin-server.tailb05ab0.ts.net:3847/`
-- API 与任务 WebSocket：`http://yukirin-server.tailb05ab0.ts.net:8847/`、
-  `ws://yukirin-server.tailb05ab0.ts.net:8847/ws/jobs/{job_id}`
-- Web 与 API 仅监听该主机的 Tailscale IP；worker 不监听网络端口。只有受信任的 tailnet
+- Web：`https://yukirin-server.tailb05ab0.ts.net:3847/`
+- API 与任务 WebSocket：`https://yukirin-server.tailb05ab0.ts.net:8847/`、
+  `wss://yukirin-server.tailb05ab0.ts.net:8847/ws/jobs/{job_id}`
+- Web 与 API 进程仅监听 `127.0.0.1:3847`、`127.0.0.1:8847`；Tailscale Serve 在相同
+  对外端口终止 HTTPS 并代理到回环地址。worker 不监听网络端口。只有受信任的 tailnet
   成员可访问。产品没有登录，任何能访问 API 的程序均可操作项目、配置和 Cookie Vault。
 - 同一 tailnet 的 Agent 可读私有 API 的 `/openapi.json` 获取当前接口契约，再通过 API
   创建项目和作业；不要把该入口交给不受信任的 Agent。
-- 当前不是 Tailscale Serve HTTPS：`vanilla` 无权修改主机既有 Serve 配置。不要为了接入
-  VideoSieve 重置已有 Gitea 等入口，也不要把服务改绑 `0.0.0.0`。
+- 2026-09-29 用户手动将 `vanilla` 设为 Tailscale operator，并决定保留此权限。
+  这允许该用户管理整台主机的 Tailscale，范围不限于 VideoSieve。不要为了接入
+  VideoSieve 重置已有 Gitea 等 Serve 入口，也不要把进程改绑 `0.0.0.0`。
 
 ## 文件和进程
 
@@ -24,21 +26,33 @@ Tailscale 地址；变更网络或服务前重新核对。VideoSieve 本体运�
   数据库匹配，**必须与数据库一起备份**，不能提交或写进归档；
 - 版本化 user systemd 单元：仓库的 `deploy/systemd/videosieve-{api,worker,web}.service`；
   服务器安装于 `~/.config/systemd/user/`。`loginctl` 已启用该用户的 linger；
-- 服务器的 `videosieve-api.service.d/tailnet.conf` 和
-  `videosieve-web.service.d/tailnet.conf` 仅覆写 `VIDEOSIEVE_BIND_HOST` 为当天的
-  Tailscale IP。默认单元仍绑定回环地址，防止误部署到公网或普通 LAN。
+- 单元默认绑定回环地址。先前覆写为 Tailscale IP 的两个 `tailnet.conf` 已改名为
+  `tailnet.conf.pre-serve` 留作回退证据，不再由 systemd 加载。
 
 API 和 worker 必须指向同一绝对 `VIDEOSIEVE_API_DATA_DIR`。Web 构建时
-`NEXT_PUBLIC_API_ORIGIN` 是浏览器可访问的 Tailscale API 地址；
+`NEXT_PUBLIC_API_ORIGIN` 是浏览器可访问的 HTTPS API 地址；
 `VIDEOSIEVE_INTERNAL_API_ORIGIN` 是 Next.js `/api/*` 重写使用的服务器内地址。
-API 只绑定 Tailscale IP 时，内部地址也必须指向该 IP，不能写 `127.0.0.1`。
-修改公开 API 地址后必须重建 Web 再重启。
+当前分别为 `https://yukirin-server.tailb05ab0.ts.net:8847` 和
+`http://127.0.0.1:8847`；`VIDEOSIEVE_WEB_ORIGINS` 为
+`https://yukirin-server.tailb05ab0.ts.net:3847`。修改浏览器公开 API 地址后必须
+重建 Web 再重启，避免 HTTPS 页面调用旧的 HTTP API 或 WebSocket。
+
+两个 Serve 入口由 `vanilla` 配置，原有 443、8443、18767 入口保持不变：
+
+```bash
+tailscale serve --bg --https=3847 http://127.0.0.1:3847
+tailscale serve --bg --https=8847 http://127.0.0.1:8847
+tailscale serve status --json
+```
+
+调整前核对 `tailscale serve status --json`。不要使用 `tailscale serve reset`，因为它会
+影响同机的其他服务。
 
 ```bash
 systemctl --user status videosieve-api videosieve-worker videosieve-web
 journalctl --user -u videosieve-api -u videosieve-worker -u videosieve-web -n 100 --no-pager
-curl --noproxy '*' http://yukirin-server.tailb05ab0.ts.net:8847/healthz
-curl --noproxy '*' http://yukirin-server.tailb05ab0.ts.net:3847/api/projects
+curl --noproxy '*' https://yukirin-server.tailb05ab0.ts.net:8847/healthz
+curl --noproxy '*' https://yukirin-server.tailb05ab0.ts.net:3847/api/projects
 ```
 
 `/healthz` 只证明 API 进程活着。还应核对三个 unit、网页代理、WebSocket 快照、Provider

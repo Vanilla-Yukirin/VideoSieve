@@ -42,8 +42,8 @@ Status markers:
   不得包含明文；
 - `CAPSWRITER_TOKEN`、`QWEN_API_KEY` 与 `SUMMARY_API_KEY` 环境变量只兼容旧 snapshot，
   新用户不应编辑这些变量；
-- `planned` 独立 Provider 连接测试尚未实现。credential 已保存不代表 endpoint 可达、
-  鉴权有效、模型存在或真实视频 E2E 已验证。
+- `implemented` 独立 Provider 连接测试按草稿或已保存配置发真实最小请求；credential
+  已保存不代表 endpoint 可达，测试成功也不代表真实视频 E2E 已验证。
 
 ## Cookie Handling
 

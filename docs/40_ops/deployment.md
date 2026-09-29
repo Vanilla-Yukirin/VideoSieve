@@ -87,8 +87,8 @@ worker 或 provider，因此不能作为 readiness 证明。active job 行会保
 attempt 和 heartbeat；仓库目前没有独立 worker registry，也没有空闲 worker heartbeat
 或 readiness endpoint。部署验收需要另外检查 worker 进程/锁，并创建受控任务观察领取。
 
-独立 Provider 连接测试也尚未实现。`configured` 只说明设置与 credential reference
-存在，不能提升为 `reachable`、`verified` 或真实视频 E2E。
+Provider 配置支持真实最小请求测试（包括不保存草稿的测试）；`configured` 仍只说明
+设置与 credential reference 存在。一次最小请求成功也不能替代真实视频 E2E。
 
 worker 心跳超时只触发告警并把 active job 标记为 interrupted／需要恢复，不能自动
 重新领取可能仍在执行的任务。

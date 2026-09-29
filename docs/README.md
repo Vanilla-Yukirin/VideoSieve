@@ -59,6 +59,7 @@
 ## Operations
 
 - [Windows 本机部署](40_ops/local-windows.md)
+- [yukirin-server 部署与运维](40_ops/yukirin-server.md)
 - [Deployment](40_ops/deployment.md)
 - [Observability](40_ops/observability.md)
 - [Troubleshooting](40_ops/troubleshooting.md)

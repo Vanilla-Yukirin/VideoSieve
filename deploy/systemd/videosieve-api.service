@@ -1,0 +1,17 @@
+[Unit]
+Description=VideoSieve API and job WebSocket
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vanilla/services/videosieve/app
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+Environment=VIDEOSIEVE_BIND_HOST=127.0.0.1
+ExecStart=/home/vanilla/services/videosieve/app/.venv/bin/python -m uvicorn apps.api.main:app --env-file /home/vanilla/services/videosieve/app/.env.local --host ${VIDEOSIEVE_BIND_HOST} --port 8847
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

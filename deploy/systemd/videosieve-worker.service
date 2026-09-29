@@ -1,0 +1,16 @@
+[Unit]
+Description=VideoSieve SQLite job worker
+
+[Service]
+Type=simple
+WorkingDirectory=/home/vanilla/services/videosieve/app
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+ExecStart=/home/vanilla/services/videosieve/app/.venv/bin/python -m workers.single_host --env-file /home/vanilla/services/videosieve/app/.env.local --data-dir /home/vanilla/services/videosieve/data
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

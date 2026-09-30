@@ -57,6 +57,14 @@ export function jobReducer(state: RealtimeState, action: Action): RealtimeState 
         return { ...state, lastCursor: nextCursor };
       }
       const nextStateVersion = Math.max(state.state_version, stateVersion ?? 0);
+      if (eventType === "model_usage") {
+        return {
+          ...state,
+          state_version: nextStateVersion,
+          lastCursor: nextCursor,
+          model_usage: payload.calls >= (state.model_usage?.calls ?? 0) ? payload : state.model_usage,
+        };
+      }
       if (eventType === "log") {
         const msg = payload.message;
         const level = payload.level;

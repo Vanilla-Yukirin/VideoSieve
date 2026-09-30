@@ -1,6 +1,17 @@
 import { jobReducer, initialState, RealtimeState } from "../../apps/web/lib/state/jobReducer";
 
 describe("jobReducer", () => {
+  it("converges usage events and ignores totals older than an authoritative snapshot", () => {
+    const usage = { calls: 3, failed_calls: 1, elapsed_ms: 500, stages: {} };
+    const state = { ...initialState, model_usage: usage };
+    const updated = jobReducer(state, { type: "EVENT", eventType: "model_usage",
+      payload: { ...usage, calls: 4 }, cursor: 5 });
+    expect(updated.model_usage?.calls).toBe(4);
+    const stale = jobReducer(updated, { type: "EVENT", eventType: "model_usage",
+      payload: { ...usage, calls: 2 }, cursor: 6 });
+    expect(stale.model_usage?.calls).toBe(4);
+    expect(stale.lastCursor).toBe(6);
+  });
   it("should handle initial snapshot", () => {
     const snapshot: any = {
       project_id: "p1",

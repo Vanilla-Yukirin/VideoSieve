@@ -119,6 +119,37 @@ export type MessageKey =
   | "providers.apiRootHint"
   | "providers.capswriterUrlHint"
   | "providers.model"
+  | "providers.modelOptions"
+  | "providers.context_window_tokens"
+  | "providers.max_output_tokens"
+  | "providers.thinking_budget_tokens"
+  | "providers.max_retries"
+  | "providers.timeout_seconds"
+  | "providers.thinkingEnabled"
+  | "providers.thinkingAdapter"
+  | "providers.adapterAuto"
+  | "providers.adapterAnthropicBudget"
+  | "providers.adapterAnthropicAdaptive"
+  | "providers.reasoningEffort"
+  | "providers.effortLow"
+  | "providers.effortMedium"
+  | "providers.effortHigh"
+  | "providers.budgetHint"
+  | "providers.budgetInvalid"
+  | "providers.thinkingHint"
+  | "usage.title"
+  | "usage.hint"
+  | "usage.empty"
+  | "usage.stage"
+  | "usage.calls"
+  | "usage.failed"
+  | "usage.input"
+  | "usage.output"
+  | "usage.cached"
+  | "usage.reasoning"
+  | "usage.time"
+  | "usage.unknown"
+  | "usage.partialHint"
   | "providers.credential"
   | "providers.credentialNotSaved"
   | "providers.keepCredential"
@@ -420,6 +451,37 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.apiRootHint": "填写 API 根地址，通常以 /v1 结尾；不要填写 /chat/completions、/responses 或 /messages。",
     "providers.capswriterUrlHint": "填写 ws:// 或 wss:// 地址。原版 CapsWriter 默认无需 Token。",
     "providers.model": "模型 ID",
+    "providers.modelOptions": "模型预算与思考",
+    "providers.context_window_tokens": "上下文预算（tokens）",
+    "providers.max_output_tokens": "最大输出（tokens）",
+    "providers.thinking_budget_tokens": "Anthropic 思考预算（tokens）",
+    "providers.max_retries": "额外重试次数",
+    "providers.timeout_seconds": "单次请求超时（秒）",
+    "providers.thinkingEnabled": "启用思考（默认开启）",
+    "providers.thinkingAdapter": "思考参数适配",
+    "providers.adapterAuto": "按接口地址自动选择",
+    "providers.adapterAnthropicBudget": "Anthropic · 固定思考预算",
+    "providers.adapterAnthropicAdaptive": "Anthropic · 自适应思考",
+    "providers.reasoningEffort": "思考强度",
+    "providers.effortLow": "低",
+    "providers.effortMedium": "中",
+    "providers.effortHigh": "高",
+    "providers.budgetHint": "默认上下文 128K、输出 32K。上下文是本地分段预算，不会扩大模型实际窗口；输出上限也可能包含思考 tokens。按服务商能力调整。",
+    "providers.budgetInvalid": "上下文预算需要比最大输出至少多 2049 tokens。",
+    "providers.thinkingHint": "代理或自定义地址请显式选择适配。仅支持思考的模型可开启；旧模型请关闭。Anthropic 固定预算使用思考 tokens，自适应模式使用思考强度；其他接口发送对应参数。重试耗尽会报告失败。",
+    "usage.title": "模型调用统计",
+    "usage.hint": "Tokens 仅采用服务商 usage，包含失败与重试。各协议的输入、缓存、思考计数口径不同，分别展示，不自动相加。时间是请求耗时合计（含网络；并发时不等于任务总耗时）。",
+    "usage.empty": "尚无模型调用记录；历史任务不会补算。",
+    "usage.stage": "阶段",
+    "usage.calls": "请求次数",
+    "usage.failed": "失败次数",
+    "usage.input": "输入 tokens",
+    "usage.output": "输出 tokens",
+    "usage.cached": "缓存 tokens",
+    "usage.reasoning": "思考 tokens",
+    "usage.time": "请求耗时",
+    "usage.unknown": "未知",
+    "usage.partialHint": "* 部分请求未返回该字段，显示的是已报告小计。未返回的用量不估算。",
     "providers.credential": "API Key / Token",
     "providers.credentialNotSaved": "未保存",
     "providers.keepCredential": "留空保留当前密钥",
@@ -718,6 +780,37 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.apiRootHint": "Enter the API root, usually ending in /v1. Do not include /chat/completions, /responses, or /messages.",
     "providers.capswriterUrlHint": "Enter a ws:// or wss:// URL. Upstream CapsWriter does not require a token by default.",
     "providers.model": "Model ID",
+    "providers.modelOptions": "Model budgets and reasoning",
+    "providers.context_window_tokens": "Context budget (tokens)",
+    "providers.max_output_tokens": "Maximum output (tokens)",
+    "providers.thinking_budget_tokens": "Anthropic thinking budget (tokens)",
+    "providers.max_retries": "Additional retries",
+    "providers.timeout_seconds": "Request timeout (seconds)",
+    "providers.thinkingEnabled": "Enable reasoning (on by default)",
+    "providers.thinkingAdapter": "Reasoning parameter adapter",
+    "providers.adapterAuto": "Select from API address",
+    "providers.adapterAnthropicBudget": "Anthropic · thinking budget",
+    "providers.adapterAnthropicAdaptive": "Anthropic · adaptive thinking",
+    "providers.reasoningEffort": "Reasoning effort",
+    "providers.effortLow": "Low",
+    "providers.effortMedium": "Medium",
+    "providers.effortHigh": "High",
+    "providers.budgetHint": "Defaults: 128K context, 32K output. Context is a local batching budget, not a larger model window. Output limits may include reasoning tokens. Match your provider limits.",
+    "providers.budgetInvalid": "Context must exceed maximum output by at least 2049 tokens.",
+    "providers.thinkingHint": "Select an adapter explicitly for proxies. Enable only for reasoning-capable models; disable for older models. Anthropic budget uses thinking tokens; adaptive uses effort. Other adapters send their own parameters. Exhausted retries fail explicitly.",
+    "usage.title": "Model request statistics",
+    "usage.hint": "Tokens come only from provider usage, including failures and retries. Input, cache and reasoning semantics differ by protocol; counters are shown separately, without automatic addition. Time sums request durations including network; concurrent requests differ from job wall time.",
+    "usage.empty": "No recorded model requests. Historical jobs are not estimated.",
+    "usage.stage": "Stage",
+    "usage.calls": "Requests",
+    "usage.failed": "Failed",
+    "usage.input": "Input tokens",
+    "usage.output": "Output tokens",
+    "usage.cached": "Cached tokens",
+    "usage.reasoning": "Reasoning tokens",
+    "usage.time": "Request time",
+    "usage.unknown": "Unknown",
+    "usage.partialHint": "* Some requests omitted this field; shown values are reported subtotals. Missing usage is never estimated.",
     "providers.credential": "API key / token",
     "providers.credentialNotSaved": "not saved",
     "providers.keepCredential": "Leave blank to keep the current credential",

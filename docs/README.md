@@ -62,6 +62,7 @@
 - [yukirin-server 部署与运维](40_ops/yukirin-server.md)
 - [Deployment](40_ops/deployment.md)
 - [Observability](40_ops/observability.md)
+- [模型预算与用量验证（2026-10-01）](40_ops/model-api-validation-20261001.md)
 - [Troubleshooting](40_ops/troubleshooting.md)
 - [Security and secrets](40_ops/security-and-secrets.md)
 

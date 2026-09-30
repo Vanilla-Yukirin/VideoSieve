@@ -102,11 +102,24 @@ def test_profiles_are_write_only_versioned_and_selected_per_job(tmp_path: Path) 
     assert snapshot["frame_summary"]["concurrency"] == 2
     assert snapshot["frame_summary"]["rpm"] == 9
     assert snapshot["frame_summary"]["prompt_zh"] == "custom global frame prompt"
+    assert snapshot["frame_summary"]["model_options"]["max_output_tokens"] == 32768
+    assert snapshot["frame_summary"]["model_options"]["context_window_tokens"] == 131072
+    assert snapshot["frame_summary"]["model_options"]["thinking_enabled"] is True
+    control.patch_provider_profile(
+        vlm.id,
+        ProviderProfilePatchRequest(
+            options={"max_output_tokens": 16000, "context_window_tokens": 100000, "max_retries": 0}
+        ),
+    )
+    assert json.loads(workspace.config_snapshot_file(project_id, job_id).read_text()) == snapshot
     assert "new-secret" not in json.dumps(snapshot)
     kind = snapshot["frame_summary"]["credential_kind"]
-    assert repository.get_provider_secret(
-        snapshot["frame_summary"]["credential_ref"], expected_kind=kind
-    ) is not None
+    assert (
+        repository.get_provider_secret(
+            snapshot["frame_summary"]["credential_ref"], expected_kind=kind
+        )
+        is not None
+    )
 
 
 def test_profile_rejects_full_protocol_route_and_unimplemented_asr(tmp_path: Path) -> None:
@@ -216,3 +229,31 @@ def test_draft_test_can_reuse_saved_credential_without_saving_edits(
     assert len(profiles) == 1
     assert profiles[0].api_root == "ws://saved.example:6016"
     assert profiles[0].revision == 1
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"max_output_tokens": -1},
+        {"context_window_tokens": 32768},
+        {"max_retries": 100},
+        {"thinking_enabled": "true"},
+    ],
+)
+def test_invalid_model_budget_is_rejected_before_profile_write(
+    tmp_path: Path, options: dict
+) -> None:
+    control, _, _ = _control_plane(tmp_path)
+    with pytest.raises(ApiError) as error:
+        control.create_provider_profile(
+            ProviderProfileCreateRequest(
+                display_name="bad budget",
+                capability="overall_summary",
+                protocol="openai_chat_completions",
+                api_root="https://api.example/v1",
+                model="test-model",
+                options=options,
+            )
+        )
+    assert error.value.code == "provider_options_invalid"
+    assert control.list_provider_profiles() == []

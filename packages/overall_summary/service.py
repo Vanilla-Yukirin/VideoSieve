@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from contracts.models import SCHEMA_VERSION
 from infra.interfaces import WorkspaceStore
-from model_api import ModelApiError, request_model_text
+from model_api import ModelApiError, ModelCallAttempt, ModelRequestOptions, request_model
 
 from .evidence import (
     evidence_sha256,
@@ -30,7 +31,6 @@ from .providers import (
 _PROMPT_VERSION = "overall-summary-v1"
 _REDUCTION_STRATEGY = "hierarchical-map-reduce-v1"
 _MAX_REDUCTION_ROUNDS = 16
-_TEMPERATURE = 0.2
 _PARTIAL_TASK_ZH = "这是完整材料的一部分。请压缩为保留全部关键信息的中间摘要，供下一轮综合。"
 _PARTIAL_TASK_EN = (
     "This is one partition of the full evidence. Preserve every key fact for final synthesis."
@@ -44,6 +44,7 @@ class _SummaryExecution:
     result: OverallSummaryResult
     provider_calls: int
     reduction_rounds: int
+    model_calls: tuple[ModelCallAttempt, ...] = ()
 
 
 class OpenAICompatibleSummaryProvider:
@@ -71,6 +72,9 @@ class OpenAICompatibleSummaryProvider:
         prompt_en: str | None = None,
         timeout_seconds: float = 120.0,
         allow_env_fallback: bool = True,
+        model_options: dict[str, object] | None = None,
+        on_attempt: Callable[[ModelCallAttempt], None] | None = None,
+        check_control: Callable[[], None] | None = None,
     ) -> None:
         self._base_url = base_url.strip()
         self._model = model.strip()
@@ -83,6 +87,16 @@ class OpenAICompatibleSummaryProvider:
         self._prompt_zh = (prompt_zh or self.DEFAULT_PROMPT_ZH).strip()
         self._prompt_en = (prompt_en or self.DEFAULT_PROMPT_EN).strip()
         self._timeout_seconds = timeout_seconds
+        self._model_options = model_options
+        self._on_attempt = on_attempt
+        self._check_control = check_control
+
+    @property
+    def input_char_budget(self) -> int:
+        settings = ModelRequestOptions.model_validate(self._model_options or {})
+        # Four UTF-8 bytes per Python character, plus prompt/format reserves.
+        # This is conservative batching, not measured provider token usage.
+        return int((settings.context_window_tokens - settings.max_output_tokens - 4096) // 4)
 
     @property
     def provider_name(self) -> str:
@@ -112,8 +126,10 @@ class OpenAICompatibleSummaryProvider:
             ),
             endpoint_sha256=sha256_text(self._base_url),
             parameters={
-                "temperature": _TEMPERATURE,
-                "timeout_seconds": self._timeout_seconds,
+                **ModelRequestOptions.model_validate(self._model_options or {}).model_dump(),
+                "timeout_seconds": (self._model_options or {}).get(
+                    "timeout_seconds", self._timeout_seconds
+                ),
                 "api": self._protocol,
             },
         )
@@ -148,15 +164,18 @@ class OpenAICompatibleSummaryProvider:
         else:
             task = _FINAL_TASK_ZH if is_zh else _FINAL_TASK_EN
         try:
-            content = request_model_text(
+            response = request_model(
                 protocol=self._protocol,
                 api_root=self._base_url,
                 model=self._model,
                 api_key=self._api_key,
                 system_prompt=system_prompt,
                 user_text=f"{task}\n\n{source_text}",
-                timeout_seconds=self._timeout_seconds,
+                timeout_seconds=(None if self._model_options else self._timeout_seconds),
                 auth_mode=self._auth_mode,
+                options=self._model_options,
+                on_attempt=self._on_attempt,
+                check_control=self._check_control,
             )
         except (ModelApiError, ValueError) as exc:
             code = {
@@ -165,6 +184,9 @@ class OpenAICompatibleSummaryProvider:
                 "MODEL_PROVIDER_UNAVAILABLE": "OVERALL_SUMMARY_PROVIDER_UNAVAILABLE",
                 "MODEL_INVALID_RESPONSE": "OVERALL_SUMMARY_INVALID_RESPONSE",
                 "MODEL_EMPTY_RESPONSE": "OVERALL_SUMMARY_EMPTY_RESPONSE",
+                "MODEL_OUTPUT_TRUNCATED": "OVERALL_SUMMARY_OUTPUT_TRUNCATED",
+                "MODEL_COMPLETION_INVALID": "OVERALL_SUMMARY_COMPLETION_INVALID",
+                "MODEL_INPUT_BUDGET_EXCEEDED": "OVERALL_SUMMARY_INPUT_BUDGET_EXCEEDED",
             }.get(getattr(exc, "code", ""), "OVERALL_SUMMARY_CONFIG_INVALID")
             raise OverallSummaryProviderError(
                 code,
@@ -172,9 +194,10 @@ class OpenAICompatibleSummaryProvider:
                 retryable=bool(getattr(exc, "retryable", False)),
             ) from exc
         return OverallSummaryResult(
-            text=content,
+            text=response.text,
             provider=self.provider_name,
             model=self.model_name,
+            model_calls=response.attempts,
         )
 class OverallSummaryService:
     """Collect every text/visual evidence row and synthesize a final summary."""
@@ -190,7 +213,11 @@ class OverallSummaryService:
             raise ValueError("max_input_chars must be at least 1000")
         self._workspace_store = workspace_store
         self._provider = provider
-        self._max_input_chars = max_input_chars
+        self._max_input_chars = min(
+            max_input_chars, getattr(provider, "input_char_budget", max_input_chars)
+        )
+        if self._max_input_chars < 1000:
+            raise ValueError("context window leaves too little room for summary input")
 
     def run(
         self,
@@ -285,6 +312,7 @@ class OverallSummaryService:
             "execution": {
                 "provider_calls": execution.provider_calls,
                 "reduction_rounds": execution.reduction_rounds,
+                "model_calls": [call.to_json() for call in execution.model_calls],
             },
         }
         publish_path.parent.mkdir(parents=True, exist_ok=True)
@@ -334,6 +362,7 @@ class OverallSummaryService:
     ) -> _SummaryExecution:
         round_sections = sections
         provider_calls = 0
+        model_calls: list[ModelCallAttempt] = []
         for round_index in range(1, _MAX_REDUCTION_ROUNDS + 1):
             batches = self._partition(round_sections)
             if len(batches) == 1:
@@ -342,10 +371,12 @@ class OverallSummaryService:
                 )
                 provider_calls += 1
                 self._validate_result(result)
+                model_calls.extend(result.model_calls)
                 return _SummaryExecution(
                     result=result,
                     provider_calls=provider_calls,
                     reduction_rounds=round_index - 1,
+                    model_calls=tuple(model_calls),
                 )
 
             partials: list[str] = []
@@ -355,6 +386,7 @@ class OverallSummaryService:
                 )
                 provider_calls += 1
                 self._validate_result(partial_result)
+                model_calls.extend(partial_result.model_calls)
                 partials.append(partial_result.text)
             next_sections = [
                 f"[REDUCTION ROUND {round_index} PART {index}]\n{text}"

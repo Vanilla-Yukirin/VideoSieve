@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from model_api import ModelCallAttempt
+
 
 class FrameSummaryProviderError(RuntimeError):
     """A configuration or provider failure that must fail the pipeline stage."""
@@ -24,6 +26,7 @@ class FrameSummaryResult:
     lang: str
     provider: str
     description_text: str
+    model_calls: tuple[ModelCallAttempt, ...] = ()
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -32,6 +35,11 @@ class FrameSummaryResult:
             "lang": self.lang,
             "provider": self.provider,
             "description_text": self.description_text,
+            **(
+                {"model_calls": [call.to_json() for call in self.model_calls]}
+                if self.model_calls
+                else {}
+            ),
         }
 
 

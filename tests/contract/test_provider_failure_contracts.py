@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import io
-import urllib.error
-from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -15,6 +12,7 @@ from frame_summary import (
 )
 from infra import FileSystemWorkspaceStore
 from keyframes import KeyframeBaselineService
+from model_api import ModelApiError
 
 
 class _Response:
@@ -53,23 +51,17 @@ def test_frame_summary_missing_api_key_is_an_explicit_failure(
     ("provider_error", "expected_code", "expected_retryable"),
     [
         (
-            urllib.error.URLError("connection refused"),
+            ModelApiError("MODEL_PROVIDER_UNAVAILABLE", "connection refused", retryable=True),
             "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
             True,
         ),
         (
-            TimeoutError("provider timed out"),
+            ModelApiError("MODEL_PROVIDER_UNAVAILABLE", "provider timed out", retryable=True),
             "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
             True,
         ),
         (
-            urllib.error.HTTPError(
-                url="https://provider.invalid/v1/chat/completions",
-                code=503,
-                msg="unavailable",
-                hdrs=Message(),
-                fp=io.BytesIO(b"unavailable"),
-            ),
+            ModelApiError("MODEL_PROVIDER_HTTP_ERROR", "HTTP 503", retryable=True),
             "FRAME_SUMMARY_PROVIDER_HTTP_ERROR",
             True,
         ),
@@ -86,8 +78,10 @@ def test_frame_summary_transport_failure_is_not_a_successful_placeholder(
         del args, kwargs
         raise provider_error
 
-    monkeypatch.setattr("urllib.request.urlopen", _raise)
-    provider = QwenFrameSummaryProvider(api_key="real-looking-test-key")
+    monkeypatch.setattr("model_api.client._send_request", _raise)
+    provider = QwenFrameSummaryProvider(
+        api_key="real-looking-test-key", model_options={"max_retries": 0}
+    )
 
     with pytest.raises(FrameSummaryProviderError) as exc_info:
         provider.summarize_frame("frame-1", _image(tmp_path), language_hint="zh")
@@ -113,8 +107,18 @@ def test_frame_summary_empty_or_malformed_response_is_an_explicit_failure(
     body: str,
     expected_code: str,
 ) -> None:
-    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: _Response(body))
-    provider = QwenFrameSummaryProvider(api_key="real-looking-test-key")
+    import json
+
+    def respond(*args: object, **kwargs: object) -> tuple[dict[str, object], None]:
+        try:
+            return json.loads(body), None
+        except json.JSONDecodeError as exc:
+            raise ModelApiError("MODEL_INVALID_RESPONSE", "invalid JSON", retryable=True) from exc
+
+    monkeypatch.setattr("model_api.client._send_request", respond)
+    provider = QwenFrameSummaryProvider(
+        api_key="real-looking-test-key", model_options={"max_retries": 0}
+    )
 
     with pytest.raises(FrameSummaryProviderError) as exc_info:
         provider.summarize_frame("frame-1", _image(tmp_path), language_hint="zh")

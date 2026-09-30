@@ -1,5 +1,10 @@
 # Events and WebSocket Protocol
 
+`model_usage` events carry cumulative statistics from `meta/model_calls.jsonl`.
+`snapshot.payload.model_usage` reconstructs the same totals for reconnects. `calls`
+never decreases; clients retain cursor/state-version fences. Missing usage stays
+unknown. This is additive; old jobs have no recorded model calls and are not estimated.
+
 状态：job 级协议已实现；本文件同时列出仍未实现的保留期和慢客户端治理。
 
 ## 1. 当前边界

@@ -1,5 +1,19 @@
 # Observability
 
+## Model requests (implemented)
+
+`jobs/{job_id}/meta/model_calls.jsonl` records every request attempt, including failures
+and retries. Counters come only from provider `usage`; historical jobs and missing
+values are never estimated. No credential, endpoint, prompt or response text is stored.
+
+The job page receives `model_usage` WS events; reconnect snapshots rebuild from the
+journal. Stage input/output/cache/reasoning totals mark partial sums with an asterisk.
+Cache/reasoning are subsets, not additions. Monotonic per-request time includes the
+network; concurrent times overlap, so their sum is neither job wall time nor TTFT.
+
+Frame records carry request metadata; overall-summary provenance includes all map,
+reduce and final calls. See [ADR-0010](../adr/ADR-0010-model-completion-budgets-and-usage.md).
+
 ## Minimum Signals
 
 - project total duration/final state

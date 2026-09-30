@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 from urllib.parse import urlparse
 
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from asr import ASRProviderError, CapsWriterWebSocketProvider
 from contracts import ControlCommandType, JobStatus
@@ -32,7 +32,13 @@ from infra import (
 from infra.secrets import SecretCipherError, decrypt_secret, encrypt_secret
 from ingest import IngestRequest, probe_url_formats
 from ingest.errors import INGEST_AUTH_REQUIRED, IngestError
-from model_api import MODEL_PROTOCOLS, ModelApiError, request_model_text
+from model_api import (
+    MODEL_PROTOCOLS,
+    ModelApiError,
+    ModelRequestOptions,
+    read_usage_summary,
+    request_model,
+)
 from overall_summary import OpenAICompatibleSummaryProvider
 from pipeline.control import ControlAckPayload, evaluate_control_command
 
@@ -478,13 +484,11 @@ class ApiControlPlane:
             1,
             payload.vlm_concurrency
             if payload.vlm_concurrency is not None
-            else int(str(current[SETTING_VLM_CONCURRENCY]))
+            else int(str(current[SETTING_VLM_CONCURRENCY])),
         )
         next_rpm = max(
             0,
-            payload.vlm_rpm
-            if payload.vlm_rpm is not None
-            else int(str(current[SETTING_VLM_RPM]))
+            payload.vlm_rpm if payload.vlm_rpm is not None else int(str(current[SETTING_VLM_RPM])),
         )
         next_summary_base_url = (
             payload.summary_base_url.strip()
@@ -510,7 +514,7 @@ class ApiControlPlane:
             1_000,
             payload.summary_max_input_chars
             if payload.summary_max_input_chars is not None
-            else int(str(current[SETTING_SUMMARY_MAX_INPUT_CHARS]))
+            else int(str(current[SETTING_SUMMARY_MAX_INPUT_CHARS])),
         )
 
         self._repository.set_setting(SETTING_ASR_PROVIDER, json.dumps(next_asr_provider))
@@ -771,6 +775,7 @@ class ApiControlPlane:
         """Execute the shared minimal provider request without writing state."""
 
         started = time.monotonic()
+        model_response = None
         try:
             protocol = str(profile["protocol"])
             capability = str(profile["capability"])
@@ -789,7 +794,7 @@ class ApiControlPlane:
                         message="configure an API key before testing this profile",
                         status_code=422,
                     )
-                request_model_text(
+                model_response = request_model(
                     protocol=protocol,
                     api_root=str(profile["api_root"]),
                     model=str(profile["model"]),
@@ -800,11 +805,9 @@ class ApiControlPlane:
                         if capability == "frame_summary"
                         else "Reply with exactly: VideoSieve provider test succeeded"
                     ),
-                    image_data_url=(
-                        _TINY_PNG_DATA_URL if capability == "frame_summary" else None
-                    ),
-                    timeout_seconds=30,
+                    image_data_url=(_TINY_PNG_DATA_URL if capability == "frame_summary" else None),
                     auth_mode=str(profile["auth_mode"]),
+                    options=options,
                 )
                 message = (
                     "image inference succeeded"
@@ -828,6 +831,10 @@ class ApiControlPlane:
                 "model": str(profile["model"]),
                 "latency_ms": max(0, round((time.monotonic() - started) * 1000)),
                 "message": message,
+                "usage": model_response.attempts[-1].usage if model_response else None,
+                "finish_reason": model_response.attempts[-1].finish_reason
+                if model_response
+                else None,
             }
         )
 
@@ -1209,11 +1216,7 @@ class ApiControlPlane:
 
         vlm_root = str(settings[SETTING_VLM_BASE_URL]).strip()
         vlm_model = str(settings[SETTING_VLM_MODEL]).strip()
-        if (
-            vlm_root
-            and vlm_model
-            and self._provider_secret_configured(PROVIDER_SECRET_VLM_API_KEY)
-        ):
+        if vlm_root and vlm_model and self._provider_secret_configured(PROVIDER_SECRET_VLM_API_KEY):
             profiles.append(
                 self._normalize_provider_profile(
                     {
@@ -1321,8 +1324,7 @@ class ApiControlPlane:
             raise ApiError(
                 code="provider_protocol_not_implemented",
                 message=(
-                    "only CapsWriter WebSocket ASR is implemented; "
-                    "Alibaba Cloud ASR is planned"
+                    "only CapsWriter WebSocket ASR is implemented; Alibaba Cloud ASR is planned"
                 ),
                 status_code=422,
             )
@@ -1374,6 +1376,22 @@ class ApiControlPlane:
                 message="provider options must be an object",
                 status_code=422,
             )
+        if capability != "asr":
+            try:
+                model_options = ModelRequestOptions.model_validate(options)
+                if (
+                    protocol == "anthropic_messages"
+                    and model_options.thinking_enabled
+                    and (model_options.max_output_tokens <= 1024)
+                ):
+                    raise ValueError("Anthropic thinking needs more than 1024 output tokens")
+            except (ValidationError, ValueError) as exc:
+                raise ApiError(
+                    code="provider_options_invalid",
+                    message="invalid model budget/thinking/retry settings",
+                    status_code=422,
+                ) from exc
+            options = options | model_options.model_dump()
         if not credential_kind:
             credential_kind = f"provider_profile:{profile_id}"
         revision = raw.get("revision", 1)
@@ -1494,6 +1512,8 @@ class ApiControlPlane:
             "credential_kind": credential_kind,
             "credential_ref": self._active_provider_secret_ref(credential_kind),
         }
+        if capability != "asr":
+            common |= {"model_options": ModelRequestOptions.model_validate(options).model_dump()}
         if capability == "asr":
             return common | {
                 "provider": "capswriter",
@@ -1948,6 +1968,7 @@ class ApiControlPlane:
             error_message=job.error_message,
             latest_logs=list(merged_logs),
             artifacts=self.list_artifacts(job.project_id, job_id),
+            model_usage=read_usage_summary(self._workspace.job_root(job.project_id, job_id)),
         )
 
     def dispatch_control_command(

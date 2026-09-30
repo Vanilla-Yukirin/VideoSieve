@@ -251,6 +251,9 @@ class ProviderProfileTestResponse(ApiModel):
     latency_ms: int
     message: str
 
+    usage: dict[str, Any] | None = None
+    finish_reason: str | None = None
+
 
 class JobCreateRequest(ApiModel):
     """Job create payload."""
@@ -325,6 +328,7 @@ class JobSnapshot(ApiModel):
     error_message: str | None = None
     latest_logs: list[str] = Field(default_factory=list)
     artifacts: list[ArtifactItem] = Field(default_factory=list)
+    model_usage: dict[str, Any] | None = None
 
 
 class WsControlCommand(ApiModel):

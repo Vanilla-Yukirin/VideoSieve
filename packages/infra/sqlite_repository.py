@@ -400,7 +400,21 @@ class SQLiteJobRepository(JobRepository):
         self._conn.commit()
 
     def get_job(self, job_id: str) -> JobRecord | None:
-        row = self._conn.execute(
+        return self._fetch_job(self._conn, job_id)
+
+    def read_job(self, job_id: str) -> JobRecord | None:
+        """Use a separate read-only connection for concurrent provider callbacks."""
+        connection = sqlite3.connect(
+            self._db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0
+        )
+        connection.row_factory = sqlite3.Row
+        try:
+            return self._fetch_job(connection, job_id)
+        finally:
+            connection.close()
+
+    def _fetch_job(self, connection: sqlite3.Connection, job_id: str) -> JobRecord | None:
+        row = connection.execute(
             """
             SELECT
               job_id,

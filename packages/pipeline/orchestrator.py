@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import time
 from dataclasses import dataclass
 from importlib.util import find_spec
@@ -28,6 +29,7 @@ from keyframes import (
     build_images_zip,
     write_images_for_records,
 )
+from model_api import ModelApiError, ModelCallAttempt, ModelCallJournal
 from overall_summary import OpenAICompatibleSummaryProvider, OverallSummaryService
 
 from .checkpoint import CheckpointStore
@@ -35,9 +37,7 @@ from .control import ControlAckPayload, evaluate_control_command
 from .events import publish_event
 from .models import STAGE_SEQUENCE, STAGE_WEIGHTS, PipelineRunResult
 
-_DEFAULT_SUMMARY_BASE_URL = (
-    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-)
+_DEFAULT_SUMMARY_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 _DEFAULT_SUMMARY_MODEL = "qwen-plus"
 _DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24_000
 
@@ -76,6 +76,8 @@ class PipelineOrchestrator:
         self._pending_pause: set[str] = set()
         self._pending_cancel: set[str] = set()
         self._pending_delete: set[str] = set()
+        self._model_usage_lock = threading.Lock()
+        self._model_journal: ModelCallJournal | None = None
 
     def run_job(
         self,
@@ -95,6 +97,9 @@ class PipelineOrchestrator:
 
         self._workspace.ensure_project_layout(project_id)
         job_config = self._load_job_config(project_id, job_id)
+        self._model_journal = ModelCallJournal(
+            self._workspace.job_root(project_id, job_id), self._worker_attempt
+        )
         checkpoint = self._checkpoint_store.load(project_id, job_id)
         checkpoint.reused_until_stage = None
 
@@ -167,8 +172,7 @@ class PipelineOrchestrator:
                         job_id,
                         level="error",
                         message=(
-                            f"阶段 {stage.value} | 结果: 失败 | 原因: {exc} | "
-                            f"建议: {error_hint}"
+                            f"阶段 {stage.value} | 结果: 失败 | 原因: {exc} | 建议: {error_hint}"
                         ),
                     )
                     publish_event(
@@ -267,11 +271,7 @@ class PipelineOrchestrator:
 
         if decision.request_cancel:
             self._pending_cancel.add(job_id)
-        if (
-            command is ControlCommandType.PAUSE
-            and decision.accepted
-            and decision.request_pause
-        ):
+        if command is ControlCommandType.PAUSE and decision.accepted and decision.request_pause:
             self._pending_pause.add(job_id)
         if command is ControlCommandType.DELETE:
             self._pending_delete.add(job_id)
@@ -338,9 +338,8 @@ class PipelineOrchestrator:
             self._pending_cancel.discard(job_id)
             raise _SafetySignal(JobStatus.CANCELLED.value)
 
-        if (
-            pending_command == ControlCommandType.PAUSE.value
-            or (job_id in self._pending_pause and current is JobStatus.RUNNING)
+        if pending_command == ControlCommandType.PAUSE.value or (
+            job_id in self._pending_pause and current is JobStatus.RUNNING
         ):
             acknowledged = self._acknowledge_control(job)
             self._set_job_status(
@@ -623,6 +622,13 @@ class PipelineOrchestrator:
                     auth_mode=_optional_config_str(raw_frame_config, "auth_mode"),
                     prompt_zh=_optional_config_str(raw_frame_config, "prompt_zh"),
                     prompt_en=_optional_config_str(raw_frame_config, "prompt_en"),
+                    model_options=cast(
+                        dict[str, object], raw_frame_config.get("model_options", {})
+                    ),
+                    on_attempt=lambda call: self._record_model_call(
+                        project_id, job_id, stage, call
+                    ),
+                    check_control=lambda: self._check_model_control(job_id),
                 ),
             ).run(
                 project_id,
@@ -659,6 +665,13 @@ class PipelineOrchestrator:
                         auth_mode=_optional_config_str(raw_summary_config, "auth_mode"),
                         prompt_zh=_optional_config_str(raw_summary_config, "prompt_zh"),
                         prompt_en=_optional_config_str(raw_summary_config, "prompt_en"),
+                        model_options=cast(
+                            dict[str, object], raw_summary_config.get("model_options", {})
+                        ),
+                        on_attempt=lambda call: self._record_model_call(
+                            project_id, job_id, stage, call
+                        ),
+                        check_control=lambda: self._check_model_control(job_id),
                     ),
                     max_input_chars=_positive_config_int(
                         raw_summary_config,
@@ -702,6 +715,50 @@ class PipelineOrchestrator:
             event_type="stage_changed",
             payload={"to": stage.value},
         )
+
+    def _check_model_control(self, job_id: str) -> None:
+        job = self._repository.read_job(job_id)
+        if job is None or (
+            self._worker_id is not None
+            and (
+                job.worker_id != self._worker_id
+                or (self._worker_attempt is not None and job.attempt != self._worker_attempt)
+            )
+        ):
+            raise ModelApiError("MODEL_CONTROL_PENDING", "worker no longer owns this task")
+        if (
+            job.control_version > job.control_ack_version
+            and job.control_command in {"pause", "cancel", "delete"}
+        ) or (
+            job_id in self._pending_cancel
+            or job_id in self._pending_pause
+            or job_id in self._pending_delete
+        ):
+            raise ModelApiError("MODEL_CONTROL_PENDING", "task control requested")
+
+    def _record_model_call(
+        self, project_id: str, job_id: str, stage: StageName, call: ModelCallAttempt
+    ) -> None:
+        with self._model_usage_lock:
+            job = self._repository.read_job(job_id)
+            if job is None or (
+                self._worker_id is not None
+                and (
+                    job.worker_id != self._worker_id
+                    or (self._worker_attempt is not None and job.attempt != self._worker_attempt)
+                )
+            ):
+                raise ModelApiError("MODEL_CONTROL_PENDING", "worker no longer owns this task")
+            assert self._model_journal is not None
+            summary = self._model_journal.record(stage.value, call)
+            publish_event(
+                self._event_bus,
+                project_id=project_id,
+                job_id=job_id,
+                event_type="model_usage",
+                payload=summary,
+                state_version=job.state_version,
+            )
 
     def _publish_progress(self, project_id: str, job_id: str, stage: StageName) -> None:
         stage_index = STAGE_SEQUENCE.index(stage)

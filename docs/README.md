@@ -76,6 +76,7 @@
 - [ADR-0007: Web-managed provider credentials](adr/ADR-0007-web-provider-credentials.md)（Accepted；凭据边界由 ADR-0009 扩展）
 - [ADR-0008: single-host trusted mode](adr/ADR-0008-single-host-trusted-mode.md)（Accepted；产品内无登录，远程访问由外层控制）
 - [ADR-0009: Provider Profiles and model protocols](adr/ADR-0009-provider-profiles-and-model-protocols.md)（Accepted；多配置、三种模型协议与真实最小测试）
+- [ADR-0010: Model completion, budgets and usage](adr/ADR-0010-model-completion-budgets-and-usage.md)（Accepted；停止状态、预算、重试与实际用量）
 
 ## Archive
 

@@ -66,6 +66,15 @@ worker 解析 secret 后不得把值写回快照、事件或错误。
 模型 Profile 显式选择 OpenAI Chat Completions、OpenAI Responses 或 Anthropic Messages。
 表单保存 API 根地址，通常以 `/v1` 结尾，不填写具体请求路由；adapter 按协议补全路径。
 
+模型弹窗提供上下文预算（默认 131072）、最大输出（默认 32768）、思考开关（默认开）、
+适配方式、强度、Anthropic 思考预算（默认 8192）、额外重试次数（默认 2）及单次超时
+（默认 300 秒）。字段保存在 Profile options，新任务将其冻结到 `model_options`。
+旧 Profile 缺失字段使用这些默认值；已有快照不重写。上下文是本地分段预算，不会扩大
+模型实际窗口。代理地址需显式选择实际服务的思考适配，旧模型可关闭思考。
+
+停止原因异常或截断会受限重试，耗尽后明确失败。只校验响应信封和完成状态，正文继续
+使用自然语言。详见 [ADR-0010](../adr/ADR-0010-model-completion-budgets-and-usage.md)。
+
 ## 4. 创建和执行时校验
 
 写入设置和创建 job 时：

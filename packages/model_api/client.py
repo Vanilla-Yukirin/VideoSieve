@@ -13,7 +13,7 @@ import anthropic
 import httpx2
 import openai
 
-from .options import ModelRequestOptions
+from .options import MODEL_INPUT_RESERVE_TOKENS, ModelRequestOptions
 from .telemetry import ModelCallAttempt
 
 MODEL_PROTOCOLS = frozenset({"openai_chat_completions", "openai_responses", "anthropic_messages"})
@@ -101,6 +101,7 @@ def request_model(
     options: Mapping[str, object] | None = None,
     on_attempt: Callable[[ModelCallAttempt], None] | None = None,
     check_control: Callable[[], None] | None = None,
+    before_request: Callable[[], None] | None = None,
 ) -> ModelResponse:
     """Retry bounded transient/incomplete responses; never publish a partial answer."""
 
@@ -115,7 +116,7 @@ def request_model(
     settings = ModelRequestOptions.model_validate(dict(options or {}))
     # A conservative UTF-8 byte guard, not a tokenizer or a usage measurement.
     if len((system_prompt + user_text).encode("utf-8")) > (
-        settings.context_window_tokens - settings.max_output_tokens - 2048
+        settings.context_window_tokens - settings.max_output_tokens - MODEL_INPUT_RESERVE_TOKENS
     ):
         raise ModelApiError("MODEL_INPUT_BUDGET_EXCEEDED", "input exceeds the local context budget")
     body, _ = _build_request(
@@ -134,6 +135,10 @@ def request_model(
     for index in range(settings.max_retries + 1):
         if check_control:
             check_control()
+        if before_request:
+            before_request()
+            if check_control:
+                check_control()
         started = time.monotonic()
         payload: dict[str, Any] = {}
         request_id = None
@@ -370,6 +375,12 @@ def _build_request(
             reasoning = {"thinking": {"type": "disabled"}}
         elif adapter == "dashscope":
             reasoning = {"enable_thinking": False}
+        elif adapter != "openai_legacy":
+            reasoning = (
+                {"reasoning": {"effort": "none"}}
+                if protocol == "openai_responses"
+                else {"reasoning_effort": "none"}
+            )
     if protocol == "openai_chat_completions":
         user_content: str | list[dict[str, Any]] = user_text
         if image_data_url:
@@ -386,7 +397,7 @@ def _build_request(
                 ],
                 **(
                     {"max_completion_tokens": settings.max_output_tokens}
-                    if adapter == "openai" and settings.thinking_enabled
+                    if adapter == "openai"
                     else {"max_tokens": settings.max_output_tokens}
                 ),
                 **reasoning,

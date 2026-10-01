@@ -720,7 +720,9 @@ class ApiControlPlane:
         """Perform a real minimal request against one saved profile."""
 
         profiles = self._read_provider_profiles()
-        profile = profiles[self._provider_profile_index(profiles, profile_id)]
+        profile = self._normalize_provider_profile(
+            profiles[self._provider_profile_index(profiles, profile_id)]
+        )
         credential = self._decrypt_profile_credential(profile)
         return self._test_provider_profile_connection(profile, credential)
 
@@ -1285,7 +1287,11 @@ class ApiControlPlane:
             if not isinstance(item, dict):
                 raise ApiConfigError("provider profile entry must be an object")
             try:
-                profiles.append(self._normalize_provider_profile(item))
+                # Previously saved budgets remain editable even if new execution
+                # constraints would reject them for a new summary request.
+                profiles.append(
+                    self._normalize_provider_profile(item, validate_summary_budget=False)
+                )
             except ApiError as exc:
                 raise ApiConfigError(f"stored provider profile is invalid: {exc}") from exc
         return profiles
@@ -1297,7 +1303,7 @@ class ApiControlPlane:
         )
 
     def _normalize_provider_profile(
-        self, raw: dict[str, object]
+        self, raw: dict[str, object], *, validate_summary_budget: bool = True
     ) -> dict[str, object]:
         profile_id = str(raw.get("id") or "").strip()
         display_name = str(raw.get("display_name") or "").strip()
@@ -1391,6 +1397,15 @@ class ApiControlPlane:
                     message="invalid model budget/thinking/retry settings",
                     status_code=422,
                 ) from exc
+            if capability == "overall_summary" and validate_summary_budget:
+                try:
+                    model_options.require_summary_input_budget()
+                except ValueError as exc:
+                    raise ApiError(
+                        code="provider_options_invalid",
+                        message=str(exc),
+                        status_code=422,
+                    ) from exc
             options = options | model_options.model_dump()
         if not credential_kind:
             credential_kind = f"provider_profile:{profile_id}"
@@ -1617,6 +1632,8 @@ class ApiControlPlane:
             summary_profile = self._select_provider_profile(
                 profiles, "overall_summary", payload.overall_summary_profile_id
             )
+            if summary_profile is not None and payload.summary_enabled is True:
+                summary_profile = self._normalize_provider_profile(summary_profile)
             if asr_profile or frame_profile or summary_profile:
                 config["schema_version"] = "2.0"
             config["asr"] = (

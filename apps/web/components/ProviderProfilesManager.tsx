@@ -18,7 +18,7 @@ import type {
   ProviderProtocol,
 } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { MODEL_REQUEST_DEFAULTS } from "@/lib/settings/modelOptions";
+import { MODEL_REQUEST_DEFAULTS, SUMMARY_MIN_CONTEXT_OUTPUT_GAP } from "@/lib/settings/modelOptions";
 import {
   PROVIDER_TEMPLATES,
   profilesForCapability,
@@ -205,6 +205,13 @@ export function ProviderProfilesManager({
       Number(current.options.max_output_tokens) + 2048 >= Number(current.options.context_window_tokens)
     )) {
       setError(t("providers.budgetInvalid"));
+      return false;
+    }
+    if (current.capability === "overall_summary" && (
+      Number(current.options.context_window_tokens) - Number(current.options.max_output_tokens)
+      < SUMMARY_MIN_CONTEXT_OUTPUT_GAP
+    )) {
+      setError(t("providers.summaryBudgetInvalid"));
       return false;
     }
     return true;
@@ -517,15 +524,16 @@ export function ProviderProfilesManager({
                   ))}
                 </div>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={editor.options.thinking_enabled === true} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_enabled: event.target.checked } })} disabled={busy} />
+                  <input type="checkbox" checked={editor.options.thinking_enabled === true} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_enabled: event.target.checked } })} disabled={busy || editor.options.thinking_adapter === "openai_legacy"} />
                   {t("providers.thinkingEnabled")}
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label htmlFor="provider-thinking-adapter" className="text-sm font-medium">{t("providers.thinkingAdapter")}</label>
-                    <select id="provider-thinking-adapter" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={String(editor.options.thinking_adapter)} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_adapter: event.target.value } })} disabled={busy}>
+                    <select id="provider-thinking-adapter" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={String(editor.options.thinking_adapter)} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_adapter: event.target.value, ...(event.target.value === "openai_legacy" ? { thinking_enabled: false } : {}) } })} disabled={busy}>
                       <option value="auto">{t("providers.adapterAuto")}</option>
                       <option value="openai">OpenAI</option>
+                      <option value="openai_legacy">{t("providers.adapterOpenAILegacy")}</option>
                       <option value="deepseek">DeepSeek</option>
                       <option value="dashscope">DashScope / Qwen</option>
                       <option value="anthropic_budget">{t("providers.adapterAnthropicBudget")}</option>

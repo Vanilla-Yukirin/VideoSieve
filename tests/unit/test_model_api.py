@@ -121,6 +121,53 @@ def test_sdk_wire_budget_thinking_and_usage(
         assert body["reasoning_effort"] == "medium"
 
 
+@pytest.mark.parametrize("protocol", ["openai_chat_completions", "openai_responses"])
+@pytest.mark.parametrize("adapter", ["openai", "openai_legacy"])
+def test_openai_disabled_thinking_is_explicit_or_declared_legacy(
+    monkeypatch: pytest.MonkeyPatch, protocol: str, adapter: str
+) -> None:
+    captured: list[Any] = []
+    reason = "stop" if protocol == "openai_chat_completions" else "completed"
+    _sdk_transport(monkeypatch, [_payload(protocol, reason)], captured)
+    _request(
+        protocol,
+        options={"thinking_enabled": False, "thinking_adapter": adapter, "max_retries": 0},
+    )
+    body = json.loads(captured[0].content)
+    if adapter == "openai_legacy":
+        assert "reasoning" not in body and "reasoning_effort" not in body
+    elif protocol == "openai_responses":
+        assert body["reasoning"] == {"effort": "none"}
+    else:
+        assert body["reasoning_effort"] == "none"
+    cap = (
+        "max_output_tokens"
+        if protocol == "openai_responses"
+        else "max_tokens"
+        if adapter == "openai_legacy"
+        else "max_completion_tokens"
+    )
+    assert body[cap] == 32768
+
+
+def test_unsupported_disabled_thinking_does_not_silently_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Any] = []
+    _sdk_transport(monkeypatch, [(400, '{"error":{"message":"none is unsupported"}}')], captured)
+    with pytest.raises(ModelApiError) as error:
+        _request(options={"thinking_enabled": False, "thinking_adapter": "openai"})
+    assert error.value.code == "MODEL_PROVIDER_HTTP_ERROR"
+    assert not error.value.retryable
+    assert len(captured) == 1
+    assert json.loads(captured[0].content)["reasoning_effort"] == "none"
+
+
+def test_legacy_adapter_rejects_enabled_thinking() -> None:
+    with pytest.raises(ValueError, match="legacy models"):
+        ModelRequestOptions(thinking_adapter="openai_legacy", thinking_enabled=True)
+
+
 @pytest.mark.parametrize(
     ("protocol", "reason"),
     [
@@ -361,3 +408,21 @@ def test_control_check_prevents_additional_retry(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(RuntimeError, match="cancel requested"):
         _request(check_control=check)
     assert len(captured) == 1
+
+
+def test_request_gate_rechecks_control_before_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[Any] = []
+    _sdk_transport(monkeypatch, [], captured)
+    cancelled = False
+
+    def gate() -> None:
+        nonlocal cancelled
+        cancelled = True
+
+    def check() -> None:
+        if cancelled:
+            raise RuntimeError("cancel requested during rate limit wait")
+
+    with pytest.raises(RuntimeError, match="during rate limit wait"):
+        _request(before_request=gate, check_control=check)
+    assert captured == []

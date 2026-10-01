@@ -128,6 +128,7 @@ export type MessageKey =
   | "providers.thinkingEnabled"
   | "providers.thinkingAdapter"
   | "providers.adapterAuto"
+  | "providers.adapterOpenAILegacy"
   | "providers.adapterAnthropicBudget"
   | "providers.adapterAnthropicAdaptive"
   | "providers.reasoningEffort"
@@ -136,6 +137,7 @@ export type MessageKey =
   | "providers.effortHigh"
   | "providers.budgetHint"
   | "providers.budgetInvalid"
+  | "providers.summaryBudgetInvalid"
   | "providers.thinkingHint"
   | "usage.title"
   | "usage.hint"
@@ -460,6 +462,7 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.thinkingEnabled": "启用思考（默认开启）",
     "providers.thinkingAdapter": "思考参数适配",
     "providers.adapterAuto": "按接口地址自动选择",
+    "providers.adapterOpenAILegacy": "OpenAI · 非思考模型",
     "providers.adapterAnthropicBudget": "Anthropic · 固定思考预算",
     "providers.adapterAnthropicAdaptive": "Anthropic · 自适应思考",
     "providers.reasoningEffort": "思考强度",
@@ -468,7 +471,8 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.effortHigh": "高",
     "providers.budgetHint": "默认上下文 128K、输出 32K。上下文是本地分段预算，不会扩大模型实际窗口；输出上限也可能包含思考 tokens。按服务商能力调整。",
     "providers.budgetInvalid": "上下文预算需要比最大输出至少多 2049 tokens。",
-    "providers.thinkingHint": "代理或自定义地址请显式选择适配。仅支持思考的模型可开启；旧模型请关闭。Anthropic 固定预算使用思考 tokens，自适应模式使用思考强度；其他接口发送对应参数。重试耗尽会报告失败。",
+    "providers.summaryBudgetInvalid": "整体摘要需要为输入和提示词保留空间：上下文预算应比最大输出至少多 8096 tokens。",
+    "providers.thinkingHint": "代理或自定义地址请显式选择适配。旧非思考模型请选择“OpenAI · 非思考模型”；标准 OpenAI 关闭思考会显式请求 none，不支持时报告失败。Anthropic 固定预算使用思考 tokens，自适应模式使用思考强度；其他接口发送对应参数。重试耗尽会报告失败。",
     "usage.title": "模型调用统计",
     "usage.hint": "Tokens 仅采用服务商 usage，包含失败与重试。各协议的输入、缓存、思考计数口径不同，分别展示，不自动相加。时间是请求耗时合计（含网络；并发时不等于任务总耗时）。",
     "usage.empty": "尚无模型调用记录；历史任务不会补算。",
@@ -789,6 +793,7 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.thinkingEnabled": "Enable reasoning (on by default)",
     "providers.thinkingAdapter": "Reasoning parameter adapter",
     "providers.adapterAuto": "Select from API address",
+    "providers.adapterOpenAILegacy": "OpenAI · non-reasoning models",
     "providers.adapterAnthropicBudget": "Anthropic · thinking budget",
     "providers.adapterAnthropicAdaptive": "Anthropic · adaptive thinking",
     "providers.reasoningEffort": "Reasoning effort",
@@ -797,7 +802,8 @@ export const messages: Record<Locale, MessageMap> = {
     "providers.effortHigh": "High",
     "providers.budgetHint": "Defaults: 128K context, 32K output. Context is a local batching budget, not a larger model window. Output limits may include reasoning tokens. Match your provider limits.",
     "providers.budgetInvalid": "Context must exceed maximum output by at least 2049 tokens.",
-    "providers.thinkingHint": "Select an adapter explicitly for proxies. Enable only for reasoning-capable models; disable for older models. Anthropic budget uses thinking tokens; adaptive uses effort. Other adapters send their own parameters. Exhausted retries fail explicitly.",
+    "providers.summaryBudgetInvalid": "Overall summary needs input and prompt space: context must exceed maximum output by at least 8096 tokens.",
+    "providers.thinkingHint": "Select an adapter explicitly for proxies. Use OpenAI non-reasoning models for older models. Disabling standard OpenAI reasoning explicitly requests none; unsupported settings fail. Anthropic budget uses thinking tokens; adaptive uses effort. Other adapters send their own parameters. Exhausted retries fail explicitly.",
     "usage.title": "Model request statistics",
     "usage.hint": "Tokens come only from provider usage, including failures and retries. Input, cache and reasoning semantics differ by protocol; counters are shown separately, without automatic addition. Time sums request durations including network; concurrent requests differ from job wall time.",
     "usage.empty": "No recorded model requests. Historical jobs are not estimated.",

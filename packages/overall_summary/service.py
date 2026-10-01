@@ -12,6 +12,7 @@ from pathlib import Path
 from contracts.models import SCHEMA_VERSION
 from infra.interfaces import WorkspaceStore
 from model_api import ModelApiError, ModelCallAttempt, ModelRequestOptions, request_model
+from model_api.options import SUMMARY_MIN_INPUT_CHARS
 
 from .evidence import (
     evidence_sha256,
@@ -96,7 +97,7 @@ class OpenAICompatibleSummaryProvider:
         settings = ModelRequestOptions.model_validate(self._model_options or {})
         # Four UTF-8 bytes per Python character, plus prompt/format reserves.
         # This is conservative batching, not measured provider token usage.
-        return int((settings.context_window_tokens - settings.max_output_tokens - 4096) // 4)
+        return int(settings.require_summary_input_budget())
 
     @property
     def provider_name(self) -> str:
@@ -209,14 +210,14 @@ class OverallSummaryService:
         *,
         max_input_chars: int = 24_000,
     ) -> None:
-        if max_input_chars < 1_000:
+        if max_input_chars < SUMMARY_MIN_INPUT_CHARS:
             raise ValueError("max_input_chars must be at least 1000")
         self._workspace_store = workspace_store
         self._provider = provider
         self._max_input_chars = min(
             max_input_chars, getattr(provider, "input_char_budget", max_input_chars)
         )
-        if self._max_input_chars < 1000:
+        if self._max_input_chars < SUMMARY_MIN_INPUT_CHARS:
             raise ValueError("context window leaves too little room for summary input")
 
     def run(

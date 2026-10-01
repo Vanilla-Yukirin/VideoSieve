@@ -8,3 +8,6 @@ export const MODEL_REQUEST_DEFAULTS = {
   max_retries: 2,
   timeout_seconds: 300,
 } as const;
+
+// Match the summary worker's prompt reserve and conservative 4-byte character budget.
+export const SUMMARY_MIN_CONTEXT_OUTPUT_GAP = 2048 + 2048 + 4 * 1000;

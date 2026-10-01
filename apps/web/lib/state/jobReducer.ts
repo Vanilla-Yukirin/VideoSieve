@@ -53,17 +53,19 @@ export function jobReducer(state: RealtimeState, action: Action): RealtimeState 
       const { eventType, payload, cursor, stateVersion } = action;
       if (cursor !== undefined && cursor <= state.lastCursor) return state;
       const nextCursor = Math.max(state.lastCursor, cursor ?? 0);
-      if (stateVersion !== undefined && stateVersion < state.state_version) {
-        return { ...state, lastCursor: nextCursor };
-      }
       const nextStateVersion = Math.max(state.state_version, stateVersion ?? 0);
       if (eventType === "model_usage") {
+        // Calls may finish while control advances the task version. Cumulative
+        // usage converges independently without rolling back task state.
         return {
           ...state,
           state_version: nextStateVersion,
           lastCursor: nextCursor,
           model_usage: payload.calls >= (state.model_usage?.calls ?? 0) ? payload : state.model_usage,
         };
+      }
+      if (stateVersion !== undefined && stateVersion < state.state_version) {
+        return { ...state, lastCursor: nextCursor };
       }
       if (eventType === "log") {
         const msg = payload.message;

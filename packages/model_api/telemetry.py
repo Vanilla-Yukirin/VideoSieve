@@ -35,11 +35,13 @@ def read_usage_summary(job_root: Path) -> dict[str, Any]:
     if not path.exists():
         return empty_usage_summary()
     result = empty_usage_summary()
-    with path.open(encoding="utf-8") as handle:
+    # Decode each row independently: a crash can cut a model alias's UTF-8
+    # sequence, and decoding the whole stream would hide even complete rows.
+    with path.open("rb") as handle:
         for line in handle:
             try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
+                row = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if isinstance(row, dict):
                 _add_usage(result, row)
@@ -80,6 +82,16 @@ def _add_usage(summary: dict[str, Any], row: dict[str, Any]) -> None:
     output_details = (
         usage.get("completion_tokens_details") or usage.get("output_tokens_details") or {}
     )
+    reasoning_tokens = (
+        output_details.get("reasoning_tokens") if isinstance(output_details, dict) else None
+    )
+    if row.get("protocol") == "anthropic_messages":
+        anthropic_details = usage.get("output_tokens_details")
+        if isinstance(anthropic_details, dict):
+            # Anthropic's thinking count is already included in output_tokens.
+            thinking_tokens = _number(anthropic_details.get("thinking_tokens"))
+            if thinking_tokens is not None:
+                reasoning_tokens = thinking_tokens
     fields = {
         "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens")),
         "output_tokens": usage.get("output_tokens", usage.get("completion_tokens")),
@@ -91,9 +103,7 @@ def _add_usage(summary: dict[str, Any], row: dict[str, Any]) -> None:
                 input_details.get("cached_tokens") if isinstance(input_details, dict) else None,
             ),
         ),
-        "reasoning_tokens": output_details.get("reasoning_tokens")
-        if isinstance(output_details, dict)
-        else None,
+        "reasoning_tokens": reasoning_tokens,
     }
     for key, value in fields.items():
         value = _number(value)

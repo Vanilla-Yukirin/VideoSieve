@@ -12,6 +12,57 @@ describe("jobReducer", () => {
     expect(stale.model_usage?.calls).toBe(4);
     expect(stale.lastCursor).toBe(6);
   });
+
+  it.each(["pause", "cancel"])("keeps final usage when %s advances the task version", (command) => {
+    const state = {
+      ...initialState,
+      status: "running",
+      state_version: 1,
+      lastCursor: 1,
+    };
+    const acknowledged = jobReducer(state, {
+      type: "EVENT",
+      eventType: "control_ack",
+      payload: { command, accepted: true, phase: "accepted" },
+      cursor: 2,
+      stateVersion: 2,
+    });
+    const usage = { calls: 1, failed_calls: 0, elapsed_ms: 50, stages: {} };
+    const updated = jobReducer(acknowledged, {
+      type: "EVENT",
+      eventType: "model_usage",
+      payload: usage,
+      cursor: 3,
+      stateVersion: 1,
+    });
+    expect(updated.model_usage).toEqual(usage);
+    expect(updated.state_version).toBe(2);
+    expect(updated.status).toBe("running");
+    expect(updated.lastCursor).toBe(3);
+  });
+
+  it("still rejects duplicate cursors and decreasing usage after control", () => {
+    const usage = { calls: 4, failed_calls: 1, elapsed_ms: 500, stages: {} };
+    const state = { ...initialState, state_version: 8, lastCursor: 12, model_usage: usage };
+    const duplicate = jobReducer(state, {
+      type: "EVENT",
+      eventType: "model_usage",
+      payload: { ...usage, calls: 5 },
+      cursor: 12,
+      stateVersion: 7,
+    });
+    expect(duplicate).toBe(state);
+    const lowerTotal = jobReducer(state, {
+      type: "EVENT",
+      eventType: "model_usage",
+      payload: { ...usage, calls: 3 },
+      cursor: 13,
+      stateVersion: 7,
+    });
+    expect(lowerTotal.model_usage).toBe(usage);
+    expect(lowerTotal.state_version).toBe(8);
+    expect(lowerTotal.lastCursor).toBe(13);
+  });
   it("should handle initial snapshot", () => {
     const snapshot: any = {
       project_id: "p1",

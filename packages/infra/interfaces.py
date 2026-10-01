@@ -104,6 +104,10 @@ class JobRepository(ABC):
     def get_job(self, job_id: str) -> JobRecord | None:
         """Fetch one job row by id."""
 
+    def read_job(self, job_id: str) -> JobRecord | None:
+        """Read from provider threads; connection-bound adapters must override this."""
+        return self.get_job(job_id)
+
     @abstractmethod
     def list_jobs_for_project(self, project_id: str) -> list[JobRecord]:
         """List jobs for one project ordered by creation time."""

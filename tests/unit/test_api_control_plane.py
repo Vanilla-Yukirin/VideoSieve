@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from contracts import ControlCommandType, JobStatus
 from infra import FileSystemWorkspaceStore, InfraEvent, InMemoryEventBus, SQLiteJobRepository
 from ingest import IngestFormatOption, IngestFormatProbeResult
+from model_api import ModelCallAttempt, ModelCallJournal
 
 
 @pytest.fixture(autouse=True)
@@ -94,6 +95,38 @@ def _publish_ready_artifact(
         encoding="utf-8",
     )
     return artifact
+
+
+def test_job_snapshot_survives_unicode_model_usage_crash_tail(tmp_path: Path) -> None:
+    control_plane, repository, _ = _make_control_plane(tmp_path)
+    repository.upsert_project("p1", title="demo", status=JobStatus.QUEUED.value)
+    repository.create_job("j1", "p1", status=JobStatus.QUEUED.value, stage=None)
+    workspace = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    root = workspace.job_root("p1", "j1")
+    journal = ModelCallJournal(root)
+    journal.record(
+        "frame_summary",
+        ModelCallAttempt(
+            call_id="complete",
+            attempt=1,
+            protocol="openai_chat_completions",
+            model="本地视觉模型",
+            elapsed_ms=25,
+            finish_reason="stop",
+            usage={"prompt_tokens": 7},
+            request_id=None,
+        ),
+    )
+    with (root / "meta/model_calls.jsonl").open("ab") as handle:
+        handle.write(b'{"model":"' + "本".encode()[:2])
+
+    try:
+        snapshot = get_job_snapshot(control_plane, "j1")
+        assert snapshot["model_usage"]["calls"] == 1
+        assert snapshot["model_usage"]["stages"]["frame_summary"]["input_tokens"] == 7
+    finally:
+        control_plane.release_job_tracking("j1")
+        repository.close()
 
 
 def test_rest_project_job_snapshot_and_artifact_list(tmp_path: Path) -> None:

@@ -37,6 +37,27 @@ export interface JobSnapshot {
   error_message: string | null;
   latest_logs: string[];
   artifacts: ArtifactItem[];
+  model_usage?: ModelUsageSummary | null;
+}
+
+export interface ModelStageUsage {
+  calls: number;
+  failed_calls: number;
+  elapsed_ms: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  cached_tokens: number | null;
+  reasoning_tokens: number | null;
+  usage_missing_calls: number;
+  missing_fields: Record<string, number>;
+}
+
+export interface ModelUsageSummary {
+  calls: number;
+  failed_calls: number;
+  elapsed_ms: number;
+  stages: Record<string, ModelStageUsage>;
 }
 
 export interface ControlAck {
@@ -192,6 +213,8 @@ export interface ProviderProfileTestResponse {
   model: string;
   latency_ms: number;
   message: string;
+  usage?: Record<string, unknown> | null;
+  finish_reason?: string | null;
 }
 
 export interface IngestFormatItem {

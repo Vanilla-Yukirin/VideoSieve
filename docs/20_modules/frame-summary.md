@@ -16,7 +16,11 @@
 
 - Implemented as adapter pattern: `FrameSummaryProvider` interface + `QwenFrameSummaryProvider`
 - Runtime flow reads `frames/keyframes.jsonl`, then writes one JSONL row per selected frame to `frame_summary/frame_summary.jsonl`
-- One frame triggers one VLM request and stores free-text output directly
+- One frame starts one logical VLM call with bounded request retries; only a
+  normally completed response becomes the stored free-text description.
+- Every request attempt, including retries, acquires the shared per-run RPM gate.
+  The sliding window and concurrency limit apply together. RPM <= 0 disables only
+  rate limiting; waits check task control and do not count as model request time.
 
 ## Params
 
@@ -42,6 +46,7 @@
 
 ## Readiness Boundary
 
-- 设置完整只表示 `configured`；当前尚未实现独立的 VLM 连接／最小视觉调用测试；
+- 设置完整只表示 `configured`；已保存配置和编辑草稿均可执行独立最小图片输入测试，
+  正常完成只证明该组值在当次测试有效，不能替代完整视频验收；
 - endpoint 可访问或普通文本模型可调用，也不能证明所选模型支持图片输入；
 - 真实关键帧返回非空合法描述才证明当次调用成功，真实视频内容质量仍需人工复核。

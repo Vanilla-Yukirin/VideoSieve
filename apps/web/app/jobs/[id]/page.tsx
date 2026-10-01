@@ -23,6 +23,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { DeliverablesTabs } from "@/components/DeliverablesTabs";
+import { ModelUsagePanel } from "@/components/ModelUsagePanel";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useToast } from "@/lib/toast/ToastProvider";
@@ -299,6 +300,8 @@ export default function JobDetail() {
                 </div>
            </CardContent>
        </Card>
+
+       <ModelUsagePanel usage={state.model_usage} />
 
        {hasSourceVideo ? (
          <Card>

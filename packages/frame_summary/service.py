@@ -7,11 +7,12 @@ import os
 import threading
 import time
 from base64 import b64encode
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from infra.interfaces import WorkspaceStore
-from model_api import ModelApiError, request_model_text
+from model_api import ModelApiError, ModelCallAttempt, request_model
 
 from .providers import FrameSummaryProvider, FrameSummaryProviderError, FrameSummaryResult
 
@@ -27,10 +28,12 @@ class _RpmLimiter:
         self._timestamps: list[float] = []
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, check_control: Callable[[], None] | None = None) -> None:
         if self._rpm <= 0:
             return
         while True:
+            if check_control:
+                check_control()
             with self._lock:
                 now = time.monotonic()
                 cutoff = now - 60.0
@@ -41,7 +44,7 @@ class _RpmLimiter:
                 wait_until = self._timestamps[0] + 60.0
                 wait = wait_until - now
             if wait > 0:
-                time.sleep(wait + 0.05)
+                time.sleep(min(wait + 0.05, 0.1))
 
 
 class QwenFrameSummaryProvider:
@@ -74,6 +77,9 @@ class QwenFrameSummaryProvider:
         prompt_zh: str | None = None,
         prompt_en: str | None = None,
         allow_env_fallback: bool = True,
+        model_options: dict[str, object] | None = None,
+        on_attempt: Callable[[ModelCallAttempt], None] | None = None,
+        check_control: Callable[[], None] | None = None,
     ) -> None:
         key_value = api_key
         if key_value is None and allow_env_fallback:
@@ -91,6 +97,9 @@ class QwenFrameSummaryProvider:
         self._timeout_seconds = max(5.0, raw_timeout)
         self._prompt_zh = prompt_zh or None
         self._prompt_en = prompt_en or None
+        self._model_options = model_options
+        self._on_attempt = on_attempt
+        self._check_control = check_control
 
     @property
     def adapter_name(self) -> str:
@@ -117,6 +126,7 @@ class QwenFrameSummaryProvider:
         image_path: Path,
         *,
         language_hint: str | None = None,
+        request_gate: Callable[[Callable[[], None] | None], None] | None = None,
     ) -> FrameSummaryResult:
         lang = language_hint or "und"
         if not self._api_key:
@@ -127,7 +137,7 @@ class QwenFrameSummaryProvider:
             )
 
         try:
-            text = request_model_text(
+            response = request_model(
                 protocol=self._protocol,
                 api_root=self._endpoint,
                 model=self._model,
@@ -138,8 +148,14 @@ class QwenFrameSummaryProvider:
                 ),
                 user_text=self._build_prompt(language_hint=language_hint),
                 image_data_url=self._image_data_url(image_path),
-                timeout_seconds=self._timeout_seconds,
+                timeout_seconds=(None if self._model_options else self._timeout_seconds),
                 auth_mode=self._auth_mode,
+                options=self._model_options,
+                on_attempt=self._on_attempt,
+                check_control=self._check_control,
+                before_request=(
+                    (lambda: request_gate(self._check_control)) if request_gate else None
+                ),
             )
         except (ModelApiError, ValueError) as exc:
             code = {
@@ -148,6 +164,9 @@ class QwenFrameSummaryProvider:
                 "MODEL_PROVIDER_UNAVAILABLE": "FRAME_SUMMARY_PROVIDER_UNAVAILABLE",
                 "MODEL_INVALID_RESPONSE": "FRAME_SUMMARY_INVALID_RESPONSE",
                 "MODEL_EMPTY_RESPONSE": "FRAME_SUMMARY_EMPTY_RESPONSE",
+                "MODEL_OUTPUT_TRUNCATED": "FRAME_SUMMARY_OUTPUT_TRUNCATED",
+                "MODEL_COMPLETION_INVALID": "FRAME_SUMMARY_COMPLETION_INVALID",
+                "MODEL_INPUT_BUDGET_EXCEEDED": "FRAME_SUMMARY_INPUT_BUDGET_EXCEEDED",
             }.get(getattr(exc, "code", ""), "FRAME_SUMMARY_CONFIG_INVALID")
             raise FrameSummaryProviderError(
                 code,
@@ -165,8 +184,11 @@ class QwenFrameSummaryProvider:
             frame_id=frame_id,
             lang=lang,
             provider=self.adapter_name,
-            description_text=text,
+            description_text=response.text,
+            model_calls=response.attempts,
         )
+
+
 class FrameSummaryService:
     """Read keyframes and output ``frame_summary/frame_summary.jsonl``."""
 
@@ -211,10 +233,16 @@ class FrameSummaryService:
         def _process(kf_payload: dict[str, object]) -> FrameSummaryResult:
             frame_id = str(kf_payload["frame_id"])
             image_path = Path(str(kf_payload["path"]))
+            if isinstance(self._provider, QwenFrameSummaryProvider):
+                # The shared gate covers initial calls and every adapter retry.
+                return self._provider.summarize_frame(
+                    frame_id,
+                    image_path,
+                    language_hint=language_hint,
+                    request_gate=limiter.acquire,
+                )
             limiter.acquire()
-            return self._provider.summarize_frame(
-                frame_id, image_path, language_hint=language_hint
-            )
+            return self._provider.summarize_frame(frame_id, image_path, language_hint=language_hint)
 
         with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
             futures = [pool.submit(_process, kf) for kf in keyframes]

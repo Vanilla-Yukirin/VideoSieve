@@ -155,10 +155,81 @@ def test_pipeline_orchestrates_all_stages_and_writes_checkpoint(tmp_path: Path) 
     assert workspace.transcript_file("p1", "j1").exists()
     assert workspace.timeline_file("p1", "j1").exists()
     assert not workspace.summary_file("p1", "j1").exists()
-
     job = repository.get_job("j1")
     assert job is not None
     assert job.status == JobStatus.SUCCEEDED.value
+
+
+@pytest.mark.parametrize("truncate_final", [False, True])
+def test_real_model_adapters_record_usage_and_fence_incomplete_deliverables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, truncate_final: bool
+) -> None:
+    from apps.api.service import ApiControlPlane
+
+    from frame_summary import QwenFrameSummaryProvider
+    from overall_summary import OpenAICompatibleSummaryProvider
+
+    monkeypatch.setenv("QWEN_API_KEY", "synthetic-key")
+    monkeypatch.setenv("SUMMARY_API_KEY", "synthetic-key")
+    monkeypatch.setenv("APP_SECRET_KEY", "synthetic-journal-root")
+    monkeypatch.setattr("pipeline.orchestrator.QwenFrameSummaryProvider", QwenFrameSummaryProvider)
+    monkeypatch.setattr(
+        "pipeline.orchestrator.OpenAICompatibleSummaryProvider", OpenAICompatibleSummaryProvider
+    )
+    runtime, repository, workspace = _make_runtime(tmp_path)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    config = json.loads(workspace.config_snapshot_file("p1", "j1").read_text())
+    config["summary_enabled"] = True
+    config["frame_summary"]["model_options"] = {"max_retries": 0}
+    config["overall_summary"] = {
+        "base_url": "https://example.invalid/v1",
+        "model": "summary-model",
+        "model_options": {"max_retries": 0},
+    }
+    workspace.config_snapshot_file("p1", "j1").write_text(json.dumps(config))
+
+    def respond(
+        protocol: str,
+        endpoint: str,
+        api_key: str,
+        auth_mode: str | None,
+        body: dict,
+        timeout: float,
+    ) -> tuple[dict, str]:
+        assert body["max_completion_tokens"] == 32768
+        reason = "length" if truncate_final and body["model"] == "summary-model" else "stop"
+        return {
+            "choices": [
+                {"finish_reason": reason, "message": {"content": "complete test evidence"}}
+            ],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16},
+        }, "req"
+
+    monkeypatch.setattr("model_api.client._send_request", respond)
+    if truncate_final:
+        with pytest.raises(OverallSummaryProviderError):
+            runtime.run_job(project_id="p1", job_id="j1", source_path=str(source))
+    else:
+        result = runtime.run_job(project_id="p1", job_id="j1", source_path=str(source))
+    control = ApiControlPlane(
+        repository=repository, workspace=workspace, event_bus=InMemoryEventBus()
+    )
+    usage = control.get_job_snapshot("j1").model_usage
+    assert usage is not None
+    assert usage["stages"]["frame_summary"]["input_tokens"] > 0
+    assert usage["stages"]["deliverables"]["input_tokens"] == 11
+    journal = workspace.job_root("p1", "j1") / "meta/model_calls.jsonl"
+    assert "synthetic-key" not in journal.read_text()
+    if truncate_final:
+        assert repository.get_job("j1").status == JobStatus.FAILED.value
+        assert repository.get_job("j1").error_code == "OVERALL_SUMMARY_OUTPUT_TRUNCATED"
+        assert not (workspace.job_root("p1", "j1") / "outputs/deliverables.ready.json").exists()
+        assert usage["failed_calls"] == 1
+    else:
+        assert result.status == JobStatus.SUCCEEDED.value
+        summary = json.loads(workspace.summary_file("p1", "j1").read_text())
+        assert summary["provenance"]["execution"]["model_calls"][0]["usage"]["prompt_tokens"] == 11
 
 
 def test_ingest_uses_source_title_when_no_title_was_supplied(tmp_path: Path) -> None:

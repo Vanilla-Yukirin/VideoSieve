@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from model_api import ModelCallAttempt
+
 
 class OverallSummaryProviderError(RuntimeError):
     """Structured provider failure that must not be presented as a summary."""
@@ -22,6 +24,7 @@ class OverallSummaryResult:
     text: str
     provider: str
     model: str
+    model_calls: tuple[ModelCallAttempt, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -276,3 +276,48 @@ def test_overall_summary_rejects_mismatched_provider_provenance(tmp_path: Path) 
 
     assert exc_info.value.code == "OVERALL_SUMMARY_INVALID_RESULT"
     assert not store.summary_file("p1", "j1").exists()
+
+
+def test_smallest_summary_budget_can_generate_with_production_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: list[dict[str, object]] = []
+
+    def send_request(*args: object) -> tuple[dict[str, object], None]:
+        body = args[4]
+        assert isinstance(body, dict)
+        observed.append(body)
+        return {
+            "choices": [{"finish_reason": "stop", "message": {"content": "Complete summary"}}]
+        }, None
+
+    monkeypatch.setattr("model_api.client._send_request", send_request)
+    store = FileSystemWorkspaceStore(tmp_path / "workspaces")
+    _write_timeline(store, texts=["evidence at the minimum summary budget"])
+    provider = OpenAICompatibleSummaryProvider(
+        base_url="https://example.invalid/v1",
+        model="test-model",
+        api_key="synthetic-key",
+        allow_env_fallback=False,
+        model_options={
+            "context_window_tokens": 14096,
+            "max_output_tokens": 6000,
+            "max_retries": 0,
+        },
+    )
+    output = OverallSummaryService(store, provider).run("p1", job_id="j1")
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["summary"] == "Complete summary"
+    assert payload["provenance"]["parameters"]["max_input_chars"] == 1000
+    assert len(observed) == 1
+
+
+def test_worker_rejects_old_summary_snapshot_with_insufficient_budget(tmp_path: Path) -> None:
+    provider = OpenAICompatibleSummaryProvider(
+        base_url="https://example.invalid/v1",
+        model="test-model",
+        allow_env_fallback=False,
+        model_options={"context_window_tokens": 14095, "max_output_tokens": 6000},
+    )
+    with pytest.raises(ValueError, match="8096"):
+        OverallSummaryService(FileSystemWorkspaceStore(tmp_path), provider)

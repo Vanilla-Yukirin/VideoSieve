@@ -18,6 +18,7 @@ import type {
   ProviderProtocol,
 } from "@/lib/api/types";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { MODEL_REQUEST_DEFAULTS, SUMMARY_MIN_CONTEXT_OUTPUT_GAP } from "@/lib/settings/modelOptions";
 import {
   PROVIDER_TEMPLATES,
   profilesForCapability,
@@ -64,7 +65,7 @@ function newEditor(capability: ProviderCapability, isDefault: boolean): EditorSt
     apiRoot: template.apiRoot,
     model: "",
     authMode: template.authMode,
-    options: {},
+    options: capability === "asr" ? {} : { ...MODEL_REQUEST_DEFAULTS },
     credential: "",
     credentialConfigured: false,
     clearCredential: false,
@@ -86,7 +87,7 @@ function editProfile(profile: ProviderProfile): EditorState {
     apiRoot: profile.api_root,
     model: profile.model,
     authMode: profile.auth_mode,
-    options: profile.options,
+    options: profile.capability === "asr" ? options : { ...MODEL_REQUEST_DEFAULTS, ...options },
     credential: "",
     credentialConfigured: profile.credential_configured,
     clearCredential: false,
@@ -198,6 +199,19 @@ export function ProviderProfilesManager({
     }
     if (current.capability !== "asr" && !current.model.trim()) {
       setError(t("providers.modelRequired"));
+      return false;
+    }
+    if (current.capability !== "asr" && (
+      Number(current.options.max_output_tokens) + 2048 >= Number(current.options.context_window_tokens)
+    )) {
+      setError(t("providers.budgetInvalid"));
+      return false;
+    }
+    if (current.capability === "overall_summary" && (
+      Number(current.options.context_window_tokens) - Number(current.options.max_output_tokens)
+      < SUMMARY_MIN_CONTEXT_OUTPUT_GAP
+    )) {
+      setError(t("providers.summaryBudgetInvalid"));
       return false;
     }
     return true;
@@ -495,6 +509,48 @@ export function ProviderProfilesManager({
                 <label className="text-sm font-medium" htmlFor="provider-context">{t("settings.asrContext")}</label>
                 <textarea id="provider-context" rows={3} maxLength={2000} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={editor.context} onChange={(event) => updateEditor({ context: event.target.value })} disabled={busy} />
               </div>
+            ) : null}
+
+            {editor.capability !== "asr" ? (
+              <fieldset className="space-y-3 rounded-md border border-border p-3">
+                <legend className="px-1 text-sm font-medium">{t("providers.modelOptions")}</legend>
+                <p className="text-xs text-muted-foreground">{t("providers.budgetHint")}</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {(["context_window_tokens", "max_output_tokens", "thinking_budget_tokens", "max_retries", "timeout_seconds"] as const).map((key) => (
+                    <div key={key} className="space-y-1">
+                      <label className="text-sm font-medium" htmlFor={`provider-${key}`}>{t(`providers.${key}`)}</label>
+                      <input id={`provider-${key}`} type="number" min={key === "max_retries" ? 0 : 1} step={1} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={Number(editor.options[key])} onChange={(event) => updateEditor({ options: { ...editor.options, [key]: Number(event.target.value) } })} disabled={busy} />
+                    </div>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={editor.options.thinking_enabled === true} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_enabled: event.target.checked } })} disabled={busy || editor.options.thinking_adapter === "openai_legacy"} />
+                  {t("providers.thinkingEnabled")}
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label htmlFor="provider-thinking-adapter" className="text-sm font-medium">{t("providers.thinkingAdapter")}</label>
+                    <select id="provider-thinking-adapter" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={String(editor.options.thinking_adapter)} onChange={(event) => updateEditor({ options: { ...editor.options, thinking_adapter: event.target.value, ...(event.target.value === "openai_legacy" ? { thinking_enabled: false } : {}) } })} disabled={busy}>
+                      <option value="auto">{t("providers.adapterAuto")}</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="openai_legacy">{t("providers.adapterOpenAILegacy")}</option>
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="dashscope">DashScope / Qwen</option>
+                      <option value="anthropic_budget">{t("providers.adapterAnthropicBudget")}</option>
+                      <option value="anthropic_adaptive">{t("providers.adapterAnthropicAdaptive")}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="provider-reasoning-effort" className="text-sm font-medium">{t("providers.reasoningEffort")}</label>
+                    <select id="provider-reasoning-effort" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={String(editor.options.reasoning_effort)} onChange={(event) => updateEditor({ options: { ...editor.options, reasoning_effort: event.target.value } })} disabled={busy}>
+                      <option value="low">{t("providers.effortLow")}</option>
+                      <option value="medium">{t("providers.effortMedium")}</option>
+                      <option value="high">{t("providers.effortHigh")}</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("providers.thinkingHint")}</p>
+              </fieldset>
             ) : null}
 
             <div className="space-y-1">

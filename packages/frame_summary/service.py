@@ -28,10 +28,12 @@ class _RpmLimiter:
         self._timestamps: list[float] = []
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, check_control: Callable[[], None] | None = None) -> None:
         if self._rpm <= 0:
             return
         while True:
+            if check_control:
+                check_control()
             with self._lock:
                 now = time.monotonic()
                 cutoff = now - 60.0
@@ -42,7 +44,7 @@ class _RpmLimiter:
                 wait_until = self._timestamps[0] + 60.0
                 wait = wait_until - now
             if wait > 0:
-                time.sleep(wait + 0.05)
+                time.sleep(min(wait + 0.05, 0.1))
 
 
 class QwenFrameSummaryProvider:
@@ -124,6 +126,7 @@ class QwenFrameSummaryProvider:
         image_path: Path,
         *,
         language_hint: str | None = None,
+        request_gate: Callable[[Callable[[], None] | None], None] | None = None,
     ) -> FrameSummaryResult:
         lang = language_hint or "und"
         if not self._api_key:
@@ -150,6 +153,9 @@ class QwenFrameSummaryProvider:
                 options=self._model_options,
                 on_attempt=self._on_attempt,
                 check_control=self._check_control,
+                before_request=(
+                    (lambda: request_gate(self._check_control)) if request_gate else None
+                ),
             )
         except (ModelApiError, ValueError) as exc:
             code = {
@@ -227,6 +233,14 @@ class FrameSummaryService:
         def _process(kf_payload: dict[str, object]) -> FrameSummaryResult:
             frame_id = str(kf_payload["frame_id"])
             image_path = Path(str(kf_payload["path"]))
+            if isinstance(self._provider, QwenFrameSummaryProvider):
+                # The shared gate covers initial calls and every adapter retry.
+                return self._provider.summarize_frame(
+                    frame_id,
+                    image_path,
+                    language_hint=language_hint,
+                    request_gate=limiter.acquire,
+                )
             limiter.acquire()
             return self._provider.summarize_frame(frame_id, image_path, language_hint=language_hint)
 

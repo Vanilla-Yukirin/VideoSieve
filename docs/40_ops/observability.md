@@ -5,11 +5,19 @@
 `jobs/{job_id}/meta/model_calls.jsonl` records every request attempt, including failures
 and retries. Counters come only from provider `usage`; historical jobs and missing
 values are never estimated. No credential, endpoint, prompt or response text is stored.
+Rows are independently decoded and parsed. A crash tail with incomplete UTF-8 or
+JSON is ignored for aggregation while its original bytes remain on disk; restart
+appends valid rows after a newline without losing the complete history.
 
 The job page receives `model_usage` WS events; reconnect snapshots rebuild from the
 journal. Stage input/output/cache/reasoning totals mark partial sums with an asterisk.
+Usage events merge by cursor and nondecreasing call count even if a concurrent
+pause/cancel acknowledgement already advanced the task state version.
 Cache/reasoning are subsets, not additions. Monotonic per-request time includes the
 network; concurrent times overlap, so their sum is neither job wall time nor TTFT.
+Retry backoff and RPM-gate waits are excluded from per-request duration.
+Anthropic `output_tokens_details.thinking_tokens` is displayed as reasoning tokens,
+including an explicitly reported zero; it is not added again to output tokens.
 
 Frame records carry request metadata; overall-summary provenance includes all map,
 reduce and final calls. See [ADR-0010](../adr/ADR-0010-model-completion-budgets-and-usage.md).

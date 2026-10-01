@@ -20,12 +20,20 @@ and fixed Anthropic output at 1,024 tokens. Valid JSON did not ensure a complete
 - Local context budget controls conservative UTF-8 guards and hierarchical batching,
   not the provider's actual model window. Images/tokenizers need upstream validation.
   These guards never become usage estimates. Reserve output and prompt space.
-- Reasoning adapters: `auto`, `openai`, `deepseek`, `dashscope`, `anthropic_budget`,
+  Overall-summary batching shares one calculation across API and worker:
+  `(context_window_tokens - max_output_tokens - 4096) // 4` characters.
+  A minimum 1,000-character batch requires a gap of at least 8,096. Reject smaller
+  summary budgets before saving, testing or queuing an enabled summary. Previously
+  saved profiles remain readable/editable; old immutable jobs fail explicitly.
+- Reasoning adapters: `auto`, `openai`, `openai_legacy`, `deepseek`, `dashscope`, `anthropic_budget`,
   `anthropic_adaptive`. Auto uses protocol/hostname. Proxies must choose explicitly.
-  Unsupported reasoning fails visibly; older models can disable it in Web settings.
+  Standard OpenAI disabled reasoning explicitly sends effort `none`; unsupported
+  settings fail visibly without silently removing the parameter. Non-reasoning
+  models select `openai_legacy`, which omits reasoning and rejects enabling it.
   Anthropic budget is capped below output; adaptive uses `output_config.effort`
   and delegates the actual thinking allocation to the model.
-- Reasoning OpenAI Chat uses `max_completion_tokens`, compatible Chat uses
+- Standard OpenAI Chat uses `max_completion_tokens` whether reasoning is enabled or
+  disabled. Legacy and compatible Chat use
   `max_tokens`, Responses uses `max_output_tokens`, Anthropic uses `max_tokens`.
   Output budgets may include thinking tokens. No generic temperature is forced.
 - Accept Chat `stop`, Responses `completed`, Anthropic `end_turn`/`stop_sequence`.
@@ -35,6 +43,8 @@ and fixed Anthropic output at 1,024 tokens. Valid JSON did not ensure a complete
   backoff. Truncation retries keep all evidence, request a complete concise answer,
   discard partial text and retain the configured cap. Exhaustion is a stage failure.
   Authentication/configuration/filtering errors do not trigger blind retries.
+  All visual request attempts, including retries, acquire the same per-run RPM
+  gate. Rate waits remain cooperative and are excluded from request duration.
   Check task control before/after calls and during waits. A synchronous in-flight
   call can still take its timeout to return; no instant cancellation is promised.
 - Keep natural-language outputs; validate the response envelope/completion, without
@@ -43,10 +53,18 @@ and fixed Anthropic output at 1,024 tokens. Valid JSON did not ensure a complete
   model, worker attempt and monotonic request duration to `meta/model_calls.jsonl`.
   Never persist credentials, endpoints, prompts, reasoning text or response bodies
   in this journal. It includes failures/retries and all visual/map/reduce/final calls.
+  Read and decode each row independently; a malformed JSON or incomplete UTF-8
+  crash tail cannot hide complete history or prevent later appends. Preserve the
+  damaged bytes as evidence and isolate them with a newline before appending.
 - WS `model_usage` events carry cumulative stage totals. Snapshots rebuild from the
   journal. Missing counters stay unknown; partial sums are marked. Cache/reasoning
   fields have protocol-specific semantics and are not automatically added to input
   or output. Total tokens are only summed when reported upstream.
+  Anthropic `output_tokens_details.thinking_tokens` maps to the displayed reasoning
+  subtotal while the original usage is preserved; output remains inclusive.
+  Cumulative usage merges by cursor and nondecreasing call count independently of
+  task state version, so concurrent control acknowledgements cannot hide completed
+  calls. This never rolls back task state/version or relaxes state-event fences.
   Network-inclusive durations overlap under concurrency; their sum is not wall time
   or TTFT. Historical tasks get no estimated backfill.
 - Trusted single-host access stays unchanged: no new login, Origin rejection or

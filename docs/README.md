@@ -63,6 +63,7 @@
 - [Deployment](40_ops/deployment.md)
 - [Observability](40_ops/observability.md)
 - [模型预算与用量验证（2026-10-01）](40_ops/model-api-validation-20261001.md)
+- [模型预算与用量复审修复（2026-10-01）](40_ops/model-api-review-fixes-20261001.md)
 - [Troubleshooting](40_ops/troubleshooting.md)
 - [Security and secrets](40_ops/security-and-secrets.md)
 

@@ -2,7 +2,8 @@
 
 `model_usage` events carry cumulative statistics from `meta/model_calls.jsonl`.
 `snapshot.payload.model_usage` reconstructs the same totals for reconnects. `calls`
-never decreases; clients retain cursor/state-version fences. Missing usage stays
+never decreases; clients retain cursor fences and state-version fences for task
+state. Cumulative usage merges independently of task state version. Missing usage stays
 unknown. This is additive; old jobs have no recorded model calls and are not estimated.
 
 状态：job 级协议已实现；本文件同时列出仍未实现的保留期和慢客户端治理。
@@ -102,6 +103,8 @@ SQLite 行还保存 `channel`、`project_id`、`job_id` 和 `ts`，但当前 WS 
 - 保存最后处理的 cursor，重连作为 `after_cursor`；
 - 非 snapshot 事件的 cursor 小于等于当前 cursor 时忽略；
 - 状态事件的 `state_version` 小于当前版本时只推进 cursor，不覆盖状态；
+- `model_usage` 是累计调用统计：通过 cursor 去重，调用数不下降，不因旧
+  `state_version` 丢弃。控制确认与请求完成并发时仍合并用量，任务状态和版本不倒退；
 - snapshot 覆盖当前状态字段，但不让 cursor 倒退；
 - 断线时显示离线状态并自动重连，不回退到 HTTP snapshot 轮询；
 - 待确认命令在断线时失败，由调用方决定是否复用原 request ID 重试。
